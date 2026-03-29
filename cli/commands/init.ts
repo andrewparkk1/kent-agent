@@ -9,7 +9,7 @@ import {
   CONFIG_PATH,
   PLIST_PATH,
   DEFAULT_CONFIG,
-  KENT_CONVEX_URL,
+  CONVEX_URL,
   KENT_TELEGRAM_BOT,
   loadConfig,
   saveConfig,
@@ -526,7 +526,7 @@ async function pollTelegramLink(
 
   while (Date.now() - start < timeoutMs) {
     try {
-      const res = await fetch(`${KENT_CONVEX_URL}/api/query`, {
+      const res = await fetch(`${CONVEX_URL}/api/query`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -593,7 +593,7 @@ export async function handleInit(): Promise<void> {
 
   // Register device with Convex
   try {
-    const registerUrl = `${KENT_CONVEX_URL}/api/mutation`;
+    const registerUrl = `${CONVEX_URL}/api/mutation`;
     const response = await fetch(registerUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -644,7 +644,7 @@ export async function handleInit(): Promise<void> {
   if (Object.keys(collectedKeys).length > 0) {
     try {
       const encrypted = await encryptKeys(collectedKeys, deviceToken, salt);
-      const registerUrl = `${KENT_CONVEX_URL}/api/mutation`;
+      const registerUrl = `${CONVEX_URL}/api/mutation`;
       const response = await fetch(registerUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

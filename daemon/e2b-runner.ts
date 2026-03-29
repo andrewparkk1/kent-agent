@@ -1,7 +1,7 @@
 import { Sandbox } from "e2b";
 import { BaseRunner, type RunResult, type StreamCallback } from "./runner-base.ts";
 import type { Config } from "@shared/config.ts";
-import { KENT_CONVEX_URL } from "@shared/config.ts";
+import { CONVEX_URL } from "@shared/config.ts";
 
 const SANDBOX_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -50,7 +50,7 @@ export class E2BRunner extends BaseRunner {
   private buildEnvVars(extra?: Record<string, string>): Record<string, string> {
     return {
       ANTHROPIC_API_KEY: this.config.keys.anthropic,
-      CONVEX_URL: KENT_CONVEX_URL,
+      CONVEX_URL: CONVEX_URL,
       DEVICE_TOKEN: this.config.core.device_token,
       RUNNER: "cloud",
       OUTPUT_DIR: "/outputs",

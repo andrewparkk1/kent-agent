@@ -1,4 +1,4 @@
-import { loadConfig, KENT_CONVEX_URL } from "@shared/config.ts";
+import { loadConfig, CONVEX_URL } from "@shared/config.ts";
 import { FileSyncState } from "@daemon/sync-state.ts";
 import type { Source } from "@daemon/sources/types.ts";
 import { imessage } from "@daemon/sources/imessage.ts";
@@ -59,7 +59,7 @@ export async function handleSync(args: string[]): Promise<void> {
 
   // Fetch all sources in parallel, then upload batches
   const { ConvexHttpClient } = await import("convex/browser");
-  const client = new ConvexHttpClient(KENT_CONVEX_URL);
+  const client = new ConvexHttpClient(CONVEX_URL);
   const BATCH_SIZE = 100;
 
   const results = await Promise.allSettled(

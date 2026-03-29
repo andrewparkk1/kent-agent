@@ -3,9 +3,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 // Kent hosted infrastructure — reads from .env (Bun auto-loads)
-export const KENT_CONVEX_URL_DEV = process.env.KENT_CONVEX_URL_DEV ?? "";
-export const KENT_CONVEX_URL_PROD = process.env.KENT_CONVEX_URL ?? "";
-export const KENT_CONVEX_URL = process.env.KENT_ENV === "dev" ? KENT_CONVEX_URL_DEV : KENT_CONVEX_URL_PROD;
+export const CONVEX_URL_DEV = process.env.CONVEX_URL_DEV ?? "";
+export const CONVEX_URL_PROD = process.env.CONVEX_URL ?? "";
+export const CONVEX_URL = process.env.KENT_ENV === "dev" ? CONVEX_URL_DEV : CONVEX_URL_PROD;
 export const KENT_TELEGRAM_BOT = process.env.KENT_TELEGRAM_BOT ?? "";
 
 export interface Config {

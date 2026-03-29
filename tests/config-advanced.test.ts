@@ -9,9 +9,9 @@ import { tmpdir } from "node:os";
  */
 
 describe("Hosted constants", () => {
-  test("KENT_CONVEX_URL is the correct hosted URL", async () => {
-    const { KENT_CONVEX_URL } = await import("../shared/config.ts");
-    expect(KENT_CONVEX_URL).toBe("https://brave-armadillo-395.convex.cloud");
+  test("CONVEX_URL is the correct hosted URL", async () => {
+    const { CONVEX_URL } = await import("../shared/config.ts");
+    expect(CONVEX_URL).toBe("https://brave-armadillo-395.convex.cloud");
   });
 
   test("KENT_TELEGRAM_BOT is kent_personal_bot", async () => {

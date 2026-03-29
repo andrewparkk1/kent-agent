@@ -1,7 +1,7 @@
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { resolve, basename, extname, join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { loadConfig, KENT_CONVEX_URL } from "@shared/config.ts";
+import { loadConfig, CONVEX_URL } from "@shared/config.ts";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -103,7 +103,7 @@ async function workflowPush(args: string[]): Promise<void> {
   }
 
   const config = loadConfig();
-  const convexUrl = KENT_CONVEX_URL;
+  const convexUrl = CONVEX_URL;
   const deviceToken = config.core.device_token;
 
   for (const file of files) {
@@ -155,7 +155,7 @@ async function workflowPush(args: string[]): Promise<void> {
 
 async function workflowList(): Promise<void> {
   const config = loadConfig();
-  const convexUrl = KENT_CONVEX_URL;
+  const convexUrl = CONVEX_URL;
   const deviceToken = config.core.device_token;
 
   try {
@@ -225,7 +225,7 @@ async function workflowRun(args: string[]): Promise<void> {
   const runnerOverride = runnerIdx !== -1 ? args[runnerIdx + 1] : undefined;
 
   const config = loadConfig();
-  const convexUrl = KENT_CONVEX_URL;
+  const convexUrl = CONVEX_URL;
   const deviceToken = config.core.device_token;
 
   // Fetch the workflow to get its prompt and config
@@ -332,7 +332,7 @@ async function workflowDisable(args: string[]): Promise<void> {
   }
 
   const config = loadConfig();
-  const convexUrl = KENT_CONVEX_URL;
+  const convexUrl = CONVEX_URL;
   const deviceToken = config.core.device_token;
 
   try {

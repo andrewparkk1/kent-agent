@@ -8,7 +8,7 @@
  *   bun scripts/dump-items.ts --limit 5        # limit per source
  *   bun scripts/dump-items.ts --json           # raw JSON output
  */
-import { loadConfig, KENT_CONVEX_URL } from "../shared/config.ts";
+import { loadConfig, CONVEX_URL } from "../shared/config.ts";
 import { ConvexHttpClient } from "convex/browser";
 
 const config = loadConfig();
@@ -17,7 +17,7 @@ if (!config.core.device_token) {
   process.exit(1);
 }
 
-const client = new ConvexHttpClient(KENT_CONVEX_URL);
+const client = new ConvexHttpClient(CONVEX_URL);
 
 // Parse args
 const args = process.argv.slice(2);

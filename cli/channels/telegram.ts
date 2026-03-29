@@ -1,6 +1,6 @@
 import { Bot } from "grammy";
 import { loadConfig } from "@shared/config.ts";
-import { KENT_CONVEX_URL } from "@shared/config.ts";
+import { CONVEX_URL } from "@shared/config.ts";
 import type { Channel } from "./channel.ts";
 
 /**
@@ -49,7 +49,7 @@ export class TelegramChannel implements Channel {
 
     // Try Convex first for the freshest data
     try {
-      const res = await fetch(`${KENT_CONVEX_URL}/api/query`, {
+      const res = await fetch(`${CONVEX_URL}/api/query`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -98,7 +98,7 @@ export class TelegramChannel implements Channel {
       console.log(`[telegram] /start deep link from ${userId} (token: ${deviceToken.slice(0, 8)}...)`);
 
       try {
-        const res = await fetch(`${KENT_CONVEX_URL}/api/mutation`, {
+        const res = await fetch(`${CONVEX_URL}/api/mutation`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
