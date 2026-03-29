@@ -6,6 +6,8 @@ export default defineSchema({
     deviceToken: v.string(),
     createdAt: v.number(),
     encryptedKeys: v.optional(v.string()),
+    telegramUserId: v.optional(v.number()),
+    telegramUsername: v.optional(v.string()),
   }).index("by_deviceToken", ["deviceToken"]),
 
   items: defineTable({

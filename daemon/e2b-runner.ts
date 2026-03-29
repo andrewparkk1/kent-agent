@@ -1,8 +1,12 @@
 import { Sandbox } from "e2b";
 import { BaseRunner, type RunResult, type StreamCallback } from "./runner-base.ts";
 import type { Config } from "@shared/config.ts";
+import { KENT_CONVEX_URL } from "@shared/config.ts";
 
 const SANDBOX_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+
+// Kent-managed E2B template — users don't configure this
+const KENT_E2B_TEMPLATE_ID = process.env.E2B_TEMPLATE_ID || "andysampark/kent-agent";
 
 export class E2BRunner extends BaseRunner {
   private config: Config;
@@ -33,11 +37,8 @@ export class E2BRunner extends BaseRunner {
       }
     }
 
-    // Create new sandbox from template
-    const templateId =
-      this.config.agent.e2b_template_id || "base";
-
-    this.sandbox = await Sandbox.create(templateId, {
+    // Create new sandbox from Kent's hosted template
+    this.sandbox = await Sandbox.create(KENT_E2B_TEMPLATE_ID, {
       timeoutMs: SANDBOX_TIMEOUT_MS,
       envs: this.buildEnvVars(),
     });
@@ -49,7 +50,7 @@ export class E2BRunner extends BaseRunner {
   private buildEnvVars(extra?: Record<string, string>): Record<string, string> {
     return {
       ANTHROPIC_API_KEY: this.config.keys.anthropic,
-      CONVEX_URL: this.config.core.convex_url,
+      CONVEX_URL: KENT_CONVEX_URL,
       DEVICE_TOKEN: this.config.core.device_token,
       RUNNER: "cloud",
       OUTPUT_DIR: "/outputs",

@@ -18,11 +18,20 @@ dist/
 .DS_Store
 Thumbs.db
 
-# Editor
+# Editor / AI tools
 .vscode/
 .idea/
 .cursor/
 .claude/
+.trae/
+.windsurf/
+.pi/
+.agents/
+**/CLAUDE.md
+!CLAUDE.md
+AGENTS.md
+skills/
+skills-lock.json
 *.swp
 *.swo
 *~
@@ -33,6 +42,7 @@ npm-debug.log*
 
 # Convex
 backend/.convex/
+backend/convex/_generated/
 
 # E2B
 .e2b/

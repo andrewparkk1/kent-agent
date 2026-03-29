@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline";
@@ -9,6 +9,8 @@ import {
   CONFIG_PATH,
   PLIST_PATH,
   DEFAULT_CONFIG,
+  KENT_CONVEX_URL,
+  KENT_TELEGRAM_BOT,
   loadConfig,
   saveConfig,
   ensureKentDir,
@@ -23,14 +25,15 @@ const GREEN = "\x1b[32m";
 const YELLOW = "\x1b[33m";
 const RED = "\x1b[31m";
 const DIM = "\x1b[2m";
+const CYAN = "\x1b[36m";
 const NC = "\x1b[0m";
 
 function success(msg: string) { console.log(`${GREEN}  ✓ ${msg}${NC}`); }
 function warn(msg: string) { console.log(`${YELLOW}  ⚠ ${msg}${NC}`); }
 function error(msg: string) { console.log(`${RED}  ✗ ${msg}${NC}`); }
 function info(msg: string) { console.log(`  ${msg}`); }
-function step(n: number, label: string) {
-  console.log(`\n${BOLD}  [${n}/11] ${label}${NC}`);
+function step(n: number, total: number, label: string) {
+  console.log(`\n${BOLD}  [${n}/${total}] ${label}${NC}`);
 }
 
 const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -68,20 +71,24 @@ interface SelectOption {
 }
 
 function multiSelect(
-  title: string,
+  _title: string,
   options: SelectOption[],
 ): Promise<SelectOption[]> {
   return new Promise((resolve) => {
     let cursor = 0;
+    let drawn = false;
 
-    const render = () => {
-      // Move cursor up to clear previous render (except first render)
-      const totalLines = options.length + 2; // options + instructions + blank
-      process.stdout.write(`\x1b[${totalLines}A\x1b[J`);
-      drawOptions();
-    };
+    // Total lines we draw: options.length + 1 (blank) + 1 (instructions)
+    const totalLines = options.length + 2;
 
-    const drawOptions = () => {
+    const draw = () => {
+      // If we've drawn before, move cursor up and clear everything we drew
+      if (drawn) {
+        process.stdout.write(`\x1b[${totalLines}F`); // move to start of our block
+        process.stdout.write(`\x1b[0J`); // clear from cursor to end of screen
+      }
+      drawn = true;
+
       for (let i = 0; i < options.length; i++) {
         const opt = options[i]!;
         const pointer = i === cursor ? `${BOLD}❯${NC}` : " ";
@@ -92,11 +99,11 @@ function multiSelect(
           : "";
         process.stdout.write(`  ${pointer} ${check} ${label}${status}\n`);
       }
-      process.stdout.write(`\n  ${DIM}↑/↓ move  ·  space toggle  ·  enter confirm${NC}\n`);
+      process.stdout.write(`\n  ${DIM}↑/↓ move  ·  space toggle  ·  a select all  ·  enter confirm${NC}`);
     };
 
     // Initial draw
-    drawOptions();
+    draw();
 
     const stdin = process.stdin;
     stdin.setRawMode(true);
@@ -108,8 +115,7 @@ function multiSelect(
       if (data === "\r" || data === "\n") {
         stdin.setRawMode(false);
         stdin.removeListener("data", onData);
-        // Don't pause stdin — readline still needs it
-        console.log(""); // blank line after selection
+        process.stdout.write("\n\n");
         resolve(options);
         return;
       }
@@ -118,35 +124,34 @@ function multiSelect(
       if (data === "\x03") {
         stdin.setRawMode(false);
         stdin.removeListener("data", onData);
+        process.stdout.write("\n");
         process.exit(0);
       }
 
       // Space → toggle
       if (data === " ") {
         options[cursor]!.selected = !options[cursor]!.selected;
-        render();
+        draw();
         return;
       }
 
       // Arrow keys (escape sequences)
       if (data === "\x1b[A" || data === "k") {
-        // Up
         cursor = (cursor - 1 + options.length) % options.length;
-        render();
+        draw();
         return;
       }
       if (data === "\x1b[B" || data === "j") {
-        // Down
         cursor = (cursor + 1) % options.length;
-        render();
+        draw();
         return;
       }
 
-      // 'a' → select all
+      // 'a' → select all / deselect all
       if (data === "a") {
         const allSelected = options.every((o) => o.selected);
         for (const opt of options) opt.selected = !allSelected;
-        render();
+        draw();
         return;
       }
     };
@@ -351,17 +356,84 @@ const SOURCES: SourceInfo[] = [
   },
   {
     key: "gmail",
-    label: "Gmail",
+    label: "Gmail & Calendar",
     check: async () => {
       const hasGws = await commandExists("gws");
-      if (!hasGws) return { ok: false, message: "gws CLI not found. Fix: go install github.com/nicholasgasior/gws@latest && gws auth login" };
-      return { ok: true, message: "gws CLI found" };
+      if (!hasGws) return { ok: false, message: "gws CLI not installed" };
+      // Check if fully authenticated (has valid token)
+      try {
+        const proc = Bun.spawn(["gws", "auth", "status", "--format", "json"], { stdout: "pipe", stderr: "pipe" });
+        const code = await proc.exited;
+        if (code === 0) {
+          const output = await new Response(proc.stdout).text();
+          const status = JSON.parse(output);
+          if (status.token_valid) return { ok: true, message: `authenticated as ${status.user}` };
+          return { ok: true, message: "gws found (needs auth)" };
+        }
+      } catch {}
+      return { ok: true, message: "gws found (needs setup)" };
     },
     collectCreds: async () => {
-      info("Gmail uses the gws CLI for OAuth. Make sure you've run: gws auth login");
-      const ready = await confirm("Have you authenticated with gws?");
-      if (!ready) {
-        warn("Run 'gws auth login' before using Gmail source.");
+      const hasGws = await commandExists("gws");
+      if (!hasGws) {
+        info("Installing gws CLI...");
+        const installProc = Bun.spawn(["brew", "install", "gws"], {
+          stdout: "inherit", stderr: "inherit",
+        });
+        if ((await installProc.exited) !== 0) {
+          warn("Could not install gws. Install manually: brew install gws");
+          return {};
+        }
+      }
+
+      // Check if already authenticated with valid token
+      try {
+        const statusProc = Bun.spawn(["gws", "auth", "status"], { stdout: "pipe", stderr: "pipe" });
+        const statusOutput = await new Response(statusProc.stdout).text();
+        if ((await statusProc.exited) === 0) {
+          try {
+            const status = JSON.parse(statusOutput);
+            if (status.token_valid) {
+              success(`Gmail: authenticated as ${status.user}`);
+              return {};
+            }
+          } catch {}
+        }
+      } catch {}
+
+      // Check if OAuth client is set up (credentials.json exists)
+      const hasCredentials = existsSync(
+        join(homedir(), "Library/Application Support/gws/client_secret.json")
+      ) || existsSync(
+        join(homedir(), "Library/Application Support/gws/credentials.enc")
+      );
+
+      if (!hasCredentials) {
+        // Need to set up GCP project + OAuth client first
+        info("Gmail requires a Google Cloud OAuth setup (one-time).");
+        info("This will create a GCP project and OAuth client automatically.\n");
+        const setupProc = Bun.spawn(["gws", "auth", "setup", "--login"], {
+          stdout: "inherit", stderr: "inherit", stdin: "inherit",
+        });
+        const code = await setupProc.exited;
+        if (code === 0) {
+          success("Gmail: GCP project + OAuth set up and authenticated");
+        } else {
+          warn("Gmail setup incomplete. Run 'gws auth setup --login' later.");
+        }
+        return {};
+      }
+
+      // Credentials exist but not logged in — just need to auth
+      info("Opening Gmail OAuth in your browser...");
+      const authProc = Bun.spawn(["gws", "auth", "login", "-s", "gmail,calendar"], {
+        stdout: "inherit", stderr: "inherit", stdin: "inherit",
+      });
+      const code = await authProc.exited;
+      if (code === 0) {
+        success("Gmail: authenticated");
+      } else {
+        warn("Gmail auth failed. Run 'gws auth login -s gmail,calendar' later.");
       }
       return {};
     },
@@ -371,16 +443,54 @@ const SOURCES: SourceInfo[] = [
     label: "GitHub",
     check: async () => {
       const hasGh = await commandExists("gh");
-      if (!hasGh) return { ok: false, message: "gh CLI not found. Fix: brew install gh && gh auth login" };
+      if (!hasGh) return { ok: false, message: "gh CLI not installed" };
       // Check if authenticated
       try {
         const proc = Bun.spawn(["gh", "auth", "status"], { stdout: "pipe", stderr: "pipe" });
         const code = await proc.exited;
-        if (code === 0) return { ok: true, message: "gh CLI authenticated" };
-        return { ok: false, message: "gh CLI found but not authenticated. Fix: gh auth login" };
-      } catch {
-        return { ok: false, message: "gh CLI found but auth check failed. Fix: gh auth login" };
+        if (code === 0) {
+          const output = await new Response(proc.stderr).text();
+          const match = output.match(/Logged in to .+ as (.+)/);
+          const user = match?.[1] ?? "✓";
+          return { ok: true, message: `authenticated as ${user}` };
+        }
+      } catch {}
+      return { ok: true, message: "gh found (needs auth)" };
+    },
+    collectCreds: async () => {
+      const hasGh = await commandExists("gh");
+      if (!hasGh) {
+        info("Installing GitHub CLI...");
+        const installProc = Bun.spawn(["brew", "install", "gh"], {
+          stdout: "inherit", stderr: "inherit",
+        });
+        if ((await installProc.exited) !== 0) {
+          warn("Could not install gh. Install manually: brew install gh");
+          return {};
+        }
       }
+
+      // Check if already authenticated
+      try {
+        const checkProc = Bun.spawn(["gh", "auth", "status"], { stdout: "pipe", stderr: "pipe" });
+        if ((await checkProc.exited) === 0) {
+          success("GitHub: already authenticated");
+          return {};
+        }
+      } catch {}
+
+      // Not authenticated — run auth automatically
+      info("Opening GitHub OAuth in your browser...");
+      const authProc = Bun.spawn(["gh", "auth", "login", "--web", "-p", "https"], {
+        stdout: "inherit", stderr: "inherit", stdin: "inherit",
+      });
+      const code = await authProc.exited;
+      if (code === 0) {
+        success("GitHub: authenticated");
+      } else {
+        warn("GitHub auth failed. Run 'gh auth login' later.");
+      }
+      return {};
     },
   },
   {
@@ -404,6 +514,50 @@ const SOURCES: SourceInfo[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Telegram deep link polling
+// ---------------------------------------------------------------------------
+
+async function pollTelegramLink(
+  deviceToken: string,
+  timeoutMs = 60_000,
+  intervalMs = 2_000,
+): Promise<{ linked: boolean; userId?: number; username?: string }> {
+  const start = Date.now();
+
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch(`${KENT_CONVEX_URL}/api/query`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "telegram:checkLink",
+          args: { deviceToken },
+        }),
+      });
+
+      if (res.ok) {
+        const data = (await res.json()) as {
+          value?: { linked: boolean; userId?: number; username?: string };
+        };
+        if (data.value?.linked) {
+          return {
+            linked: true,
+            userId: data.value.userId,
+            username: data.value.username,
+          };
+        }
+      }
+    } catch {
+      // Network error — keep polling
+    }
+
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+
+  return { linked: false };
+}
+
+// ---------------------------------------------------------------------------
 // Main init flow
 // ---------------------------------------------------------------------------
 
@@ -420,51 +574,96 @@ export async function handleInit(): Promise<void> {
     }
   }
 
-  const config: Config = { ...DEFAULT_CONFIG };
+  const config: Config = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+  const TOTAL_STEPS = 5;
 
   // ------------------------------------------------------------------
-  // Step 1: Convex URL
+  // Step 1: Device Token
   // ------------------------------------------------------------------
-  step(1, "Convex Backend");
-  info("Kent stores synced data in Convex. You need a deployment URL.");
-  info(`${DIM}Get one at https://dashboard.convex.dev — create a project, copy the URL.${NC}`);
-  console.log("");
-
-  const envConvexUrl = process.env["CONVEX_URL"] || "";
-  const convexDefault = envConvexUrl || "";
-  const convexUrl = await ask("CONVEX_URL", convexDefault);
-
-  if (!convexUrl || !convexUrl.includes("convex")) {
-    error("Invalid Convex URL. Expected something like: https://your-project-123.convex.cloud");
-    error("Set CONVEX_URL env var or re-run kent init.");
-    rl.close();
-    process.exit(1);
-  }
-  config.core.convex_url = convexUrl;
-  success("Convex URL saved");
-
-  // ------------------------------------------------------------------
-  // Step 2: Device token
-  // ------------------------------------------------------------------
-  step(2, "Device Token");
+  step(1, TOTAL_STEPS, "Device Token");
   const deviceToken = randomBytes(32).toString("base64url");
   config.core.device_token = deviceToken;
   success(`Generated device token: ${deviceToken.slice(0, 12)}...`);
 
-  // ------------------------------------------------------------------
-  // Step 3: Encryption salt
-  // ------------------------------------------------------------------
-  step(3, "Encryption Salt");
+  // Generate encryption salt
   ensureKentDir();
   const saltPath = join(KENT_DIR, "salt");
   const salt = new Uint8Array(randomBytes(16));
   writeFileSync(saltPath, Buffer.from(salt));
-  success("Salt saved to ~/.kent/salt");
+
+  // Register device with Convex
+  try {
+    const registerUrl = `${KENT_CONVEX_URL}/api/mutation`;
+    const response = await fetch(registerUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        path: "auth:registerDevice",
+        args: { deviceToken, encryptedKeys: "" },
+      }),
+    });
+    if (!response.ok) {
+      warn("Could not register device with Kent servers. Will retry on first sync.");
+    }
+  } catch {
+    warn("Could not reach Kent servers. Will retry on first sync.");
+  }
 
   // ------------------------------------------------------------------
-  // Step 4: Source selection (interactive multi-select)
+  // Step 2: AI Provider
   // ------------------------------------------------------------------
-  step(4, "Sources");
+  step(2, TOTAL_STEPS, "AI Provider");
+  info("Kent needs an API key to run the agent.\n");
+
+  const collectedKeys: Record<string, string> = {};
+
+  const anthropicKey = await ask("Anthropic API key (sk-ant-...)", "");
+  if (anthropicKey) {
+    collectedKeys["anthropic"] = anthropicKey;
+    config.keys.anthropic = "[encrypted]";
+    success("Anthropic key saved");
+  } else {
+    warn("No Anthropic key provided. Add one later with: kent init");
+  }
+
+  console.log("");
+  const openaiKey = await ask("OpenAI API key (optional, press enter to skip)", "");
+  if (openaiKey) {
+    collectedKeys["openai"] = openaiKey;
+    config.keys.openai = "[encrypted]";
+    success("OpenAI key saved");
+  } else {
+    warn("Skipped — using Anthropic only");
+  }
+
+  // Encrypt and push keys
+  if (Object.keys(collectedKeys).length > 0) {
+    try {
+      const encrypted = await encryptKeys(collectedKeys, deviceToken, salt);
+      const registerUrl = `${KENT_CONVEX_URL}/api/mutation`;
+      const response = await fetch(registerUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "auth:registerDevice",
+          args: { deviceToken, encryptedKeys: encrypted },
+        }),
+      });
+      if (!response.ok) {
+        warn("Could not push encrypted keys to Kent servers. Saved locally.");
+        writeFileSync(join(KENT_DIR, "encrypted_keys"), encrypted, "utf-8");
+      }
+    } catch (e) {
+      warn(`Key encryption/upload failed: ${e}. Saved locally.`);
+      const encrypted = await encryptKeys(collectedKeys, deviceToken, salt);
+      writeFileSync(join(KENT_DIR, "encrypted_keys"), encrypted, "utf-8");
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Step 3: Sources (interactive multi-select)
+  // ------------------------------------------------------------------
+  step(3, TOTAL_STEPS, "Sources");
   info("Select which sources to enable. Kent will sync data from these.\n");
 
   // Check prerequisites for each source first
@@ -479,7 +678,7 @@ export async function handleInit(): Promise<void> {
   const selectOptions: SelectOption[] = sourceChecks.map(({ source, check }) => ({
     label: source.label,
     key: source.key,
-    selected: check.ok && source.key !== "signal", // default: on if available (except Signal)
+    selected: check.ok, // default: on if available
     status: check.ok ? `✓ ${check.message}` : `⚠ ${check.message}`,
     statusColor: check.ok ? GREEN : YELLOW,
   }));
@@ -500,117 +699,65 @@ export async function handleInit(): Promise<void> {
   const enabledCount = enabledSources.length;
   success(`${enabledCount} source(s) enabled`);
 
-  // ------------------------------------------------------------------
-  // Step 5: Channels (Telegram)
-  // ------------------------------------------------------------------
-  step(5, "Channels");
-  const enableTelegram = await confirm("Enable Telegram bot channel?", false);
-  if (enableTelegram) {
-    info("Get a bot token from @BotFather on Telegram:");
-    info(`${DIM}1. Open Telegram → search @BotFather → /newbot${NC}`);
-    info(`${DIM}2. Follow prompts → copy the bot token${NC}\n`);
-    const botToken = await ask("Telegram bot token", process.env.TELEGRAM_BOT_TOKEN || "");
-    if (botToken) {
-      config.channels.telegram.enabled = true;
-      config.channels.telegram.bot_token = botToken;
-      success("Telegram bot token saved");
-
-      info("");
-      info("Kent will auto-detect your Telegram user ID when you first message the bot.");
-      info("After starting the bot, send it any message and it will whitelist you.");
-      info(`${DIM}To add your ID manually later: ~/.kent/config.json → channels.telegram.allowed_user_ids${NC}`);
-      config.channels.telegram.allowed_user_ids = []; // empty = auto-detect first user
-    } else {
-      warn("No token provided. Enable later with: kent channel start telegram");
-    }
-  }
-
-  // ------------------------------------------------------------------
-  // Step 6: Collect credentials
-  // ------------------------------------------------------------------
-  step(6, "Credentials");
-  const collectedKeys: Record<string, string> = {};
-
+  // Collect any source-specific credentials
   for (const source of enabledSources) {
     if (source.collectCreds) {
-      const creds = await source.collectCreds();
-      Object.assign(collectedKeys, creds);
+      await source.collectCreds();
     }
   }
 
-  // Ask for AI provider keys
-  info("\nKent needs an AI provider key to run the agent.\n");
-
-  const anthropicKey = await ask("Anthropic API key (sk-ant-...)", "");
-  if (anthropicKey) {
-    collectedKeys["anthropic"] = anthropicKey;
-    config.keys.anthropic = "[encrypted]";
-  }
-
-  const openaiKey = await ask("OpenAI API key (sk-..., optional)", "");
-  if (openaiKey) {
-    collectedKeys["openai"] = openaiKey;
-    config.keys.openai = "[encrypted]";
-  }
-
   // ------------------------------------------------------------------
-  // Step 6: Encrypt keys and push to Convex
+  // Step 4: Link Telegram
   // ------------------------------------------------------------------
-  step(7, "Encrypt & Store Keys");
+  step(4, TOTAL_STEPS, "Link Telegram");
+  info("Chat with Kent and receive notifications on your phone.\n");
 
-  if (Object.keys(collectedKeys).length > 0) {
+  const linkTelegram = await confirm("Link Telegram now?", true);
+
+  if (linkTelegram) {
+    const deepLink = `https://t.me/${KENT_TELEGRAM_BOT}?start=${deviceToken}`;
+    info(`${CYAN}→ Opening Telegram...${NC}`);
+
     try {
-      const encrypted = await encryptKeys(collectedKeys, deviceToken, salt);
+      Bun.spawn(["open", deepLink], { stdout: "pipe", stderr: "pipe" });
+    } catch {
+      info(`Open this link manually: ${deepLink}`);
+    }
 
-      // Register device with Convex and store encrypted keys
-      const registerUrl = `${convexUrl.replace(/\/$/, "")}/api/mutation`;
-      const response = await fetch(registerUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          path: "auth:registerDevice",
-          args: {
-            deviceToken,
-            encryptedKeys: encrypted,
-          },
-        }),
-      });
+    process.stdout.write(`  Waiting for you to tap "Start"... `);
 
-      if (response.ok) {
-        success("Keys encrypted (AES-256-GCM) and stored in Convex");
-      } else {
-        warn("Could not push to Convex. Keys saved locally in encrypted form.");
-        // Save encrypted blob locally as fallback
-        writeFileSync(join(KENT_DIR, "encrypted_keys"), encrypted, "utf-8");
-      }
-    } catch (e) {
-      warn(`Convex push failed: ${e}. Keys saved locally.`);
-      const encrypted = await encryptKeys(collectedKeys, deviceToken, salt);
-      writeFileSync(join(KENT_DIR, "encrypted_keys"), encrypted, "utf-8");
+    const linkResult = await pollTelegramLink(deviceToken);
+
+    if (linkResult.linked) {
+      config.telegram.linked = true;
+      config.telegram.user_id = linkResult.userId ?? null;
+      config.telegram.username = linkResult.username ?? null;
+      const usernameDisplay = linkResult.username ? ` (@${linkResult.username})` : "";
+      console.log(`${GREEN}✓ Linked!${usernameDisplay}${NC}`);
+    } else {
+      console.log("");
+      warn("Timed out waiting for Telegram link. You can link later with: kent init");
     }
   } else {
-    info("No keys to encrypt. You can add them later with kent init.");
+    warn("Skipped — link later with: kent init");
   }
 
   // ------------------------------------------------------------------
-  // Step 7: Save config
+  // Step 5: Start Daemon
   // ------------------------------------------------------------------
-  step(8, "Save Config");
+  step(5, TOTAL_STEPS, "Start Daemon");
+
+  // Save config first
   saveConfig(config);
   success(`Config saved to ${CONFIG_PATH}`);
 
-  // ------------------------------------------------------------------
-  // Step 8: Install workflow templates
-  // ------------------------------------------------------------------
-  step(9, "Workflow Templates");
+  // Install workflow templates
   const workflowCount = installWorkflowTemplates();
-  success(`${workflowCount} workflow template(s) installed to ~/.kent/workflows/`);
+  if (workflowCount > 0) {
+    success(`${workflowCount} workflow template(s) installed`);
+  }
 
-  // ------------------------------------------------------------------
-  // Step 9: Install launchd daemon
-  // ------------------------------------------------------------------
-  step(10, "Daemon (launchd)");
-
+  // Install and start launchd daemon
   try {
     const bunProc = Bun.spawn(["which", "bun"], { stdout: "pipe", stderr: "pipe" });
     const bunPath = (await new Response(bunProc.stdout).text()).trim();
@@ -622,7 +769,6 @@ export async function handleInit(): Promise<void> {
       mkdirSync(plistDir, { recursive: true });
     }
     writeFileSync(PLIST_PATH, plist, "utf-8");
-    success(`Plist written to ${PLIST_PATH}`);
 
     // Load the daemon
     try {
@@ -632,24 +778,20 @@ export async function handleInit(): Promise<void> {
       });
       const loadCode = await loadProc.exited;
       if (loadCode === 0) {
-        success("Daemon loaded and running");
+        success("Daemon started");
       } else {
-        warn("Could not load daemon. Start manually: kent daemon start");
+        warn("Could not start daemon. Start manually: kent daemon start");
       }
     } catch {
-      warn("Could not load daemon. Start manually: kent daemon start");
+      warn("Could not start daemon. Start manually: kent daemon start");
     }
   } catch (e) {
     warn(`Daemon setup failed: ${e}`);
     info("Start manually: kent daemon start");
   }
 
-  // ------------------------------------------------------------------
-  // Step 10: First sync
-  // ------------------------------------------------------------------
-  step(11, "First Sync");
-  info("Running initial sync...\n");
-
+  // Run initial sync
+  info("Running initial sync...");
   try {
     const syncProc = Bun.spawn(["kent", "sync"], {
       stdout: "inherit",
@@ -674,16 +816,12 @@ export async function handleInit(): Promise<void> {
   console.log(`
 ${GREEN}${BOLD}  Setup complete!${NC}
 
-  Your daemon is running and syncing data every ${config.daemon.sync_interval_minutes} minutes.
-
   ${BOLD}Try:${NC}
-    kent                              ${DIM}# interactive REPL${NC}
-    kent run "what's on my plate?"    ${DIM}# one-shot question${NC}
-    kent workflow run daily-brief     ${DIM}# run a workflow${NC}
-    kent daemon status                ${DIM}# check daemon${NC}
+    kent                    ${DIM}# interactive REPL${NC}
+    kent sync               ${DIM}# manual sync${NC}
+    kent workflow list      ${DIM}# see workflows${NC}
 
   ${DIM}Config: ~/.kent/config.json${NC}
-  ${DIM}Workflows: ~/.kent/workflows/${NC}
   ${DIM}Logs: ~/.kent/daemon.log${NC}
 `);
 }

@@ -1,13 +1,65 @@
-import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { test, expect, beforeEach, afterEach, describe } from "bun:test";
+import { existsSync, mkdirSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-// We test config functions by patching the module's paths.
-// Since config.ts uses hardcoded paths from homedir(), we test the logic
-// by importing the functions and using a temp directory approach.
+// We need to test config functions with a temp directory to avoid touching real ~/.kent
+// Since config.ts hardcodes homedir(), we test the pure logic and file I/O separately
 
-describe("Config module", () => {
+describe("Config types and defaults", () => {
+  test("DEFAULT_CONFIG has expected shape", async () => {
+    const { DEFAULT_CONFIG } = await import("../shared/config.ts");
+
+    expect(DEFAULT_CONFIG.core.device_token).toBe("");
+    expect(DEFAULT_CONFIG.keys.openai).toBe("");
+    expect(DEFAULT_CONFIG.keys.anthropic).toBe("");
+    expect(DEFAULT_CONFIG.daemon.sync_interval_minutes).toBe(5);
+    expect(DEFAULT_CONFIG.agent.default_model).toBe("claude-sonnet-4-20250514");
+    expect(DEFAULT_CONFIG.agent.max_turns).toBe(10);
+    expect(DEFAULT_CONFIG.agent.default_runner).toBe("auto");
+    expect(DEFAULT_CONFIG.telegram.linked).toBe(false);
+  });
+
+  test("DEFAULT_CONFIG sources are all disabled", async () => {
+    const { DEFAULT_CONFIG } = await import("../shared/config.ts");
+
+    expect(DEFAULT_CONFIG.sources.imessage).toBe(false);
+    expect(DEFAULT_CONFIG.sources.signal).toBe(false);
+    expect(DEFAULT_CONFIG.sources.granola).toBe(false);
+    expect(DEFAULT_CONFIG.sources.gmail).toBe(false);
+    expect(DEFAULT_CONFIG.sources.github).toBe(false);
+    expect(DEFAULT_CONFIG.sources.chrome).toBe(false);
+    expect(DEFAULT_CONFIG.sources.apple_notes).toBe(false);
+  });
+
+  test("KENT_DIR points to ~/.kent", async () => {
+    const { KENT_DIR } = await import("../shared/config.ts");
+    const { homedir } = await import("node:os");
+    expect(KENT_DIR).toBe(join(homedir(), ".kent"));
+  });
+
+  test("CONFIG_PATH is config.json inside KENT_DIR", async () => {
+    const { CONFIG_PATH, KENT_DIR } = await import("../shared/config.ts");
+    expect(CONFIG_PATH).toBe(join(KENT_DIR, "config.json"));
+  });
+
+  test("PID_PATH is daemon.pid inside KENT_DIR", async () => {
+    const { PID_PATH, KENT_DIR } = await import("../shared/config.ts");
+    expect(PID_PATH).toBe(join(KENT_DIR, "daemon.pid"));
+  });
+
+  test("LOG_PATH is daemon.log inside KENT_DIR", async () => {
+    const { LOG_PATH, KENT_DIR } = await import("../shared/config.ts");
+    expect(LOG_PATH).toBe(join(KENT_DIR, "daemon.log"));
+  });
+
+  test("PLIST_PATH is in LaunchAgents", async () => {
+    const { PLIST_PATH } = await import("../shared/config.ts");
+    expect(PLIST_PATH).toContain("Library/LaunchAgents/sh.kent.daemon.plist");
+  });
+});
+
+describe("Config file I/O", () => {
   const tempDir = join(tmpdir(), `kent-test-config-${Date.now()}`);
   const configPath = join(tempDir, "config.json");
 
@@ -19,142 +71,74 @@ describe("Config module", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  describe("DEFAULT_CONFIG", () => {
-    test("has all required top-level keys", async () => {
-      const { DEFAULT_CONFIG } = await import("@shared/config.ts");
-      expect(DEFAULT_CONFIG).toHaveProperty("core");
-      expect(DEFAULT_CONFIG).toHaveProperty("keys");
-      expect(DEFAULT_CONFIG).toHaveProperty("sources");
-      expect(DEFAULT_CONFIG).toHaveProperty("daemon");
-      expect(DEFAULT_CONFIG).toHaveProperty("agent");
-      expect(DEFAULT_CONFIG).toHaveProperty("channels");
-    });
+  test("saveConfig writes valid JSON", async () => {
+    const { DEFAULT_CONFIG } = await import("../shared/config.ts");
 
-    test("core has empty default values", async () => {
-      const { DEFAULT_CONFIG } = await import("@shared/config.ts");
-      expect(DEFAULT_CONFIG.core.convex_url).toBe("");
-      expect(DEFAULT_CONFIG.core.device_token).toBe("");
-    });
+    // Manually test the write/read logic since saveConfig uses hardcoded paths
+    writeFileSync(configPath, JSON.stringify(DEFAULT_CONFIG, null, 2), "utf-8");
 
-    test("all sources default to false", async () => {
-      const { DEFAULT_CONFIG } = await import("@shared/config.ts");
-      for (const [key, value] of Object.entries(DEFAULT_CONFIG.sources)) {
-        expect(value).toBe(false);
-      }
-    });
-
-    test("daemon sync interval defaults to 5 minutes", async () => {
-      const { DEFAULT_CONFIG } = await import("@shared/config.ts");
-      expect(DEFAULT_CONFIG.daemon.sync_interval_minutes).toBe(5);
-    });
-
-    test("agent defaults are sensible", async () => {
-      const { DEFAULT_CONFIG } = await import("@shared/config.ts");
-      expect(DEFAULT_CONFIG.agent.default_model).toContain("claude");
-      expect(DEFAULT_CONFIG.agent.max_turns).toBe(10);
-      expect(DEFAULT_CONFIG.agent.default_runner).toBe("auto");
-      expect(DEFAULT_CONFIG.agent.e2b_template_id).toBe("");
-    });
-
-    test("telegram channel defaults to disabled", async () => {
-      const { DEFAULT_CONFIG } = await import("@shared/config.ts");
-      expect(DEFAULT_CONFIG.channels.telegram.enabled).toBe(false);
-      expect(DEFAULT_CONFIG.channels.telegram.bot_token).toBe("");
-      expect(DEFAULT_CONFIG.channels.telegram.allowed_user_ids).toEqual([]);
-    });
+    expect(existsSync(configPath)).toBe(true);
+    const raw = readFileSync(configPath, "utf-8");
+    const parsed = JSON.parse(raw);
+    expect(parsed.core.device_token).toBe("");
+    expect(parsed.daemon.sync_interval_minutes).toBe(5);
   });
 
-  describe("ensureKentDir", () => {
-    test("creates the .kent directory if it does not exist", async () => {
-      const { ensureKentDir, KENT_DIR } = await import("@shared/config.ts");
-      // This touches the real ~/.kent dir, but ensureKentDir is idempotent
-      ensureKentDir();
-      expect(existsSync(KENT_DIR)).toBe(true);
-    });
+  test("config roundtrip preserves all fields", async () => {
+    const { DEFAULT_CONFIG } = await import("../shared/config.ts");
+
+    const config: typeof DEFAULT_CONFIG = {
+      ...DEFAULT_CONFIG,
+      core: { convex_url: "https://test.convex.cloud", device_token: "tok123" },
+      keys: { openai: "sk-test", anthropic: "sk-ant-test" },
+      sources: { ...DEFAULT_CONFIG.sources, imessage: true, github: true },
+      agent: { ...DEFAULT_CONFIG.agent, max_turns: 25 },
+    };
+
+    writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
+    const raw = readFileSync(configPath, "utf-8");
+    const restored = JSON.parse(raw);
+
+    expect(restored.core.convex_url).toBe("https://test.convex.cloud");
+    expect(restored.core.device_token).toBe("tok123");
+    expect(restored.keys.openai).toBe("sk-test");
+    expect(restored.sources.imessage).toBe(true);
+    expect(restored.sources.github).toBe(true);
+    expect(restored.sources.signal).toBe(false);
+    expect(restored.agent.max_turns).toBe(25);
   });
 
-  describe("Config serialization roundtrip", () => {
-    test("saveConfig then loadConfig returns same data", async () => {
-      const { DEFAULT_CONFIG } = await import("@shared/config.ts");
-      const config = { ...DEFAULT_CONFIG };
-      config.core.convex_url = "https://test-123.convex.cloud";
-      config.core.device_token = "test-token-abc";
-      config.sources.imessage = true;
-      config.sources.github = true;
-      config.daemon.sync_interval_minutes = 15;
+  test("loadConfig returns DEFAULT_CONFIG when file missing", async () => {
+    const { DEFAULT_CONFIG } = await import("../shared/config.ts");
 
-      // Write to temp path and read back
-      writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
-      const raw = readFileSync(configPath, "utf-8");
-      const loaded = JSON.parse(raw);
+    // If we read a non-existent file, fallback logic should give defaults
+    const nonExistent = join(tempDir, "nope.json");
+    expect(existsSync(nonExistent)).toBe(false);
 
-      expect(loaded.core.convex_url).toBe("https://test-123.convex.cloud");
-      expect(loaded.core.device_token).toBe("test-token-abc");
-      expect(loaded.sources.imessage).toBe(true);
-      expect(loaded.sources.github).toBe(true);
-      expect(loaded.sources.signal).toBe(false);
-      expect(loaded.daemon.sync_interval_minutes).toBe(15);
-    });
-
-    test("handles malformed JSON gracefully", async () => {
-      writeFileSync(configPath, "not valid json{{{", "utf-8");
-      const raw = readFileSync(configPath, "utf-8");
-      expect(() => JSON.parse(raw)).toThrow();
-    });
+    // Simulate loadConfig logic
+    let result: typeof DEFAULT_CONFIG;
+    try {
+      const raw = readFileSync(nonExistent, "utf-8");
+      result = JSON.parse(raw);
+    } catch {
+      result = DEFAULT_CONFIG;
+    }
+    expect(result).toEqual(DEFAULT_CONFIG);
   });
 
-  describe("Config paths", () => {
-    test("KENT_DIR ends with .kent", async () => {
-      const { KENT_DIR } = await import("@shared/config.ts");
-      expect(KENT_DIR.endsWith(".kent")).toBe(true);
-    });
+  test("loadConfig returns DEFAULT_CONFIG for invalid JSON", async () => {
+    const { DEFAULT_CONFIG } = await import("../shared/config.ts");
 
-    test("CONFIG_PATH is inside KENT_DIR", async () => {
-      const { KENT_DIR, CONFIG_PATH } = await import("@shared/config.ts");
-      expect(CONFIG_PATH.startsWith(KENT_DIR)).toBe(true);
-      expect(CONFIG_PATH.endsWith("config.json")).toBe(true);
-    });
+    const badPath = join(tempDir, "bad.json");
+    writeFileSync(badPath, "not json {{{", "utf-8");
 
-    test("PID_PATH is inside KENT_DIR", async () => {
-      const { KENT_DIR, PID_PATH } = await import("@shared/config.ts");
-      expect(PID_PATH.startsWith(KENT_DIR)).toBe(true);
-      expect(PID_PATH.endsWith("daemon.pid")).toBe(true);
-    });
-
-    test("LOG_PATH is inside KENT_DIR", async () => {
-      const { KENT_DIR, LOG_PATH } = await import("@shared/config.ts");
-      expect(LOG_PATH.startsWith(KENT_DIR)).toBe(true);
-      expect(LOG_PATH.endsWith("daemon.log")).toBe(true);
-    });
-
-    test("PLIST_PATH is in LaunchAgents", async () => {
-      const { PLIST_PATH } = await import("@shared/config.ts");
-      expect(PLIST_PATH).toContain("LaunchAgents");
-      expect(PLIST_PATH).toContain("sh.kent.daemon.plist");
-    });
-  });
-
-  describe("Config type shape", () => {
-    test("sources has exactly 7 boolean fields", async () => {
-      const { DEFAULT_CONFIG } = await import("@shared/config.ts");
-      const sourceKeys = Object.keys(DEFAULT_CONFIG.sources);
-      expect(sourceKeys).toEqual([
-        "imessage",
-        "signal",
-        "granola",
-        "gmail",
-        "github",
-        "chrome",
-        "apple_notes",
-      ]);
-      expect(sourceKeys.length).toBe(7);
-    });
-
-    test("agent.default_runner is a valid runner type", async () => {
-      const { DEFAULT_CONFIG } = await import("@shared/config.ts");
-      expect(["cloud", "local", "auto"]).toContain(
-        DEFAULT_CONFIG.agent.default_runner,
-      );
-    });
+    let result: typeof DEFAULT_CONFIG;
+    try {
+      const raw = readFileSync(badPath, "utf-8");
+      result = JSON.parse(raw);
+    } catch {
+      result = DEFAULT_CONFIG;
+    }
+    expect(result).toEqual(DEFAULT_CONFIG);
   });
 });

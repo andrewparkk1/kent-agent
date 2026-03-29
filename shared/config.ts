@@ -2,14 +2,18 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+// Kent hosted infrastructure — users don't configure these
+export const KENT_CONVEX_URL = "https://brave-armadillo-395.convex.cloud";
+export const KENT_TELEGRAM_BOT = "kent_personal_bot"; // @kent_personal_bot on Telegram
+
 export interface Config {
   core: {
-    convex_url: string;
     device_token: string;
   };
+  // No more convex_url, e2b keys — these are hosted
   keys: {
-    openai: string;
-    anthropic: string;
+    anthropic: string; // placeholder "[encrypted]" — real keys in Convex
+    openai: string; // placeholder "[encrypted]" — real keys in Convex
   };
   sources: {
     imessage: boolean;
@@ -27,14 +31,11 @@ export interface Config {
     default_model: string;
     max_turns: number;
     default_runner: "cloud" | "local" | "auto";
-    e2b_template_id: string;
   };
-  channels: {
-    telegram: {
-      enabled: boolean;
-      bot_token: string;
-      allowed_user_ids: number[];
-    };
+  telegram: {
+    linked: boolean;
+    user_id: number | null; // auto-detected via deep link
+    username: string | null;
   };
 }
 
@@ -51,12 +52,11 @@ export const PLIST_PATH = join(
 
 export const DEFAULT_CONFIG: Config = {
   core: {
-    convex_url: "",
     device_token: "",
   },
   keys: {
-    openai: "",
     anthropic: "",
+    openai: "",
   },
   sources: {
     imessage: false,
@@ -74,14 +74,11 @@ export const DEFAULT_CONFIG: Config = {
     default_model: "claude-sonnet-4-20250514",
     max_turns: 10,
     default_runner: "auto",
-    e2b_template_id: "",
   },
-  channels: {
-    telegram: {
-      enabled: false,
-      bot_token: "",
-      allowed_user_ids: [],
-    },
+  telegram: {
+    linked: false,
+    user_id: null,
+    username: null,
   },
 };
 

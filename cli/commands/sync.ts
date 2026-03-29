@@ -1,4 +1,4 @@
-import { loadConfig } from "@shared/config.ts";
+import { loadConfig, KENT_CONVEX_URL } from "@shared/config.ts";
 import { FileSyncState } from "@daemon/sync-state.ts";
 import type { Source } from "@daemon/sources/types.ts";
 import { imessage } from "@daemon/sources/imessage.ts";
@@ -64,15 +64,10 @@ export async function handleSync(args: string[]): Promise<void> {
       console.log(`Syncing ${source.name}... ${items.length} new items`);
 
       if (items.length > 0) {
-        const convexUrl = config.core.convex_url || process.env.CONVEX_URL;
-        if (!convexUrl) {
-          console.error(
-            `[sync] Cannot push items: Convex URL not configured. Run \`kent init\` first.`,
-          );
-        } else {
+        {
           // Use the SyncEngine's Convex client approach
           const { ConvexHttpClient } = await import("convex/browser");
-          const client = new ConvexHttpClient(convexUrl);
+          const client = new ConvexHttpClient(KENT_CONVEX_URL);
           await client.mutation("items:batchUpsert" as any, {
             deviceToken: config.core.device_token,
             items,

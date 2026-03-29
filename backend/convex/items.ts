@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { query, mutation, action, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { getUserByToken } from "./auth";
-import { Id } from "./_generated/dataModel";
+import type { Id } from "./_generated/dataModel";
 
 // ── batchUpsert ─────────────────────────────────────────────────────────
 export const batchUpsert = mutation({
@@ -15,6 +15,7 @@ export const batchUpsert = mutation({
         content: v.string(),
         metadata: v.any(),
         embedding: v.optional(v.array(v.number())),
+        createdAt: v.optional(v.number()),
       })
     ),
   },
@@ -50,7 +51,7 @@ export const batchUpsert = mutation({
           content: item.content,
           metadata: item.metadata,
           embedding: item.embedding,
-          createdAt: Date.now(),
+          createdAt: item.createdAt ?? Date.now(),
           indexedAt: Date.now(),
         });
         upserted.push(id);

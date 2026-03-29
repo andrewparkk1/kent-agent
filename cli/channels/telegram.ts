@@ -1,70 +1,147 @@
 import { Bot } from "grammy";
-import { loadConfig, saveConfig } from "@shared/config.ts";
+import { loadConfig } from "@shared/config.ts";
+import { KENT_CONVEX_URL } from "@shared/config.ts";
 import type { Channel } from "./channel.ts";
 
 /**
  * Telegram channel implementation using grammy.
  *
- * RECEIVE: Accepts messages from whitelisted users, runs them through the
+ * RECEIVE: Accepts messages from the linked Telegram user, runs them through the
  *          agent runner, and sends the response back.
- * NOTIFY:  Pushes workflow results or notifications to all allowed users.
+ * NOTIFY:  Pushes workflow results or notifications to the linked user.
  *
- * Auto-whitelist: If allowed_user_ids is empty, the first user to message
- * the bot is automatically whitelisted and saved to config.
+ * The bot token comes from the TELEGRAM_BOT_TOKEN env var — Kent owns the bot,
+ * so this is set in the daemon/server environment, not by the user.
+ *
+ * The linked user's Telegram ID comes from Convex (set during `kent init` deep link flow).
  */
 export class TelegramChannel implements Channel {
   readonly name = "telegram";
   private bot: Bot | null = null;
-  private allowedUserIds: number[] = [];
+  private linkedUserId: number | null = null;
 
   private getBot(): Bot {
     if (this.bot) return this.bot;
 
-    const config = loadConfig();
-    const token = config.channels.telegram.bot_token;
+    const token = process.env.TELEGRAM_BOT_TOKEN;
 
     if (!token) {
       throw new Error(
-        "Telegram bot token not configured. Run 'kent init' to set it up, " +
-          "or add it to ~/.kent/config.json under channels.telegram.bot_token.",
+        "TELEGRAM_BOT_TOKEN environment variable not set. " +
+          "This should be configured in the daemon/server environment.",
       );
     }
 
-    this.allowedUserIds = config.channels.telegram.allowed_user_ids ?? [];
+    // Load the linked user ID from config (set during kent init deep link)
+    const config = loadConfig();
+    this.linkedUserId = config.telegram.user_id;
+
     this.bot = new Bot(token);
     return this.bot;
   }
 
-  private autoWhitelist(userId: number, username?: string): void {
-    if (this.allowedUserIds.includes(userId)) return;
-    this.allowedUserIds.push(userId);
-    // Persist to config
+  /**
+   * Fetch the linked Telegram user ID from Convex for a given device token.
+   * Falls back to the locally cached value in config.
+   */
+  private async fetchLinkedUserId(): Promise<number | null> {
     const config = loadConfig();
-    config.channels.telegram.allowed_user_ids = this.allowedUserIds;
-    saveConfig(config);
-    const name = username ? ` (@${username})` : "";
-    console.log(`[telegram] Auto-whitelisted user ${userId}${name} — saved to config`);
+
+    // Try Convex first for the freshest data
+    try {
+      const res = await fetch(`${KENT_CONVEX_URL}/api/query`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "telegram:checkLink",
+          args: { deviceToken: config.core.device_token },
+        }),
+      });
+
+      if (res.ok) {
+        const data = (await res.json()) as {
+          value?: { linked: boolean; userId?: number; username?: string };
+        };
+        if (data.value?.linked && data.value.userId) {
+          return data.value.userId;
+        }
+      }
+    } catch {
+      // Fall back to local config
+    }
+
+    return config.telegram.user_id;
   }
 
   async start(): Promise<void> {
     const bot = this.getBot();
 
-    // Security: only respond to whitelisted user IDs
-    // If whitelist is empty, auto-whitelist the first user
+    // Resolve the linked user ID
+    this.linkedUserId = await this.fetchLinkedUserId();
+
+    // Handle /start command (deep link flow from `kent init`)
+    bot.command("start", async (ctx) => {
+      const deviceToken = ctx.match?.trim(); // grammy puts the deep link payload in ctx.match
+      const userId = ctx.from?.id;
+      const username = ctx.from?.username;
+
+      if (!userId) return;
+
+      if (!deviceToken) {
+        // Bare /start with no deep link token
+        await ctx.reply(
+          "Welcome to Kent! To link your account, run `kent init` on your machine and follow the Telegram step.",
+        );
+        return;
+      }
+
+      console.log(`[telegram] /start deep link from ${userId} (token: ${deviceToken.slice(0, 8)}...)`);
+
+      try {
+        const res = await fetch(`${KENT_CONVEX_URL}/api/mutation`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path: "telegram:linkDevice",
+            args: {
+              deviceToken,
+              telegramUserId: userId,
+              telegramUsername: username,
+            },
+          }),
+        });
+
+        if (!res.ok) {
+          const body = await res.text();
+          console.error(`[telegram] linkDevice failed: ${res.status} ${body}`);
+          await ctx.reply("❌ Failed to link your account. Please check the link from your Kent app and try again.");
+          return;
+        }
+
+        // Update local state so the bot starts responding immediately
+        this.linkedUserId = userId;
+
+        await ctx.reply("✅ Linked! Kent is now connected to this chat. You can send me messages and I'll respond.");
+        console.log(`[telegram] Successfully linked user ${userId} (@${username})`);
+      } catch (err) {
+        console.error("[telegram] linkDevice error:", err);
+        await ctx.reply("❌ Something went wrong linking your account. Please try again.");
+      }
+    });
+
+    // Security: only respond to the linked Telegram user
     bot.on("message:text", async (ctx) => {
       const userId = ctx.from?.id;
 
       if (!userId) return;
 
-      // Auto-whitelist first user if no whitelist configured
-      if (this.allowedUserIds.length === 0) {
-        this.autoWhitelist(userId, ctx.from?.username);
-        await ctx.reply(`✓ You're now connected to Kent. Your user ID (${userId}) has been saved.\n\nAsk me anything.`);
+      if (this.linkedUserId && userId !== this.linkedUserId) {
+        console.log(`[telegram] Ignoring message from unlinked user: ${userId}`);
         return;
       }
 
-      if (!this.allowedUserIds.includes(userId)) {
-        console.log(`[telegram] Ignoring message from unauthorized user: ${userId}`);
+      if (!this.linkedUserId) {
+        console.log(`[telegram] No linked user — ignoring message from ${userId}`);
         return;
       }
 
@@ -107,7 +184,10 @@ export class TelegramChannel implements Channel {
     // Handle document/file messages
     bot.on("message:document", async (ctx) => {
       const userId = ctx.from?.id;
-      if (this.allowedUserIds.length > 0 && userId && !this.allowedUserIds.includes(userId)) {
+      if (this.linkedUserId && userId !== this.linkedUserId) {
+        return;
+      }
+      if (!this.linkedUserId) {
         return;
       }
 
@@ -148,10 +228,10 @@ export class TelegramChannel implements Channel {
 
     console.log("[telegram] Starting bot...");
     console.log(
-      `[telegram] Allowed user IDs: ${
-        this.allowedUserIds.length > 0
-          ? this.allowedUserIds.join(", ")
-          : "ALL (no whitelist configured — add user IDs to config for security)"
+      `[telegram] Linked user ID: ${
+        this.linkedUserId
+          ? this.linkedUserId
+          : "NONE — link via 'kent init' first"
       }`,
     );
 
@@ -174,24 +254,26 @@ export class TelegramChannel implements Channel {
   async notify(message: string, _runId?: string): Promise<void> {
     const bot = this.getBot();
 
-    if (this.allowedUserIds.length === 0) {
+    if (!this.linkedUserId) {
+      // Try fetching from Convex in case it was linked after boot
+      this.linkedUserId = await this.fetchLinkedUserId();
+    }
+
+    if (!this.linkedUserId) {
       console.warn(
-        "[telegram] No allowed_user_ids configured — cannot send notifications. " +
-          "Add user IDs to ~/.kent/config.json under channels.telegram.allowed_user_ids",
+        "[telegram] No linked Telegram user — cannot send notifications. " +
+          "Run 'kent init' to link your Telegram account.",
       );
       return;
     }
 
-    // Send to all allowed users
-    for (const userId of this.allowedUserIds) {
-      try {
-        await this.sendChunked(userId, message);
-      } catch (err) {
-        console.error(
-          `[telegram] Failed to notify user ${userId}:`,
-          err instanceof Error ? err.message : err,
-        );
-      }
+    try {
+      await this.sendChunked(this.linkedUserId, message);
+    } catch (err) {
+      console.error(
+        `[telegram] Failed to notify user ${this.linkedUserId}:`,
+        err instanceof Error ? err.message : err,
+      );
     }
   }
 

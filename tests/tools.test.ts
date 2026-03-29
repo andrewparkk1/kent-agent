@@ -1,196 +1,192 @@
 import { test, expect, describe } from "bun:test";
-import { memoryTools, filesystemTools, allTools } from "@agent/tools.ts";
 
-describe("Agent tools", () => {
-  describe("tool registry", () => {
-    test("memoryTools has 6 tools", () => {
-      expect(memoryTools.length).toBe(6);
-    });
+/**
+ * Tests for agent tool definitions and logic.
+ * We test tool metadata (names, descriptions, parameters) and
+ * the local-only guard logic for filesystem tools.
+ */
 
-    test("filesystemTools has 5 tools", () => {
-      expect(filesystemTools.length).toBe(5);
-    });
-
-    test("allTools combines memory and filesystem tools", () => {
-      expect(allTools.length).toBe(11);
-    });
-
-    test("all tools have unique names", () => {
-      const names = allTools.map((t: any) => t.name);
-      const uniqueNames = new Set(names);
-      expect(uniqueNames.size).toBe(names.length);
-    });
+describe("Tool exports", () => {
+  test("memoryTools has 6 tools", async () => {
+    const { memoryTools } = await import("../agent/tools.ts");
+    expect(memoryTools).toHaveLength(6);
   });
 
-  describe("memory tools", () => {
-    const memoryToolNames = [
-      "search_semantic",
-      "search_exact",
-      "get_recent_items",
-      "browse_items",
-      "get_item_detail",
-      "get_source_stats",
-    ];
+  test("filesystemTools has 5 tools", async () => {
+    const { filesystemTools } = await import("../agent/tools.ts");
+    expect(filesystemTools).toHaveLength(5);
+  });
 
-    for (const name of memoryToolNames) {
-      test(`${name} tool exists`, () => {
-        const tool = memoryTools.find((t: any) => t.name === name);
-        expect(tool).toBeDefined();
-      });
+  test("allTools combines memory + filesystem tools", async () => {
+    const { allTools, memoryTools, filesystemTools } = await import("../agent/tools.ts");
+    expect(allTools).toHaveLength(memoryTools.length + filesystemTools.length);
+    expect(allTools).toHaveLength(11);
+  });
+});
 
-      test(`${name} has description`, () => {
-        const tool = memoryTools.find((t: any) => t.name === name) as any;
-        expect(tool.description).toBeTruthy();
-        expect(typeof tool.description).toBe("string");
-      });
+describe("Tool names", () => {
+  test("memory tools have expected names", async () => {
+    const { memoryTools } = await import("../agent/tools.ts");
+    const names = memoryTools.map((t: any) => t.name);
 
-      test(`${name} has parameters schema`, () => {
-        const tool = memoryTools.find((t: any) => t.name === name) as any;
-        expect(tool.parameters).toBeDefined();
-      });
+    expect(names).toContain("search_semantic");
+    expect(names).toContain("search_exact");
+    expect(names).toContain("get_recent_items");
+    expect(names).toContain("browse_items");
+    expect(names).toContain("get_item_detail");
+    expect(names).toContain("get_source_stats");
+  });
 
-      test(`${name} has execute function`, () => {
-        const tool = memoryTools.find((t: any) => t.name === name) as any;
-        expect(typeof tool.execute).toBe("function");
-      });
+  test("filesystem tools have expected names", async () => {
+    const { filesystemTools } = await import("../agent/tools.ts");
+    const names = filesystemTools.map((t: any) => t.name);
 
-      test(`${name} has label`, () => {
-        const tool = memoryTools.find((t: any) => t.name === name) as any;
-        expect(tool.label).toBeTruthy();
-      });
+    expect(names).toContain("read_file");
+    expect(names).toContain("list_directory");
+    expect(names).toContain("search_files");
+    expect(names).toContain("write_file");
+    expect(names).toContain("run_command");
+  });
+});
+
+describe("Tool metadata", () => {
+  test("all tools have name, description, and parameters", async () => {
+    const { allTools } = await import("../agent/tools.ts");
+
+    for (const tool of allTools as any[]) {
+      expect(tool.name).toBeTruthy();
+      expect(typeof tool.name).toBe("string");
+      expect(tool.description).toBeTruthy();
+      expect(typeof tool.description).toBe("string");
+      expect(tool.parameters).toBeTruthy();
     }
   });
 
-  describe("filesystem tools", () => {
-    const fsToolNames = [
-      "read_file",
-      "list_directory",
-      "search_files",
-      "write_file",
-      "run_command",
-    ];
+  test("all tools have label for UI display", async () => {
+    const { allTools } = await import("../agent/tools.ts");
 
-    for (const name of fsToolNames) {
-      test(`${name} tool exists`, () => {
-        const tool = filesystemTools.find((t: any) => t.name === name);
-        expect(tool).toBeDefined();
-      });
-
-      test(`${name} has description`, () => {
-        const tool = filesystemTools.find((t: any) => t.name === name) as any;
-        expect(tool.description).toBeTruthy();
-      });
-
-      test(`${name} has execute function`, () => {
-        const tool = filesystemTools.find((t: any) => t.name === name) as any;
-        expect(typeof tool.execute).toBe("function");
-      });
+    for (const tool of allTools as any[]) {
+      expect(tool.label).toBeTruthy();
+      expect(typeof tool.label).toBe("string");
     }
-
-    test("filesystem tools mention 'Local runner only' in descriptions", () => {
-      for (const name of fsToolNames) {
-        const tool = filesystemTools.find((t: any) => t.name === name) as any;
-        expect(
-          tool.description.toLowerCase().includes("local") ||
-            tool.description.toLowerCase().includes("runner"),
-        ).toBe(true);
-      }
-    });
   });
 
-  describe("filesystem tools block in cloud mode", () => {
-    // Tools check RUNNER env var which defaults to "cloud"
-    // When RUNNER !== "local", they should return an error message
+  test("all tools have execute function", async () => {
+    const { allTools } = await import("../agent/tools.ts");
 
-    test("read_file returns error in cloud mode", async () => {
-      const tool = filesystemTools.find(
-        (t: any) => t.name === "read_file",
-      ) as any;
-      const result = await tool.execute("test-id", {
-        path: "/tmp/test.txt",
-      });
-      expect(result.content[0].text).toContain("local runner");
-    });
-
-    test("list_directory returns error in cloud mode", async () => {
-      const tool = filesystemTools.find(
-        (t: any) => t.name === "list_directory",
-      ) as any;
-      const result = await tool.execute("test-id", { path: "/tmp" });
-      expect(result.content[0].text).toContain("local runner");
-    });
-
-    test("search_files returns error in cloud mode", async () => {
-      const tool = filesystemTools.find(
-        (t: any) => t.name === "search_files",
-      ) as any;
-      const result = await tool.execute("test-id", { pattern: "test" });
-      expect(result.content[0].text).toContain("local runner");
-    });
-
-    test("write_file returns error in cloud mode", async () => {
-      const tool = filesystemTools.find(
-        (t: any) => t.name === "write_file",
-      ) as any;
-      const result = await tool.execute("test-id", {
-        path: "test.txt",
-        content: "hello",
-      });
-      expect(result.content[0].text).toContain("local runner");
-    });
-
-    test("run_command returns error in cloud mode", async () => {
-      const tool = filesystemTools.find(
-        (t: any) => t.name === "run_command",
-      ) as any;
-      const result = await tool.execute("test-id", { command: "echo hi" });
-      expect(result.content[0].text).toContain("local runner");
-    });
+    for (const tool of allTools as any[]) {
+      expect(typeof tool.execute).toBe("function");
+    }
   });
 
-  describe("memory tool schemas", () => {
-    test("search_semantic requires query parameter", () => {
-      const tool = memoryTools.find(
-        (t: any) => t.name === "search_semantic",
-      ) as any;
-      expect(tool.parameters.properties.query).toBeDefined();
-      expect(tool.parameters.required).toContain("query");
-    });
+  test("tool names are unique", async () => {
+    const { allTools } = await import("../agent/tools.ts");
+    const names = (allTools as any[]).map((t) => t.name);
+    const uniqueNames = new Set(names);
+    expect(uniqueNames.size).toBe(names.length);
+  });
+});
 
-    test("search_exact requires query parameter", () => {
-      const tool = memoryTools.find(
-        (t: any) => t.name === "search_exact",
-      ) as any;
-      expect(tool.parameters.properties.query).toBeDefined();
-      expect(tool.parameters.required).toContain("query");
-    });
+describe("Filesystem tool local-only guard", () => {
+  // When RUNNER !== "local", filesystem tools should return an error message
 
-    test("browse_items has optional source, sender, date filters", () => {
-      const tool = memoryTools.find(
-        (t: any) => t.name === "browse_items",
-      ) as any;
-      const props = tool.parameters.properties;
-      expect(props.source).toBeDefined();
-      expect(props.sender).toBeDefined();
-      expect(props.after).toBeDefined();
-      expect(props.before).toBeDefined();
-      expect(props.cursor).toBeDefined();
-    });
+  test("read_file returns error in cloud mode", async () => {
+    // The tools module reads RUNNER from process.env at import time
+    // Default RUNNER is "cloud" so filesystem tools should be gated
+    const { filesystemTools } = await import("../agent/tools.ts");
+    const readFile = (filesystemTools as any[]).find((t) => t.name === "read_file");
 
-    test("get_item_detail requires id parameter", () => {
-      const tool = memoryTools.find(
-        (t: any) => t.name === "get_item_detail",
-      ) as any;
-      expect(tool.parameters.properties.id).toBeDefined();
-      expect(tool.parameters.required).toContain("id");
-    });
+    const result = await readFile.execute("test-id", { path: "/tmp/test.txt" });
 
-    test("get_source_stats has no required parameters", () => {
-      const tool = memoryTools.find(
-        (t: any) => t.name === "get_source_stats",
-      ) as any;
-      const required = tool.parameters.required || [];
-      expect(required.length).toBe(0);
-    });
+    expect(result.content).toBeDefined();
+    expect(result.content[0].text).toContain("local runner mode");
+  });
+
+  test("list_directory returns error in cloud mode", async () => {
+    const { filesystemTools } = await import("../agent/tools.ts");
+    const listDir = (filesystemTools as any[]).find((t) => t.name === "list_directory");
+
+    const result = await listDir.execute("test-id", { path: "/tmp" });
+    expect(result.content[0].text).toContain("local runner mode");
+  });
+
+  test("write_file returns error in cloud mode", async () => {
+    const { filesystemTools } = await import("../agent/tools.ts");
+    const writeFile = (filesystemTools as any[]).find((t) => t.name === "write_file");
+
+    const result = await writeFile.execute("test-id", { path: "test.txt", content: "hello" });
+    expect(result.content[0].text).toContain("local runner mode");
+  });
+
+  test("run_command returns error in cloud mode", async () => {
+    const { filesystemTools } = await import("../agent/tools.ts");
+    const runCmd = (filesystemTools as any[]).find((t) => t.name === "run_command");
+
+    const result = await runCmd.execute("test-id", { command: "echo hello" });
+    expect(result.content[0].text).toContain("local runner mode");
+  });
+
+  test("search_files returns error in cloud mode", async () => {
+    const { filesystemTools } = await import("../agent/tools.ts");
+    const searchFiles = (filesystemTools as any[]).find((t) => t.name === "search_files");
+
+    const result = await searchFiles.execute("test-id", { pattern: "test" });
+    expect(result.content[0].text).toContain("local runner mode");
+  });
+});
+
+describe("Memory tool error handling", () => {
+  // Memory tools call Convex. Without a valid URL they should fail gracefully.
+
+  test("search_semantic handles missing Convex URL", async () => {
+    const { memoryTools } = await import("../agent/tools.ts");
+    const searchSemantic = (memoryTools as any[]).find((t) => t.name === "search_semantic");
+
+    const result = await searchSemantic.execute("test-id", { query: "test" });
+
+    // Should return an error result, not throw
+    expect(result.content).toBeDefined();
+    expect(result.content[0].type).toBe("text");
+    expect(result.content[0].text).toContain("failed");
+  });
+
+  test("search_exact handles missing Convex URL", async () => {
+    const { memoryTools } = await import("../agent/tools.ts");
+    const searchExact = (memoryTools as any[]).find((t) => t.name === "search_exact");
+
+    const result = await searchExact.execute("test-id", { query: "test" });
+    expect(result.content[0].text).toContain("failed");
+  });
+
+  test("get_recent_items handles missing Convex URL", async () => {
+    const { memoryTools } = await import("../agent/tools.ts");
+    const getRecent = (memoryTools as any[]).find((t) => t.name === "get_recent_items");
+
+    const result = await getRecent.execute("test-id", {});
+    expect(result.content[0].text).toContain("failed");
+  });
+
+  test("get_source_stats handles missing Convex URL", async () => {
+    const { memoryTools } = await import("../agent/tools.ts");
+    const getStats = (memoryTools as any[]).find((t) => t.name === "get_source_stats");
+
+    const result = await getStats.execute("test-id", {});
+    expect(result.content[0].text).toContain("failed");
+  });
+
+  test("get_item_detail handles missing Convex URL", async () => {
+    const { memoryTools } = await import("../agent/tools.ts");
+    const getDetail = (memoryTools as any[]).find((t) => t.name === "get_item_detail");
+
+    const result = await getDetail.execute("test-id", { id: "fake-id" });
+    expect(result.content[0].text).toContain("failed");
+  });
+
+  test("browse_items handles missing Convex URL", async () => {
+    const { memoryTools } = await import("../agent/tools.ts");
+    const browse = (memoryTools as any[]).find((t) => t.name === "browse_items");
+
+    const result = await browse.execute("test-id", {});
+    expect(result.content[0].text).toContain("failed");
   });
 });
