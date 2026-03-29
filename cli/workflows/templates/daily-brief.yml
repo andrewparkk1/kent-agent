@@ -1,0 +1,17 @@
+name: daily-brief
+description: Morning summary of calendar, priority messages, and tasks for the day
+runner: auto
+trigger:
+  type: cron
+  schedule: "0 8 * * 1-5" # 8am weekdays
+prompt: |
+  Give me a concise morning briefing. Include:
+  1. Today's calendar events and meetings
+  2. Priority messages that need my attention (urgent or from VIPs)
+  3. Outstanding tasks or follow-ups from yesterday
+  4. Any notable news or updates relevant to my work
+
+  Keep it scannable — use bullet points and bold for key items.
+  Start with "Good morning" and today's date.
+output:
+  target: telegram

@@ -1,0 +1,17 @@
+# This is a config for E2B sandbox template.
+# You can use template ID (zblvwybvz8rfhd787y9c) or template name (kent-agent) to create a sandbox:
+
+# Python SDK
+# from e2b import Sandbox, AsyncSandbox
+# sandbox = Sandbox.create("kent-agent") # Sync sandbox
+# sandbox = await AsyncSandbox.create("kent-agent") # Async sandbox
+
+# JS SDK
+# import { Sandbox } from 'e2b'
+# const sandbox = await Sandbox.create('kent-agent')
+
+team_id = "8d1bfbef-3181-4b72-aa7b-d250515aec92"
+start_cmd = "/bin/bash"
+dockerfile = "Dockerfile"
+template_name = "kent-agent"
+template_id = "zblvwybvz8rfhd787y9c"

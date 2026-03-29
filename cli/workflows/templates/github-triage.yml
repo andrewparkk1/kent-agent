@@ -1,0 +1,18 @@
+name: github-triage
+description: Daily triage of GitHub notifications — PRs, issues, and mentions
+runner: auto
+trigger:
+  type: cron
+  schedule: "0 9 * * 1-5" # 9am weekdays
+prompt: |
+  Triage my GitHub activity from the last 24 hours. For each item, give me:
+
+  1. **PRs needing my review**: Title, repo, who requested, how old, rough size
+  2. **PRs I'm waiting on**: Status of my open PRs — any new comments or approvals?
+  3. **Issues assigned to me**: New issues or updates on existing ones
+  4. **Mentions**: Anywhere I was @-mentioned
+
+  For each item, suggest an action: review, respond, close, defer, or ignore.
+  Sort by urgency. Skip anything I've already responded to.
+output:
+  target: terminal

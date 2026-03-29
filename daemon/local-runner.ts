@@ -1,0 +1,103 @@
+import { join } from "node:path";
+import { mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { BaseRunner, type RunResult, type StreamCallback } from "./runner-base.ts";
+import type { Config } from "@shared/config.ts";
+import { KENT_DIR } from "@shared/config.ts";
+
+export class LocalRunner extends BaseRunner {
+  private config: Config;
+
+  constructor(config: Config) {
+    super();
+    this.config = config;
+  }
+
+  async run(
+    prompt: string,
+    workflowId?: string,
+    streamCallback?: StreamCallback
+  ): Promise<RunResult> {
+    const runId = crypto.randomUUID();
+    const runsDir = join(KENT_DIR, "runs", runId);
+    const outputDir = join(runsDir, "outputs");
+    mkdirSync(outputDir, { recursive: true });
+
+    // Resolve the agent entry point
+    const agentPath = join(
+      import.meta.dir,
+      "..",
+      "agent",
+      "agent.ts"
+    );
+
+    const env: Record<string, string> = {
+      ...process.env as Record<string, string>,
+      ANTHROPIC_API_KEY: this.config.keys.anthropic || process.env.ANTHROPIC_API_KEY || "",
+      CONVEX_URL: this.config.core.convex_url || process.env.CONVEX_URL || "",
+      DEVICE_TOKEN: this.config.core.device_token || process.env.DEVICE_TOKEN || "",
+      RUNNER: "local",
+      RUN_ID: runId,
+      PROMPT: prompt,
+      OUTPUT_DIR: outputDir,
+      MODEL: this.config.agent.default_model,
+      MAX_TURNS: String(this.config.agent.max_turns),
+      KENT_HOME: join(import.meta.dir, ".."),
+      ...(workflowId ? { WORKFLOW_ID: workflowId } : {}),
+    };
+
+    const proc = Bun.spawn(["bun", "run", agentPath], {
+      env,
+      stdout: "pipe",
+      stderr: "pipe",
+      cwd: join(import.meta.dir, ".."),
+    });
+
+    let output = "";
+
+    // Stream stdout
+    const stdoutReader = (async () => {
+      const reader = proc.stdout.getReader();
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        output += chunk;
+        streamCallback?.(chunk);
+      }
+    })();
+
+    // Stream stderr (tool indicators)
+    const stderrReader = (async () => {
+      const reader = proc.stderr.getReader();
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        streamCallback?.(chunk);
+      }
+    })();
+
+    await Promise.all([stdoutReader, stderrReader]);
+    await proc.exited;
+
+    // Collect output files
+    const files: Record<string, string> = {};
+    try {
+      const entries = readdirSync(outputDir);
+      for (const name of entries) {
+        const content = readFileSync(join(outputDir, name), "utf-8");
+        files[name] = content;
+      }
+    } catch {
+      // No output files
+    }
+
+    return { runId, output, files };
+  }
+
+  async kill(): Promise<void> {
+    // Nothing to clean up — subprocess exits when agent finishes
+  }
+}

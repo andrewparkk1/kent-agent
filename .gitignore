@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+bun.lockb
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Kent data
+.kent/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+.cursor/
+.claude/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+npm-debug.log*
+
+# Convex
+backend/.convex/
+
+# E2B
+.e2b/
+
+# Docs
+docs/
+
+# Temp files
+/tmp/
+*.tmp
+
+# Test output
+coverage/
+
+# Bun
+.bun/

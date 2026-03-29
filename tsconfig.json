@@ -1,0 +1,42 @@
+{
+  "compilerOptions": {
+    // Path aliases
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"],
+      "@cli/*": ["./cli/*"],
+      "@daemon/*": ["./daemon/*"],
+      "@agent/*": ["./agent/*"],
+      "@backend/*": ["./backend/*"],
+      "@shared/*": ["./shared/*"]
+    },
+
+    // Environment setup & latest features
+    "lib": ["ESNext"],
+    "target": "ESNext",
+    "module": "Preserve",
+    "moduleDetection": "force",
+    "jsx": "react-jsx",
+    "allowJs": true,
+
+    // Bundler mode
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+
+    // Best practices
+    "strict": true,
+    "skipLibCheck": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+
+    // Some stricter flags (disabled by default)
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noPropertyAccessFromIndexSignature": false
+  },
+  "include": ["cli/**/*", "daemon/**/*", "agent/**/*", "shared/**/*", "scripts/**/*", "index.ts"],
+  "exclude": ["node_modules", "backend", "cli/crypto.ts", "cli/channels"]
+}

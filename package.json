@@ -1,0 +1,43 @@
+{
+  "name": "kent-cli",
+  "version": "0.1.0",
+  "description": "Personal AI agent that runs on your Mac",
+  "module": "cli/index.ts",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "kent": "./cli/index.ts"
+  },
+  "scripts": {
+    "start": "bun run cli/index.ts",
+    "dev": "bun run cli/index.ts",
+    "kent": "bun run cli/index.ts",
+    "init": "bun run cli/index.ts init",
+    "daemon:start": "bun run cli/index.ts daemon start",
+    "daemon:stop": "bun run cli/index.ts daemon stop",
+    "daemon:status": "bun run cli/index.ts daemon status",
+    "sync": "bun run cli/index.ts sync",
+    "mock-data": "bun run scripts/mock-data.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "^19.2.14"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@mariozechner/pi-agent-core": "^0.63.1",
+    "@mariozechner/pi-ai": "^0.63.1",
+    "@sinclair/typebox": "^0.34.49",
+    "convex": "^1.25.2",
+    "e2b": "^2.18.0",
+    "grammy": "^1.41.1",
+    "ink": "^6.8.0",
+    "ink-spinner": "^5.0.0",
+    "react": "^19.2.4",
+    "yaml": "^2.8.3",
+    "zod": "^4.3.6"
+  }
+}
