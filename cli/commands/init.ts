@@ -599,7 +599,11 @@ export async function handleInit(): Promise<void> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         path: "auth:registerDevice",
-        args: { deviceToken, encryptedKeys: "" },
+        args: {
+          deviceToken,
+          encryptedKeys: "",
+          encryptionSalt: Buffer.from(salt).toString("base64"),
+        },
       }),
     });
     if (!response.ok) {
@@ -633,7 +637,7 @@ export async function handleInit(): Promise<void> {
     config.keys.openai = "[encrypted]";
     success("OpenAI key saved");
   } else {
-    warn("Skipped — using Anthropic only");
+    warn("Skipped — semantic search will be unavailable without OpenAI key");
   }
 
   // Encrypt and push keys
@@ -646,7 +650,11 @@ export async function handleInit(): Promise<void> {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           path: "auth:registerDevice",
-          args: { deviceToken, encryptedKeys: encrypted },
+          args: {
+            deviceToken,
+            encryptedKeys: encrypted,
+            encryptionSalt: Buffer.from(salt).toString("base64"),
+          },
         }),
       });
       if (!response.ok) {

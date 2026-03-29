@@ -6,6 +6,7 @@ export default defineSchema({
     deviceToken: v.string(),
     createdAt: v.number(),
     encryptedKeys: v.optional(v.string()),
+    encryptionSalt: v.optional(v.string()), // base64-encoded salt for key decryption
     telegramUserId: v.optional(v.number()),
     telegramUsername: v.optional(v.string()),
   }).index("by_deviceToken", ["deviceToken"]),
@@ -23,6 +24,11 @@ export default defineSchema({
     .index("by_user_source_externalId", ["userId", "source", "externalId"])
     .searchIndex("search_content", {
       searchField: "content",
+      filterFields: ["userId", "source"],
+    })
+    .vectorIndex("by_embedding", {
+      vectorField: "embedding",
+      dimensions: 1536,
       filterFields: ["userId", "source"],
     }),
 

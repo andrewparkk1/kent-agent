@@ -14,7 +14,6 @@ export const batchUpsert = mutation({
         externalId: v.string(),
         content: v.string(),
         metadata: v.any(),
-        embedding: v.optional(v.array(v.number())),
         createdAt: v.optional(v.number()),
       })
     ),
@@ -39,7 +38,6 @@ export const batchUpsert = mutation({
         await ctx.db.patch(existing._id, {
           content: item.content,
           metadata: item.metadata,
-          embedding: item.embedding,
           indexedAt: Date.now(),
         });
         upserted.push(existing._id);
@@ -50,7 +48,6 @@ export const batchUpsert = mutation({
           externalId: item.externalId,
           content: item.content,
           metadata: item.metadata,
-          embedding: item.embedding,
           createdAt: item.createdAt ?? Date.now(),
           indexedAt: Date.now(),
         });
@@ -58,26 +55,43 @@ export const batchUpsert = mutation({
       }
     }
 
+    // Schedule async embedding generation for new/updated items
+    if (upserted.length > 0) {
+      await ctx.scheduler.runAfter(0, internal.embeddings.embedItems, {
+        ids: upserted,
+      });
+    }
+
     return { upserted: upserted.length };
   },
 });
 
-// ── Internal query: get user + items for actions ────────────────────────
-export const getUserAndItems = internalQuery({
-  args: { deviceToken: v.string() },
+// ── Internal: fetch items by IDs (used by searchSemantic action) ────────
+export const fetchItemsByIds = internalQuery({
+  args: { ids: v.array(v.id("items")) },
   handler: async (ctx, args) => {
-    const user = await getUserByToken(ctx, args.deviceToken);
-    const items = await ctx.db
-      .query("items")
-      .withIndex("by_user_source_externalId", (q) =>
-        q.eq("userId", user._id)
-      )
-      .collect();
-    return { user, items };
+    const results = [];
+    for (const id of args.ids) {
+      const item = await ctx.db.get(id);
+      if (item) {
+        const { embedding, ...rest } = item;
+        results.push(rest);
+      }
+    }
+    return results;
   },
 });
 
-// ── searchSemantic (action — calls OpenAI for embedding) ────────────────
+// ── Internal: resolve deviceToken → userId ─────────────────────────────
+export const resolveUserId = internalQuery({
+  args: { deviceToken: v.string() },
+  handler: async (ctx, args) => {
+    const user = await getUserByToken(ctx, args.deviceToken);
+    return user._id;
+  },
+});
+
+// ── searchSemantic (action — OpenAI embedding + Convex vector index) ───
 export const searchSemantic = action({
   args: {
     deviceToken: v.string(),
@@ -88,23 +102,18 @@ export const searchSemantic = action({
   handler: async (ctx, args) => {
     const topK = args.topK ?? 10;
 
-    // Fetch user + items via internal query
-    const { user, items } = await ctx.runQuery(
-      internal.items.getUserAndItems,
-      { deviceToken: args.deviceToken }
-    );
-
-    // Get user's encrypted keys to find OpenAI key
-    // The action decrypts on the server side is NOT done here —
-    // the CLI must pass the OpenAI key or we read it from env.
-    // For BYOK: the client calls with their own embedding, or
-    // we use the OPENAI_API_KEY env var set in Convex dashboard.
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
       throw new Error(
         "OPENAI_API_KEY not configured. Set it in Convex environment variables."
       );
     }
+
+    // Resolve userId from deviceToken
+    const userId: Id<"users"> = await ctx.runQuery(
+      internal.items.resolveUserId,
+      { deviceToken: args.deviceToken }
+    );
 
     // Get embedding for the query
     const embeddingResponse = await fetch(
@@ -131,38 +140,29 @@ export const searchSemantic = action({
     const embeddingData = await embeddingResponse.json();
     const queryEmbedding: number[] = embeddingData.data[0].embedding;
 
-    // Filter items that have embeddings (and optionally by source)
-    const candidates = items.filter(
-      (item) =>
-        item.embedding &&
-        item.embedding.length > 0 &&
-        (!args.source || item.source === args.source)
+    // Use Convex native vector search (filter by userId for security)
+    // Fetch extra results if source-filtering, since we post-filter
+    const searchLimit = args.source ? topK * 3 : topK;
+    const results = await ctx.vectorSearch("items", "by_embedding", {
+      vector: queryEmbedding,
+      limit: searchLimit,
+      filter: (q: any) => q.eq("userId", userId),
+    });
+
+    // Fetch full documents by ID
+    const items: Array<Record<string, any>> = await ctx.runQuery(
+      internal.items.fetchItemsByIds,
+      { ids: results.map((r: any) => r._id) }
     );
 
-    // Compute cosine similarity
-    const scored = candidates.map((item) => ({
-      ...item,
-      score: cosineSimilarity(queryEmbedding, item.embedding!),
-    }));
+    // Post-filter by source if requested
+    const filtered = args.source
+      ? items.filter((item) => item.source === args.source)
+      : items;
 
-    // Sort descending by score, take top-k
-    scored.sort((a, b) => b.score - a.score);
-    return scored.slice(0, topK).map(({ embedding, ...rest }) => rest);
+    return filtered.slice(0, topK);
   },
 });
-
-function cosineSimilarity(a: number[], b: number[]): number {
-  let dot = 0;
-  let normA = 0;
-  let normB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
-  }
-  const denom = Math.sqrt(normA) * Math.sqrt(normB);
-  return denom === 0 ? 0 : dot / denom;
-}
 
 // ── searchFTS (full-text search via Convex search index) ────────────────
 export const searchFTS = query({
@@ -188,7 +188,7 @@ export const searchFTS = query({
       });
 
     const results = await searchQuery.take(limit);
-    return results.map(({ embedding, ...rest }) => rest);
+    return results;
   },
 });
 
@@ -238,7 +238,7 @@ export const browse = query({
     });
 
     return {
-      page: filtered.map(({ embedding, ...rest }) => rest),
+      page: filtered,
       isDone: results.isDone,
       continueCursor: results.continueCursor,
     };

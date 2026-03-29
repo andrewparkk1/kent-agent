@@ -21,4 +21,12 @@ crons.interval(
   internal.workflowRunner.tick,
 );
 
+// Backfill embeddings: runs every 5 minutes, picks up items without
+// embeddings (failures, pre-existing data, etc.) and generates them.
+crons.interval(
+  "backfill-embeddings",
+  { minutes: 5 },
+  internal.embeddings.backfillEmbeddings,
+);
+
 export default crons;

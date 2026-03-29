@@ -37,6 +37,7 @@ export const registerDevice = mutation({
   args: {
     deviceToken: v.string(),
     encryptedKeys: v.string(),
+    encryptionSalt: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -45,15 +46,16 @@ export const registerDevice = mutation({
       .unique();
 
     if (existing) {
-      await ctx.db.patch(existing._id, {
-        encryptedKeys: args.encryptedKeys,
-      });
+      const patch: Record<string, string> = { encryptedKeys: args.encryptedKeys };
+      if (args.encryptionSalt) patch.encryptionSalt = args.encryptionSalt;
+      await ctx.db.patch(existing._id, patch);
       return existing._id;
     }
 
     return await ctx.db.insert("users", {
       deviceToken: args.deviceToken,
       encryptedKeys: args.encryptedKeys,
+      encryptionSalt: args.encryptionSalt,
       createdAt: Date.now(),
     });
   },

@@ -2,9 +2,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-// Kent hosted infrastructure — users don't configure these
-export const KENT_CONVEX_URL = "https://brave-armadillo-395.convex.cloud";
-export const KENT_TELEGRAM_BOT = "kent_personal_bot"; // @kent_personal_bot on Telegram
+// Kent hosted infrastructure — reads from .env (Bun auto-loads)
+export const KENT_CONVEX_URL_DEV = process.env.KENT_CONVEX_URL_DEV ?? "";
+export const KENT_CONVEX_URL_PROD = process.env.KENT_CONVEX_URL ?? "";
+export const KENT_CONVEX_URL = process.env.KENT_ENV === "dev" ? KENT_CONVEX_URL_DEV : KENT_CONVEX_URL_PROD;
+export const KENT_TELEGRAM_BOT = process.env.KENT_TELEGRAM_BOT ?? "";
 
 export interface Config {
   core: {

@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 
 /**
@@ -58,5 +58,20 @@ export const checkLink = query({
       userId: user.telegramUserId,
       username: user.telegramUsername ?? undefined,
     };
+  },
+});
+
+/**
+ * Look up a user by their linked Telegram ID.
+ * Internal-only — used by the agent runner action.
+ */
+export const getUserByTelegramId = internalQuery({
+  args: {
+    telegramUserId: v.number(),
+  },
+  handler: async (ctx, args) => {
+    // No index on telegramUserId, so we scan — fine for low user count
+    const users = await ctx.db.query("users").collect();
+    return users.find((u) => u.telegramUserId === args.telegramUserId) ?? null;
   },
 });
