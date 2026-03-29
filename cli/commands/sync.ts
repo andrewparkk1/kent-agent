@@ -57,28 +57,35 @@ export async function handleSync(args: string[]): Promise<void> {
     }
   }
 
-  // Run sync for each source
-  for (const source of sourcesToSync) {
-    try {
+  // Fetch all sources in parallel, then upload batches
+  const { ConvexHttpClient } = await import("convex/browser");
+  const client = new ConvexHttpClient(KENT_CONVEX_URL);
+  const BATCH_SIZE = 100;
+
+  const results = await Promise.allSettled(
+    sourcesToSync.map(async (source) => {
       const items = await source.fetchNew(state);
       console.log(`Syncing ${source.name}... ${items.length} new items`);
 
       if (items.length > 0) {
-        {
-          // Use the SyncEngine's Convex client approach
-          const { ConvexHttpClient } = await import("convex/browser");
-          const client = new ConvexHttpClient(KENT_CONVEX_URL);
+        // Batch uploads to stay within Convex read limits (4096 per mutation)
+        for (let i = 0; i < items.length; i += BATCH_SIZE) {
+          const batch = items.slice(i, i + BATCH_SIZE);
           await client.mutation("items:batchUpsert" as any, {
             deviceToken: config.core.device_token,
-            items,
+            items: batch,
           });
         }
       }
 
       state.markSynced(source.name);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`Error syncing ${source.name}: ${msg}`);
+      return { source: source.name, count: items.length };
+    })
+  );
+
+  for (const result of results) {
+    if (result.status === "rejected") {
+      console.error(`Error syncing: ${result.reason}`);
     }
   }
 

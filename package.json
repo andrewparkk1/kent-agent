@@ -18,7 +18,8 @@
     "daemon:status": "bun run cli/index.ts daemon status",
     "sync": "bun run cli/index.ts sync",
     "mock-data": "bun run scripts/mock-data.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "cleanup": "rm -rf ~/.kent"
   },
   "devDependencies": {
     "@types/bun": "latest",
@@ -31,6 +32,7 @@
     "@mariozechner/pi-agent-core": "^0.63.1",
     "@mariozechner/pi-ai": "^0.63.1",
     "@sinclair/typebox": "^0.34.49",
+    "better-sqlite3-multiple-ciphers": "^12.8.0",
     "convex": "^1.25.2",
     "e2b": "^2.18.0",
     "grammy": "^1.41.1",
@@ -39,5 +41,8 @@
     "react": "^19.2.4",
     "yaml": "^2.8.3",
     "zod": "^4.3.6"
-  }
+  },
+  "trustedDependencies": [
+    "better-sqlite3-multiple-ciphers"
+  ]
 }

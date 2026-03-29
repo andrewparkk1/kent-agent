@@ -1,10 +1,22 @@
 import type { Source, SyncState, Item } from "./types";
 
+// Ensure brew-installed CLIs are discoverable
+function buildCliEnv(): Record<string, string> {
+  const base = process.env.PATH ?? "/usr/bin:/bin:/usr/sbin:/sbin";
+  const prefixes = ["/opt/homebrew/bin", "/usr/local/bin"];
+  const missing = prefixes.filter((p) => !base.includes(p));
+  const PATH = missing.length > 0 ? `${missing.join(":")}:${base}` : base;
+  return { ...process.env, PATH } as Record<string, string>;
+}
+
+const CLI_ENV = buildCliEnv();
+
 async function runGh(args: string[]): Promise<string | null> {
   try {
     const proc = Bun.spawn(["gh", ...args], {
       stdout: "pipe",
       stderr: "pipe",
+      env: CLI_ENV,
     });
     const stdout = await new Response(proc.stdout).text();
     const exitCode = await proc.exited;
