@@ -14,5 +14,3 @@ prompt: |
 
   For each item, suggest an action: review, respond, close, defer, or ignore.
   Sort by urgency. Skip anything I've already responded to.
-output:
-  target: terminal

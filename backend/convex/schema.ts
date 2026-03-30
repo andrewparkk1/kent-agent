@@ -39,25 +39,39 @@ export default defineSchema({
     runner: v.optional(v.string()),
     cronSchedule: v.optional(v.string()),
     triggerSource: v.optional(v.string()),
-    outputTarget: v.string(),
     enabled: v.boolean(),
   }).index("by_userId", ["userId"]),
+
+  threads: defineTable({
+    userId: v.id("users"),
+    title: v.optional(v.string()),
+    channel: v.string(), // "cli", "telegram", "api"
+    channelId: v.optional(v.string()), // e.g. telegram chat ID
+    createdAt: v.number(),
+    lastMessageAt: v.number(),
+  })
+    .index("by_userId_and_lastMessageAt", ["userId", "lastMessageAt"])
+    .index("by_userId_and_channel_and_channelId", ["userId", "channel", "channelId"]),
 
   runs: defineTable({
     userId: v.id("users"),
     workflowId: v.optional(v.id("workflows")),
     prompt: v.string(),
     status: v.string(),
+    output: v.optional(v.string()),
     startedAt: v.number(),
     finishedAt: v.optional(v.number()),
   }).index("by_userId", ["userId"]),
 
   messages: defineTable({
-    runId: v.id("runs"),
+    threadId: v.optional(v.id("threads")),
+    runId: v.optional(v.id("runs")),
     role: v.string(),
     content: v.string(),
     toolName: v.optional(v.string()),
     toolArgs: v.optional(v.any()),
     createdAt: v.number(),
-  }).index("by_run_createdAt", ["runId", "createdAt"]),
+  })
+    .index("by_thread_and_createdAt", ["threadId", "createdAt"])
+    .index("by_run_and_createdAt", ["runId", "createdAt"]),
 });

@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { mkdirSync, readdirSync, readFileSync } from "node:fs";
-import { BaseRunner, type RunResult, type StreamCallback } from "./runner-base.ts";
+import { BaseRunner, type RunResult, type StreamCallback, type TypedStreamCallback } from "./runner-base.ts";
 import type { Config } from "@shared/config.ts";
 import { KENT_DIR, CONVEX_URL } from "@shared/config.ts";
 
@@ -15,7 +15,8 @@ export class LocalRunner extends BaseRunner {
   async run(
     prompt: string,
     workflowId?: string,
-    streamCallback?: StreamCallback
+    streamCallback?: StreamCallback | TypedStreamCallback,
+    options?: { threadId?: string }
   ): Promise<RunResult> {
     const runId = crypto.randomUUID();
     const runsDir = join(KENT_DIR, "runs", runId);
@@ -43,6 +44,7 @@ export class LocalRunner extends BaseRunner {
       MAX_TURNS: String(this.config.agent.max_turns),
       KENT_HOME: join(import.meta.dir, ".."),
       ...(workflowId ? { WORKFLOW_ID: workflowId } : {}),
+      ...(options?.threadId ? { THREAD_ID: options.threadId } : {}),
     };
 
     const proc = Bun.spawn(["bun", "run", agentPath], {
@@ -54,6 +56,13 @@ export class LocalRunner extends BaseRunner {
 
     let output = "";
 
+    // Detect if callback accepts typed args (2 params) or legacy (1 param)
+    const emit = streamCallback
+      ? streamCallback.length >= 2
+        ? (chunk: string, type: "text" | "tool") => (streamCallback as TypedStreamCallback)(chunk, type)
+        : (chunk: string, _type: "text" | "tool") => (streamCallback as StreamCallback)(chunk)
+      : null;
+
     // Stream stdout
     const stdoutReader = (async () => {
       const reader = proc.stdout.getReader();
@@ -63,7 +72,7 @@ export class LocalRunner extends BaseRunner {
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
         output += chunk;
-        streamCallback?.(chunk);
+        emit?.(chunk, "text");
       }
     })();
 
@@ -75,7 +84,7 @@ export class LocalRunner extends BaseRunner {
         const { done, value } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
-        streamCallback?.(chunk);
+        emit?.(chunk, "tool");
       }
     })();
 

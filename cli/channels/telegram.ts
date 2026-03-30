@@ -148,31 +148,60 @@ export class TelegramChannel implements Channel {
       const prompt = ctx.message.text;
       console.log(`[telegram] Message from ${userId}: ${prompt.slice(0, 80)}...`);
 
-      // Send "thinking..." indicator
-      const thinking = await ctx.reply("thinking...", {
+      // Send "thinking..." indicator — will be updated with tool call activity
+      const thinking = await ctx.reply("🔄 thinking...", {
         reply_parameters: { message_id: ctx.message.message_id },
       });
 
-      try {
-        const response = await this.runPrompt(prompt);
+      // Track tool calls and update the thinking message with progress
+      const toolLines: string[] = [];
 
-        // Delete the "thinking..." message
-        try {
-          await ctx.api.deleteMessage(ctx.chat.id, thinking.message_id);
-        } catch {
-          // Ignore if we can't delete it
+      try {
+        let lastEditTime = 0;
+        const EDIT_THROTTLE_MS = 1500; // Telegram rate limits edits
+
+        const response = await this.runPrompt(prompt, (toolChunk: string) => {
+          const trimmed = toolChunk.trim();
+          if (!trimmed) return;
+          toolLines.push(trimmed);
+
+          // Throttle edits to avoid Telegram rate limits
+          const now = Date.now();
+          if (now - lastEditTime < EDIT_THROTTLE_MS) return;
+          lastEditTime = now;
+
+          const recent = toolLines.slice(-5);
+          const statusText = `🔄 working...\n\n${recent.join("\n")}`;
+
+          ctx.api
+            .editMessageText(ctx.chat.id, thinking.message_id, statusText)
+            .catch(() => {});
+        });
+
+        // Finalize the tool call message with the complete log
+        if (toolLines.length > 0) {
+          const finalToolText = `🔧 tool calls:\n\n${toolLines.join("\n")}`;
+          await ctx.api
+            .editMessageText(ctx.chat.id, thinking.message_id, finalToolText)
+            .catch(() => {});
+        } else {
+          // No tool calls happened — remove the thinking message
+          await ctx.api.deleteMessage(ctx.chat.id, thinking.message_id).catch(() => {});
         }
 
-        // Split response into 4096-char chunks (Telegram message limit)
+        // Send the actual response
         await this.sendChunked(ctx.chat.id, response, ctx.message.message_id);
       } catch (err) {
         const errorMsg =
           err instanceof Error ? err.message : "Unknown error occurred";
 
-        try {
-          await ctx.api.deleteMessage(ctx.chat.id, thinking.message_id);
-        } catch {
-          // Ignore
+        // Finalize tool call message if any tool calls happened
+        if (toolLines.length > 0) {
+          await ctx.api
+            .editMessageText(ctx.chat.id, thinking.message_id, `🔧 tool calls:\n\n${toolLines.join("\n")}`)
+            .catch(() => {});
+        } else {
+          await ctx.api.deleteMessage(ctx.chat.id, thinking.message_id).catch(() => {});
         }
 
         await ctx.reply(`Error: ${errorMsg}`, {
@@ -196,6 +225,8 @@ export class TelegramChannel implements Channel {
         `File received. Processing with prompt: "${caption.slice(0, 50)}..."`,
       );
 
+      const toolLines: string[] = [];
+
       try {
         const doc = ctx.message.document;
         const file = await ctx.api.getFile(doc.file_id);
@@ -204,22 +235,47 @@ export class TelegramChannel implements Channel {
         const fileContent = await fileResponse.text();
 
         const promptWithFile = `${caption}\n\n--- File: ${doc.file_name ?? "unknown"} ---\n${fileContent}`;
-        const response = await this.runPrompt(promptWithFile);
 
-        try {
-          await ctx.api.deleteMessage(ctx.chat.id, thinking.message_id);
-        } catch {
-          // Ignore if we can't delete it
+        let lastEditTime = 0;
+        const EDIT_THROTTLE_MS = 1500;
+
+        const response = await this.runPrompt(promptWithFile, (toolChunk: string) => {
+          const trimmed = toolChunk.trim();
+          if (!trimmed) return;
+          toolLines.push(trimmed);
+
+          const now = Date.now();
+          if (now - lastEditTime < EDIT_THROTTLE_MS) return;
+          lastEditTime = now;
+
+          const recent = toolLines.slice(-5);
+          const statusText = `🔄 working...\n\n${recent.join("\n")}`;
+          ctx.api
+            .editMessageText(ctx.chat.id, thinking.message_id, statusText)
+            .catch(() => {});
+        });
+
+        // Finalize the tool call message with the complete log
+        if (toolLines.length > 0) {
+          await ctx.api
+            .editMessageText(ctx.chat.id, thinking.message_id, `🔧 tool calls:\n\n${toolLines.join("\n")}`)
+            .catch(() => {});
+        } else {
+          await ctx.api.deleteMessage(ctx.chat.id, thinking.message_id).catch(() => {});
         }
 
         await this.sendChunked(ctx.chat.id, response, ctx.message.message_id);
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : "Unknown error occurred";
-        try {
-          await ctx.api.deleteMessage(ctx.chat.id, thinking.message_id);
-        } catch {
-          // Ignore
+
+        if (toolLines.length > 0) {
+          await ctx.api
+            .editMessageText(ctx.chat.id, thinking.message_id, `🔧 tool calls:\n\n${toolLines.join("\n")}`)
+            .catch(() => {});
+        } else {
+          await ctx.api.deleteMessage(ctx.chat.id, thinking.message_id).catch(() => {});
         }
+
         await ctx.reply(`Error processing file: ${errorMsg}`, {
           reply_parameters: { message_id: ctx.message.message_id },
         });
@@ -284,12 +340,35 @@ export class TelegramChannel implements Channel {
    * Uses dynamic import to avoid circular deps and to pick up whatever
    * runner is configured (local, cloud, auto).
    */
-  private async runPrompt(prompt: string): Promise<string> {
+  /**
+   * Run a prompt through the agent runner.
+   * Uses dynamic import to avoid circular deps and to pick up whatever
+   * runner is configured (local, cloud, auto).
+   *
+   * Returns { output, toolCalls } so callers can display tool activity.
+   */
+  private async runPrompt(
+    prompt: string,
+    onToolEvent?: (line: string) => void,
+  ): Promise<string> {
     const { getRunner } = await import("@daemon/runner.ts");
     const config = loadConfig();
     const runner = getRunner(config);
-    const result = await runner.run(prompt, undefined, undefined);
-    return result.output;
+
+    let output = "";
+    const result = await runner.run(
+      prompt,
+      undefined,
+      (chunk: string, type: "text" | "tool") => {
+        if (type === "text") {
+          output += chunk;
+        } else if (type === "tool") {
+          onToolEvent?.(chunk);
+        }
+      },
+    );
+
+    return output || result.output;
   }
 
   /**

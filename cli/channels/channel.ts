@@ -47,6 +47,33 @@ export function listChannelNames(): string[] {
   return Array.from(channelRegistry.keys());
 }
 
+/**
+ * Broadcast a message to all registered channels.
+ * Failures on individual channels are logged but don't block others.
+ * Always prints to terminal as the baseline.
+ */
+export async function broadcastAll(message: string, runId?: string): Promise<void> {
+  // Always print to terminal (the caller is running in CLI context)
+  console.log("\n--- Workflow Output ---\n");
+  console.log(message);
+
+  // Fan out to all registered channels
+  const channels = listChannelNames();
+  const results = await Promise.allSettled(
+    channels.map(async (name) => {
+      try {
+        const channel = await getChannel(name);
+        await channel.notify(message, runId);
+        console.log(`[broadcast] Sent to ${name}`);
+      } catch (err) {
+        console.error(
+          `[broadcast] Failed to send to ${name}: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }),
+  );
+}
+
 // ── Register built-in channels ───────────────────────────────────────────
 registerChannel("telegram", async () => {
   const { TelegramChannel } = await import("./telegram.ts");

@@ -370,7 +370,7 @@ const SOURCES: SourceInfo[] = [
           if (status.token_valid) return { ok: true, message: `authenticated as ${status.user}` };
           return { ok: true, message: "gws found (needs auth)" };
         }
-      } catch {}
+      } catch { }
       return { ok: true, message: "gws found (needs setup)" };
     },
     collectCreds: async () => {
@@ -397,9 +397,9 @@ const SOURCES: SourceInfo[] = [
               success(`Gmail: authenticated as ${status.user}`);
               return {};
             }
-          } catch {}
+          } catch { }
         }
-      } catch {}
+      } catch { }
 
       // Check if OAuth client is set up (credentials.json exists)
       const hasCredentials = existsSync(
@@ -454,7 +454,7 @@ const SOURCES: SourceInfo[] = [
           const user = match?.[1] ?? "✓";
           return { ok: true, message: `authenticated as ${user}` };
         }
-      } catch {}
+      } catch { }
       return { ok: true, message: "gh found (needs auth)" };
     },
     collectCreds: async () => {
@@ -477,7 +477,7 @@ const SOURCES: SourceInfo[] = [
           success("GitHub: already authenticated");
           return {};
         }
-      } catch {}
+      } catch { }
 
       // Not authenticated — run auth automatically
       info("Opening GitHub OAuth in your browser...");
@@ -637,7 +637,7 @@ export async function handleInit(): Promise<void> {
     config.keys.openai = "[encrypted]";
     success("OpenAI key saved");
   } else {
-    warn("Skipped — semantic search will be unavailable without OpenAI key");
+    warn("No OpenAI key provided. Add one later with: kent init");
   }
 
   // Encrypt and push keys

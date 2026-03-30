@@ -3,6 +3,7 @@ import { render, Box, Text, Static, useInput, useApp, useStdout } from "ink";
 import Spinner from "ink-spinner";
 import { loadConfig, saveConfig } from "@shared/config.ts";
 import { getRunner } from "@daemon/runner.ts";
+import { threads } from "@shared/convex-client.ts";
 import type { Config } from "@shared/config.ts";
 import type { BaseRunner } from "@daemon/runner-base.ts";
 
@@ -202,6 +203,9 @@ const HELP_TEXT = `
     /sync [source]          Trigger a sync
     /status                 Show daemon status
     /workflow list|run      Manage workflows
+    /threads                List recent threads
+    /thread new             Start a new thread
+    /thread <number>        Switch to thread
     /model <name>           Switch model
     /runner local|cloud     Switch runner
     /clear                  Clear history
@@ -236,6 +240,62 @@ function App({
   const promptHistoryRef = useRef<string[]>([]);
   const historyIndexRef = useRef(-1);
   const conversationRef = useRef<Array<{ role: "user" | "assistant"; content: string }>>([]);
+  const threadIdRef = useRef<string | null>(null);
+  const deviceTokenRef = useRef(initialConfig.core.device_token);
+
+  // Initialize thread on mount
+  useEffect(() => {
+    const deviceToken = deviceTokenRef.current;
+    if (!deviceToken) return;
+
+    (async () => {
+      try {
+        const recent = await threads.getRecent(deviceToken, "cli", 1);
+        if (recent.length > 0) {
+          const latest = recent[0]!;
+          const hoursSince = (Date.now() - latest.lastMessageAt) / (1000 * 60 * 60);
+          if (hoursSince < 24) {
+            threadIdRef.current = latest._id;
+            const msgs = await threads.getMessages(deviceToken, latest._id);
+            const history = msgs
+              .filter((m) => m.role === "user" || m.role === "assistant")
+              .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+            conversationRef.current = history;
+            if (history.length > 0) {
+              for (const m of history) {
+                setMessages((prev) => [
+                  ...prev,
+                  { id: nextId(), role: m.role, content: m.content },
+                ]);
+              }
+            }
+            const title = latest.title || "(untitled)";
+            setMessages((prev) => [
+              ...prev,
+              { id: nextId(), role: "system", content: `  Resumed thread: ${title} (${history.length} messages)` },
+            ]);
+          } else {
+            threadIdRef.current = await threads.create(deviceToken, "cli");
+            setMessages((prev) => [
+              ...prev,
+              { id: nextId(), role: "system", content: "  Started new thread." },
+            ]);
+          }
+        } else {
+          threadIdRef.current = await threads.create(deviceToken, "cli");
+          setMessages((prev) => [
+            ...prev,
+            { id: nextId(), role: "system", content: "  Started new thread." },
+          ]);
+        }
+      } catch {
+        setMessages((prev) => [
+          ...prev,
+          { id: nextId(), role: "system", content: "  (offline — thread history unavailable)" },
+        ]);
+      }
+    })();
+  }, []);
 
   const addMessage = useCallback(
     (role: Message["role"], content: string) => {
@@ -374,6 +434,86 @@ function App({
           return;
         }
 
+        case "/threads": {
+          const deviceToken = deviceTokenRef.current;
+          if (!deviceToken) {
+            addMessage("system", "  [no device token — run `kent init` first]");
+            return;
+          }
+          try {
+            const recentThreads = await threads.getRecent(deviceToken, "cli", 10);
+            if (recentThreads.length === 0) {
+              addMessage("system", "  [no threads yet]");
+            } else {
+              const lines = recentThreads.map((t, i) => {
+                const active = threadIdRef.current === t._id ? " ←" : "";
+                const title = t.title || "(untitled)";
+                const date = new Date(t.lastMessageAt).toLocaleDateString();
+                return `  ${i + 1}. ${title}  (${date})${active}`;
+              });
+              addMessage(
+                "system",
+                `  Recent threads:\n${lines.join("\n")}\n\n  Use /thread <number> to switch, /thread new to start fresh.`,
+              );
+            }
+          } catch (err) {
+            addMessage("system", `  [failed to list threads: ${err instanceof Error ? err.message : err}]`);
+          }
+          return;
+        }
+
+        case "/thread": {
+          const sub = parts[1];
+          const deviceToken = deviceTokenRef.current;
+          if (!deviceToken) {
+            addMessage("system", "  [no device token — run `kent init` first]");
+            return;
+          }
+
+          if (sub === "new") {
+            try {
+              threadIdRef.current = await threads.create(deviceToken, "cli");
+              conversationRef.current = [];
+              setMessages([]);
+              addMessage("system", "  [started new thread]");
+            } catch (err) {
+              addMessage("system", `  [failed: ${err instanceof Error ? err.message : err}]`);
+            }
+            return;
+          }
+
+          const num = parseInt(sub || "", 10);
+          if (isNaN(num) || num < 1) {
+            addMessage("system", "  Usage: /thread new | /thread <number>");
+            return;
+          }
+
+          try {
+            const recentThreads = await threads.getRecent(deviceToken, "cli", 10);
+            if (num > recentThreads.length) {
+              addMessage("system", `  [thread ${num} not found]`);
+              return;
+            }
+            const selected = recentThreads[num - 1]!;
+            threadIdRef.current = selected._id;
+
+            const msgs = await threads.getMessages(deviceToken, selected._id);
+            conversationRef.current = msgs
+              .filter((m) => m.role === "user" || m.role === "assistant")
+              .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+
+            setMessages([]);
+            for (const m of conversationRef.current) {
+              addMessage(m.role, m.content);
+            }
+            const title = selected.title || "(untitled)";
+            addMessage("system", `  [switched to: ${title} — ${conversationRef.current.length} messages]`);
+          } catch (err) {
+            addMessage("system", `  [failed: ${err instanceof Error ? err.message : err}]`);
+          }
+          return;
+        }
+
         case "/model": {
           const modelName = parts[1];
           if (!modelName) {
@@ -444,6 +584,13 @@ function App({
 
       // Build conversation context
       conversationRef.current.push({ role: "user", content: trimmed });
+
+      // Persist user message to thread
+      const deviceToken = deviceTokenRef.current;
+      if (threadIdRef.current && deviceToken) {
+        threads.addMessage(deviceToken, threadIdRef.current, "user", trimmed).catch(() => {});
+      }
+
       const fullPrompt = conversationRef.current
         .map(
           (msg) =>
@@ -469,6 +616,7 @@ function App({
             output += chunk;
             setCurrentStreamText((prev) => prev + chunk);
           },
+          { threadId: threadIdRef.current ?? undefined },
         );
 
         if (!cancelled) {
@@ -477,14 +625,20 @@ function App({
             output = result.output;
           }
 
+          const assistantContent = output || result.output;
           conversationRef.current.push({
             role: "assistant",
-            content: output || result.output,
+            content: assistantContent,
           });
+
+          // Persist assistant message to thread
+          if (threadIdRef.current && deviceToken && assistantContent) {
+            threads.addMessage(deviceToken, threadIdRef.current, "assistant", assistantContent).catch(() => {});
+          }
 
           // Finalize: move stream text into a permanent message
           setCurrentStreamText("");
-          addMessage("assistant", output || result.output || "[no response]");
+          addMessage("assistant", assistantContent || "[no response]");
         }
       } catch (err) {
         if (!cancelled) {

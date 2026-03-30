@@ -13,6 +13,7 @@ const CONVEX_URL = process.env.CONVEX_URL ?? "";
 const DEVICE_TOKEN = process.env.DEVICE_TOKEN ?? "";
 const RUN_ID = process.env.RUN_ID ?? "";
 const PROMPT = process.env.PROMPT ?? "";
+const THREAD_ID = process.env.THREAD_ID ?? "";
 const OUTPUT_DIR = process.env.OUTPUT_DIR ?? "/outputs";
 const RUNNER = process.env.RUNNER ?? "cloud";
 const MAX_TURNS = parseInt(process.env.MAX_TURNS ?? "20", 10);
@@ -101,6 +102,43 @@ async function buildSystemPrompt(): Promise<string> {
 // Main
 // ---------------------------------------------------------------------------
 
+/**
+ * Load conversation history from a thread via Convex.
+ * Returns messages as Human/Assistant pairs for context injection.
+ */
+async function loadThreadHistory(): Promise<string> {
+  if (!THREAD_ID || !CONVEX_URL || !DEVICE_TOKEN) return "";
+
+  try {
+    const url = CONVEX_URL.replace(/\/$/, "");
+    const res = await fetch(`${url}/api/query`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        path: "threads:getMessages",
+        args: { deviceToken: DEVICE_TOKEN, threadId: THREAD_ID, limit: 50 },
+      }),
+    });
+
+    if (!res.ok) return "";
+
+    const data = (await res.json()) as { status: string; value?: unknown };
+    if (data.status === "error" || !data.value) return "";
+
+    const messages = data.value as Array<{ role: string; content: string }>;
+    if (messages.length === 0) return "";
+
+    const lines = messages
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .map((m) => `${m.role === "user" ? "Human" : "Assistant"}: ${m.content}`)
+      .join("\n\n");
+
+    return `## Previous Conversation\n${lines}\n\n---\n\n`;
+  } catch {
+    return "";
+  }
+}
+
 async function run(): Promise<void> {
   if (!PROMPT) {
     console.error("No PROMPT provided");
@@ -108,6 +146,12 @@ async function run(): Promise<void> {
   }
 
   const systemPrompt = await buildSystemPrompt();
+
+  // Load thread history and prepend to prompt
+  const threadHistory = await loadThreadHistory();
+  const fullPrompt = threadHistory
+    ? `${threadHistory}Human: ${PROMPT}`
+    : PROMPT;
 
   // Resolve model — default to Anthropic Claude Sonnet
   const model = getModel("anthropic", MODEL_NAME as any);
@@ -162,7 +206,7 @@ async function run(): Promise<void> {
   });
 
   try {
-    await agent.prompt(PROMPT);
+    await agent.prompt(fullPrompt);
   } finally {
     unsub();
   }

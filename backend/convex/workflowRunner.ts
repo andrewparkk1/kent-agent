@@ -38,12 +38,11 @@ export const tick = internalAction({
           prompt: wf.prompt,
         });
 
-        // In a full implementation, this would:
-        // 1. Call the agent runner (cloud or local)
-        // 2. Route the output to the correct channel
-        // For now, we log it and create the run record.
+        // TODO: Call agent runner and broadcast output to all channels
+        // For now, we create the run record. The CLI daemon or cloud runner
+        // will pick up pending runs and execute them.
         console.log(
-          `[workflow-tick] Created run for "${wf.name}" → ${wf.outputTarget}`,
+          `[workflow-tick] Created run for "${wf.name}"`,
         );
       }
     }

@@ -15,10 +15,6 @@ interface WorkflowYaml {
     event?: string;
   };
   prompt: string;
-  output: {
-    target: "telegram" | "terminal" | "file";
-    path?: string;
-  };
 }
 
 interface ConvexWorkflow {
@@ -28,7 +24,6 @@ interface ConvexWorkflow {
   runner?: string;
   cronSchedule?: string;
   triggerSource?: string;
-  outputTarget: string;
   enabled: boolean;
 }
 
@@ -111,8 +106,8 @@ async function workflowPush(args: string[]): Promise<void> {
       const raw = readFileSync(file, "utf-8");
       const wf = parseYaml(raw) as WorkflowYaml;
 
-      if (!wf.name || !wf.prompt || !wf.output?.target) {
-        console.error(`  [skip] ${basename(file)}: missing required fields (name, prompt, output.target)`);
+      if (!wf.name || !wf.prompt) {
+        console.error(`  [skip] ${basename(file)}: missing required fields (name, prompt)`);
         continue;
       }
 
@@ -123,8 +118,6 @@ async function workflowPush(args: string[]): Promise<void> {
         runner: wf.runner ?? "auto",
         cronSchedule: wf.trigger?.schedule ?? undefined,
         triggerSource: wf.trigger?.event ?? undefined,
-        outputTarget: wf.output.target,
-        outputPath: wf.output.path ?? undefined,
         enabled: true,
       };
 
@@ -141,7 +134,7 @@ async function workflowPush(args: string[]): Promise<void> {
         const text = await res.text();
         console.error(`  [error] ${wf.name}: ${res.status} ${text}`);
       } else {
-        console.log(`  [pushed] ${wf.name} (${wf.trigger?.type}: ${wf.trigger?.schedule ?? wf.trigger?.event ?? "manual"}) → ${wf.output.target}`);
+        console.log(`  [pushed] ${wf.name} (${wf.trigger?.type}: ${wf.trigger?.schedule ?? wf.trigger?.event ?? "manual"})`);
       }
     } catch (err) {
       console.error(
@@ -187,17 +180,15 @@ async function workflowList(): Promise<void> {
     console.log(
       padRight("NAME", 20) +
         padRight("SCHEDULE", 22) +
-        padRight("OUTPUT", 12) +
         padRight("RUNNER", 10) +
         "ENABLED",
     );
-    console.log("─".repeat(80));
+    console.log("─".repeat(60));
 
     for (const wf of workflows) {
       console.log(
         padRight(wf.name, 20) +
           padRight(wf.cronSchedule ?? "(manual)", 22) +
-          padRight(wf.outputTarget, 12) +
           padRight(wf.runner ?? "auto", 10) +
           (wf.enabled ? "yes" : "no"),
       );
@@ -255,11 +246,30 @@ async function workflowRun(args: string[]): Promise<void> {
 
     const runner = runnerOverride ?? workflow.runner ?? config.agent.default_runner;
     console.log(`Running workflow "${name}" with runner: ${runner}`);
-    console.log(`Output target: ${workflow.outputTarget}`);
     console.log("");
 
-    // Run through the agent
+    // 1. Create a run record in Convex
+    let runId: string | undefined;
+    try {
+      const createRes = await fetch(`${convexUrl}/api/mutation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "runs:create",
+          args: { deviceToken, workflowId: workflow._id, prompt: workflow.prompt },
+        }),
+      });
+      if (createRes.ok) {
+        const createData = (await createRes.json()) as { value?: string };
+        runId = createData.value ?? undefined;
+      }
+    } catch {
+      // Non-fatal — we can still run the workflow without tracking
+    }
+
+    // 2. Run through the agent
     let result: string;
+    let failed = false;
     try {
       const { getRunner } = await import("@daemon/runner.ts");
       const agentRunner = getRunner(config, runner as "local" | "cloud" | undefined);
@@ -268,52 +278,29 @@ async function workflowRun(args: string[]): Promise<void> {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       result = `[Kent] Workflow "${name}" failed: ${msg}`;
+      failed = true;
     }
 
-    // Route output to the right target
-    switch (workflow.outputTarget) {
-      case "telegram": {
-        try {
-          const { getChannel } = await import("../channels/channel.ts");
-          const telegram = await getChannel("telegram");
-          await telegram.notify(result, undefined);
-          console.log("[output] Sent to Telegram");
-        } catch (err) {
-          console.error(
-            `[output] Failed to send to Telegram: ${err instanceof Error ? err.message : err}`,
-          );
-          // Fall back to terminal
-          console.log("\n--- Workflow Output (fallback to terminal) ---\n");
-          console.log(result);
-        }
-        break;
+    // 3. Save result to Convex (source of truth)
+    if (runId) {
+      try {
+        const finishPath = failed ? "runs:fail" : "runs:finish";
+        const finishArgs = failed
+          ? { deviceToken, runId, error: result }
+          : { deviceToken, runId, output: result };
+        await fetch(`${convexUrl}/api/mutation`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: finishPath, args: finishArgs }),
+        });
+      } catch {
+        // Non-fatal
       }
-      case "file": {
-        const { mkdirSync, writeFileSync } = await import("node:fs");
-        const { homedir } = await import("node:os");
-        const { join: pathJoin } = await import("node:path");
-
-        // Resolve output path (expand ~)
-        let outDir = "~/kent-reviews/";
-        // Check if workflow has outputPath via raw query data
-        // Default to ~/kent-reviews/ for weekly-review
-        outDir = outDir.replace("~", homedir());
-        mkdirSync(outDir, { recursive: true });
-
-        const timestamp = new Date().toISOString().slice(0, 10);
-        const filename = `${name}-${timestamp}.md`;
-        const outPath = pathJoin(outDir, filename);
-
-        writeFileSync(outPath, result, "utf-8");
-        console.log(`[output] Written to ${outPath}`);
-        break;
-      }
-      case "terminal":
-      default:
-        console.log("\n--- Workflow Output ---\n");
-        console.log(result);
-        break;
     }
+
+    // 4. Broadcast to all active channels (terminal + telegram + any future channels)
+    const { broadcastAll } = await import("../channels/channel.ts");
+    await broadcastAll(result, runId);
   } catch (err) {
     console.error(
       `Failed to run workflow: ${err instanceof Error ? err.message : err}`,

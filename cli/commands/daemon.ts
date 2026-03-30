@@ -6,7 +6,8 @@ import { PID_PATH, PLIST_PATH, LOG_PATH, ensureKentDir } from "@shared/config.ts
 const VALID_SUBCOMMANDS = ["start", "stop", "status"] as const;
 
 function generatePlist(): string {
-  const daemonScript = resolve(import.meta.dir, "../../daemon/daemon.ts");
+  const projectRoot = resolve(import.meta.dir, "../..");
+  const daemonScript = resolve(projectRoot, "daemon/daemon.ts");
   const bunPath = execFileSync("which", ["bun"], { encoding: "utf-8" }).trim();
 
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -21,6 +22,8 @@ function generatePlist(): string {
     <string>run</string>
     <string>${daemonScript}</string>
   </array>
+  <key>WorkingDirectory</key>
+  <string>${projectRoot}</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
@@ -69,17 +72,41 @@ async function daemonStop(): Promise<void> {
 }
 
 async function daemonStatus(): Promise<void> {
-  if (!existsSync(PID_PATH)) {
-    console.log("Daemon status: not running (no PID file)");
-    return;
+  // Check launchctl registration
+  let launchctlLoaded = false;
+  try {
+    const output = execFileSync("launchctl", ["list", "sh.kent.daemon"], {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    launchctlLoaded = true;
+    const pidMatch = output.match(/"PID"\s*=\s*(\d+)/);
+    if (pidMatch) {
+      console.log(`Daemon status: running (PID ${pidMatch[1]}, managed by launchctl)`);
+      return;
+    }
+  } catch {
+    // not registered with launchctl
   }
 
-  const pid = readFileSync(PID_PATH, "utf-8").trim();
-  try {
-    process.kill(Number(pid), 0);
-    console.log(`Daemon status: running (PID ${pid})`);
-  } catch {
-    console.log(`Daemon status: stale PID file (PID ${pid} not found)`);
+  // Check PID file
+  if (existsSync(PID_PATH)) {
+    const pid = readFileSync(PID_PATH, "utf-8").trim();
+    try {
+      process.kill(Number(pid), 0);
+      console.log(`Daemon status: running (PID ${pid})`);
+      return;
+    } catch {
+      console.log(`Daemon status: stale PID file (PID ${pid} not found)`);
+      return;
+    }
+  }
+
+  if (launchctlLoaded) {
+    console.log("Daemon status: registered with launchctl but not running (likely crashing on startup)");
+    console.log(`  Check logs: tail -20 ${LOG_PATH}`);
+  } else {
+    console.log("Daemon status: not running");
   }
 }
 

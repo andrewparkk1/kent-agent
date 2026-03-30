@@ -31,6 +31,7 @@ export const finish = mutation({
   args: {
     deviceToken: v.string(),
     runId: v.id("runs"),
+    output: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const user = await getUserByToken(ctx, args.deviceToken);
@@ -42,6 +43,7 @@ export const finish = mutation({
 
     await ctx.db.patch(args.runId, {
       status: "completed",
+      output: args.output,
       finishedAt: Date.now(),
     });
     return { success: true };
@@ -122,7 +124,7 @@ export const getMessages = query({
 
     return await ctx.db
       .query("messages")
-      .withIndex("by_run_createdAt", (q) => q.eq("runId", args.runId))
+      .withIndex("by_run_and_createdAt", (q) => q.eq("runId", args.runId))
       .collect();
   },
 });

@@ -18,5 +18,3 @@ prompt: |
 
   Skip routine/automated messages. Only surface things a thoughtful assistant
   would flag as "you should probably see this."
-output:
-  target: terminal

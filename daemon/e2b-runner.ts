@@ -1,5 +1,5 @@
 import { Sandbox } from "e2b";
-import { BaseRunner, type RunResult, type StreamCallback } from "./runner-base.ts";
+import { BaseRunner, type RunResult, type StreamCallback, type TypedStreamCallback } from "./runner-base.ts";
 import type { Config } from "@shared/config.ts";
 import { CONVEX_URL } from "@shared/config.ts";
 
@@ -63,7 +63,8 @@ export class E2BRunner extends BaseRunner {
   async run(
     prompt: string,
     workflowId?: string,
-    streamCallback?: StreamCallback
+    streamCallback?: StreamCallback | TypedStreamCallback,
+    options?: { threadId?: string }
   ): Promise<RunResult> {
     const sandbox = await this.getOrCreateSandbox();
     const runId = crypto.randomUUID();
@@ -73,6 +74,7 @@ export class E2BRunner extends BaseRunner {
       RUN_ID: runId,
       PROMPT: prompt,
       ...(workflowId ? { WORKFLOW_ID: workflowId } : {}),
+      ...(options?.threadId ? { THREAD_ID: options.threadId } : {}),
     };
 
     // Write prompt to a temp file to avoid shell escaping issues
@@ -93,19 +95,23 @@ export class E2BRunner extends BaseRunner {
 
     let output = "";
 
+    // Detect if callback accepts typed args (2 params) or legacy (1 param)
+    const emit = streamCallback
+      ? streamCallback.length >= 2
+        ? (chunk: string, type: "text" | "tool") => (streamCallback as TypedStreamCallback)(chunk, type)
+        : (chunk: string, _type: "text" | "tool") => (streamCallback as StreamCallback)(chunk)
+      : null;
+
     const result = await sandbox.commands.run(cmd, {
       timeoutMs: SANDBOX_TIMEOUT_MS,
       envs: this.buildEnvVars(envVars),
       onStdout: (data) => {
         output += data;
-        streamCallback?.(data);
+        emit?.(data, "text");
       },
       onStderr: (data) => {
-        // Log stderr but don't include in output
-        if (streamCallback) {
-          // Tool call indicators go to stderr, forward them
-          streamCallback(data);
-        }
+        // Tool call indicators go to stderr, forward them
+        emit?.(data, "tool");
       },
     });
 

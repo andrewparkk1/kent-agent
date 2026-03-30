@@ -16,6 +16,3 @@ prompt: |
   5. **Next week focus**: Top 3 things that actually matter.
 
   Write it like a smart friend who pays attention, not a productivity app.
-output:
-  target: file
-  path: ~/kent-reviews/

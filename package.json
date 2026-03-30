@@ -19,7 +19,11 @@
     "sync": "bun run cli/index.ts sync",
     "mock-data": "bun run scripts/mock-data.ts",
     "typecheck": "tsc --noEmit",
-    "cleanup": "rm -rf ~/.kent"
+    "cleanup": "rm -rf ~/.kent",
+    "tg:dev": "curl -s -X POST \"https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook\" -H 'Content-Type: application/json' -d '{\"url\":\"https://brave-armadillo-395.convex.site/telegram/webhook\",\"secret_token\":\"0832f89ea86a001b4e84ae99e86ca4c6dd346bf0098ce39cb02df649e596c9ad\"}' && echo ' → Telegram webhook → DEV'",
+    "tg:prod": "curl -s -X POST \"https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook\" -H 'Content-Type: application/json' -d '{\"url\":\"https://whimsical-hamster-371.convex.site/telegram/webhook\"}' && echo ' → Telegram webhook → PROD'",
+    "tg:info": "curl -s \"https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo\" | python3 -m json.tool",
+    "tg:clear": "curl -s -X POST \"https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook\" -H 'Content-Type: application/json' -d '{\"url\":\"\"}' && echo ' → Telegram webhook cleared'"
   },
   "devDependencies": {
     "@types/bun": "latest",

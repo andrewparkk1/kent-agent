@@ -13,8 +13,6 @@ export const upsert = mutation({
     runner: v.optional(v.string()),
     cronSchedule: v.optional(v.string()),
     triggerSource: v.optional(v.string()),
-    outputTarget: v.string(),
-    outputPath: v.optional(v.string()),
     enabled: v.boolean(),
   },
   handler: async (ctx, args) => {
@@ -34,7 +32,6 @@ export const upsert = mutation({
       runner: args.runner,
       cronSchedule: args.cronSchedule,
       triggerSource: args.triggerSource,
-      outputTarget: args.outputTarget,
       enabled: args.enabled,
     };
 

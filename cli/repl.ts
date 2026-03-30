@@ -1,6 +1,7 @@
 import * as readline from "node:readline";
 import { loadConfig, saveConfig } from "@shared/config.ts";
 import { getRunner } from "@daemon/runner.ts";
+import { threads } from "@shared/convex-client.ts";
 import type { Config } from "@shared/config.ts";
 import type { BaseRunner } from "@daemon/runner-base.ts";
 
@@ -12,6 +13,7 @@ interface ReplState {
   promptHistory: string[];
   isRunning: boolean;
   abortController: AbortController | null;
+  threadId: string | null;
 }
 
 function printStatusBar(state: ReplState): void {
@@ -43,6 +45,9 @@ Slash commands:
   /status                 Show daemon status and source counts
   /workflow list           List workflows
   /workflow run <name>    Run a workflow
+  /threads                List recent conversation threads
+  /thread new             Start a new thread
+  /thread <number>        Switch to a thread by number (from /threads list)
   /model <name>           Switch model mid-session
   /runner local|cloud     Switch runner mid-session
   /clear                  Clear conversation history
@@ -168,6 +173,83 @@ async function handleSlashCommand(
       return false;
     }
 
+    case "/threads": {
+      const deviceToken = state.config.core.device_token;
+      if (!deviceToken) {
+        console.log("[no device token — run `kent init` first]");
+        return false;
+      }
+      try {
+        const recentThreads = await threads.getRecent(deviceToken, "cli", 10);
+        if (recentThreads.length === 0) {
+          console.log("[no threads yet]");
+        } else {
+          console.log("\nRecent threads:");
+          for (let i = 0; i < recentThreads.length; i++) {
+            const t = recentThreads[i]!;
+            const active = state.threadId === t._id ? " ←" : "";
+            const title = t.title || "(untitled)";
+            const date = new Date(t.lastMessageAt).toLocaleDateString();
+            console.log(`  ${i + 1}. ${title}  (${date})${active}`);
+          }
+          console.log("\n  Use /thread <number> to switch, /thread new to start fresh.\n");
+        }
+      } catch (err) {
+        console.log(`[failed to list threads: ${err instanceof Error ? err.message : err}]`);
+      }
+      return false;
+    }
+
+    case "/thread": {
+      const sub = parts[1];
+      const deviceToken = state.config.core.device_token;
+      if (!deviceToken) {
+        console.log("[no device token — run `kent init` first]");
+        return false;
+      }
+
+      if (sub === "new") {
+        try {
+          const threadId = await threads.create(deviceToken, "cli");
+          state.threadId = threadId;
+          state.conversationHistory = [];
+          console.log("[started new thread]");
+        } catch (err) {
+          console.log(`[failed to create thread: ${err instanceof Error ? err.message : err}]`);
+        }
+        return false;
+      }
+
+      // Switch to thread by number
+      const num = parseInt(sub || "", 10);
+      if (isNaN(num) || num < 1) {
+        console.log("Usage: /thread new | /thread <number>");
+        return false;
+      }
+
+      try {
+        const recentThreads = await threads.getRecent(deviceToken, "cli", 10);
+        if (num > recentThreads.length) {
+          console.log(`[thread ${num} not found — only ${recentThreads.length} threads]`);
+          return false;
+        }
+        const selected = recentThreads[num - 1]!;
+        state.threadId = selected._id;
+
+        // Load conversation history from this thread
+        const messages = await threads.getMessages(deviceToken, selected._id);
+        state.conversationHistory = messages
+          .filter((m) => m.role === "user" || m.role === "assistant")
+          .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+
+        const title = selected.title || "(untitled)";
+        console.log(`[switched to thread: ${title} — ${state.conversationHistory.length} messages loaded]`);
+      } catch (err) {
+        console.log(`[failed to switch thread: ${err instanceof Error ? err.message : err}]`);
+      }
+      return false;
+    }
+
     case "/model": {
       const modelName = parts[1];
       if (!modelName) {
@@ -222,9 +304,41 @@ export async function startRepl(isLocal: boolean): Promise<void> {
     promptHistory: [],
     isRunning: false,
     abortController: null,
+    threadId: null,
   };
 
   printStatusBar(state);
+
+  // Initialize thread — resume latest or create new
+  const deviceToken = config.core.device_token;
+  if (deviceToken) {
+    try {
+      const recent = await threads.getRecent(deviceToken, "cli", 1);
+      if (recent.length > 0) {
+        const latest = recent[0]!;
+        // Resume if last message was within 24 hours
+        const hoursSince = (Date.now() - latest.lastMessageAt) / (1000 * 60 * 60);
+        if (hoursSince < 24) {
+          state.threadId = latest._id;
+          const messages = await threads.getMessages(deviceToken, latest._id);
+          state.conversationHistory = messages
+            .filter((m) => m.role === "user" || m.role === "assistant")
+            .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+          const title = latest.title || "(untitled)";
+          console.log(`  Resumed thread: ${title} (${state.conversationHistory.length} messages)`);
+        } else {
+          state.threadId = await threads.create(deviceToken, "cli");
+          console.log("  Started new thread.");
+        }
+      } else {
+        state.threadId = await threads.create(deviceToken, "cli");
+        console.log("  Started new thread.");
+      }
+    } catch {
+      // Convex unavailable — continue without persistence
+      console.log("  (offline — thread history unavailable)");
+    }
+  }
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -279,6 +393,11 @@ export async function startRepl(isLocal: boolean): Promise<void> {
     state.isRunning = true;
     state.abortController = new AbortController();
 
+    // Persist user message to thread
+    if (state.threadId && deviceToken) {
+      threads.addMessage(deviceToken, state.threadId, "user", input).catch(() => {});
+    }
+
     // Build multi-turn prompt with conversation context
     const fullPrompt = state.conversationHistory
       .map((msg) => `${msg.role === "user" ? "Human" : "Assistant"}: ${msg.content}`)
@@ -289,11 +408,17 @@ export async function startRepl(isLocal: boolean): Promise<void> {
       const result = await state.runner.run(
         fullPrompt,
         undefined,
-        (chunk: string) => {
+        (chunk: string, type: "text" | "tool") => {
           if (!state.isRunning) return; // cancelled
-          process.stdout.write(chunk);
-          output += chunk;
+          if (type === "tool") {
+            // Tool call indicators — dim gray
+            process.stdout.write(`\x1b[2m${chunk}\x1b[0m`);
+          } else {
+            process.stdout.write(chunk);
+            output += chunk;
+          }
         },
+        { threadId: state.threadId ?? undefined },
       );
 
       if (state.isRunning) {
@@ -306,7 +431,13 @@ export async function startRepl(isLocal: boolean): Promise<void> {
         if (output && !output.endsWith("\n")) {
           console.log("");
         }
-        state.conversationHistory.push({ role: "assistant", content: output || result.output });
+        const assistantContent = output || result.output;
+        state.conversationHistory.push({ role: "assistant", content: assistantContent });
+
+        // Persist assistant message to thread
+        if (state.threadId && deviceToken && assistantContent) {
+          threads.addMessage(deviceToken, state.threadId, "assistant", assistantContent).catch(() => {});
+        }
       }
     } catch (err) {
       if (state.isRunning) {

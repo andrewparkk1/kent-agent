@@ -13,5 +13,3 @@ prompt: |
 
   Keep it scannable — use bullet points and bold for key items.
   Start with "Good morning" and today's date.
-output:
-  target: telegram
