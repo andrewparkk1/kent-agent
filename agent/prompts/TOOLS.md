@@ -37,12 +37,38 @@ Get the full content of a specific item by its ID.
 ### get_source_stats
 Get item counts and date ranges per source. No parameters. Use this to understand what data is available before searching.
 
-## Filesystem Tools (local runner only)
+## Prompt Management Tools (always available)
 
-These only work when running locally with `kent --local`. In cloud mode, they return an error.
+These let you read and modify your own configuration files stored in Convex. Changes persist across runs and sandbox restarts.
+
+### list_prompt_files
+List all your prompt/config files. Returns names, sizes, and last updated times. No parameters.
+
+### get_prompt_file
+Read the content of one of your prompt files.
+- `name` (string, required): File name, e.g. "IDENTITY.md", "SOUL.md", "skills/github.md"
+
+### update_prompt_file
+Create or update a prompt file. Use this to modify your identity, personality, tools reference, or skill files. You can also create new skill files (e.g. "skills/jira.md").
+- `name` (string, required): File name
+- `content` (string, required): New file content
+
+**Important**: Always use `update_prompt_file` instead of writing to the local filesystem. Local files in E2B sandboxes are destroyed when the sandbox stops. Convex storage persists forever.
+
+### Your prompt files
+
+- `IDENTITY.md` — Who you are and how you operate
+- `SOUL.md` — Your personality, boundaries, and tone
+- `TOOLS.md` — This file (tool reference)
+- `USER.md` — Context template filled at startup
+- `skills/*.md` — CLI skill references (gh, gws, etc.)
+
+## Filesystem Tools (always available)
+
+These work in both local mode (user's Mac) and cloud mode (E2B sandbox).
 
 ### read_file
-Read the contents of a file on the user's Mac.
+Read the contents of a file.
 - `path` (string, required): Absolute file path
 
 ### list_directory
@@ -61,7 +87,7 @@ Write content to a file in the output directory.
 - `content` (string, required): File content
 
 ### run_command
-Execute a shell command on the user's Mac.
+Execute a shell command.
 - `command` (string, required): The command to run
 - `cwd` (string, optional): Working directory
 
@@ -76,11 +102,11 @@ Execute a shell command on the user's Mac.
 
 # Skills Directory
 
-Skill files are located in the `skills/` directory next to this file. Each skill teaches you how to use an external CLI tool. Read a skill file with `read_file` when you need to use that tool.
+Skill files are stored in Convex under the `skills/` prefix. Use `list_prompt_files` to see what's available, and `get_prompt_file` to read a skill.
 
 Available skills:
-- `github.md` — `gh` CLI for GitHub: issues, PRs, notifications, search
-- `gmail.md` — `gws` CLI for Gmail: messages, drafts, labels, search
-- `calendar.md` — `gws` CLI for Google Calendar: events, availability
+- `skills/github.md` — `gh` CLI for GitHub: issues, PRs, notifications, search
+- `skills/gmail.md` — `gws` CLI for Gmail: messages, drafts, labels, search
+- `skills/calendar.md` — `gws` CLI for Google Calendar: events, availability
 
-To use a skill: read the file, then use `run_command` to execute the CLI commands it describes.
+To use a skill: read it with `get_prompt_file`, then use `run_command` to execute the CLI commands it describes. You can also create new skills with `update_prompt_file`.

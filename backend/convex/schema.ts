@@ -63,6 +63,15 @@ export default defineSchema({
     finishedAt: v.optional(v.number()),
   }).index("by_userId", ["userId"]),
 
+  agentPrompts: defineTable({
+    userId: v.id("users"),
+    name: v.string(), // e.g. "IDENTITY.md", "skills/github.md"
+    content: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_userId_and_name", ["userId", "name"])
+    .index("by_userId", ["userId"]),
+
   messages: defineTable({
     threadId: v.optional(v.id("threads")),
     runId: v.optional(v.id("runs")),

@@ -24,13 +24,57 @@ const MODEL_NAME = process.env.MODEL ?? "claude-sonnet-4-20250514";
 // Prompt assembly
 // ---------------------------------------------------------------------------
 
-function readPromptFile(name: string): string {
+function readLocalPromptFile(name: string): string {
   const promptsDir = join(dirname(import.meta.path), "prompts");
   try {
     return readFileSync(join(promptsDir, name), "utf-8");
   } catch {
     return "";
   }
+}
+
+/**
+ * Fetch all prompt files from Convex. Returns a map of name -> content.
+ * Falls back to empty map on failure.
+ */
+async function fetchPromptsFromConvex(): Promise<Map<string, string>> {
+  if (!CONVEX_URL || !DEVICE_TOKEN) return new Map();
+
+  try {
+    const url = CONVEX_URL.replace(/\/$/, "");
+    const res = await fetch(`${url}/api/query`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        path: "prompts:getAll",
+        args: { deviceToken: DEVICE_TOKEN },
+      }),
+    });
+
+    if (!res.ok) return new Map();
+
+    const data = (await res.json()) as { status: string; value?: unknown };
+    if (data.status === "error" || !data.value) return new Map();
+
+    const files = data.value as Array<{ name: string; content: string }>;
+    const map = new Map<string, string>();
+    for (const f of files) {
+      map.set(f.name, f.content);
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
+/**
+ * Read a prompt file: Convex first, local fallback.
+ */
+function getPrompt(
+  convexPrompts: Map<string, string>,
+  name: string
+): string {
+  return convexPrompts.get(name) || readLocalPromptFile(name);
 }
 
 async function fetchContext(): Promise<string> {
@@ -74,10 +118,36 @@ async function fetchContext(): Promise<string> {
 }
 
 async function buildSystemPrompt(): Promise<string> {
-  const identity = readPromptFile("IDENTITY.md");
-  const soul = readPromptFile("SOUL.md");
-  const tools = readPromptFile("TOOLS.md");
-  const userTemplate = readPromptFile("USER.md");
+  // Fetch all prompts from Convex (falls back to local files)
+  const convexPrompts = await fetchPromptsFromConvex();
+
+  const identity = getPrompt(convexPrompts, "IDENTITY.md");
+  const soul = getPrompt(convexPrompts, "SOUL.md");
+  const tools = getPrompt(convexPrompts, "TOOLS.md");
+  const userTemplate = getPrompt(convexPrompts, "USER.md");
+
+  // Gather skill files — from Convex prompts or local
+  const skillContents: string[] = [];
+  for (const [name, content] of convexPrompts) {
+    if (name.startsWith("skills/")) {
+      skillContents.push(`# Skill: ${name}\n\n${content}`);
+    }
+  }
+  // If no skills from Convex, try local
+  if (skillContents.length === 0) {
+    const skillsDir = join(dirname(import.meta.path), "prompts", "skills");
+    try {
+      const { readdirSync } = await import("node:fs");
+      for (const name of readdirSync(skillsDir)) {
+        if (name.endsWith(".md")) {
+          const content = readLocalPromptFile(`skills/${name}`);
+          if (content) skillContents.push(`# Skill: skills/${name}\n\n${content}`);
+        }
+      }
+    } catch {
+      // No local skills directory
+    }
+  }
 
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long",
@@ -92,10 +162,10 @@ async function buildSystemPrompt(): Promise<string> {
     .replace(/\{\{DATE\}\}/g, today)
     .replace(/\{\{CONTEXT\}\}/g, context);
 
-  // Also replace {{DATE}} in identity
   const identityResolved = identity.replace(/\{\{DATE\}\}/g, today);
 
-  return [identityResolved, soul, tools, user].filter(Boolean).join("\n\n---\n\n");
+  const parts = [identityResolved, soul, tools, ...skillContents, user].filter(Boolean);
+  return parts.join("\n\n---\n\n");
 }
 
 // ---------------------------------------------------------------------------

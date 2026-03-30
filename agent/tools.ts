@@ -18,12 +18,6 @@ function errorResult(text: string): AgentToolResult<undefined> {
   return { content: [{ type: "text", text }], details: undefined };
 }
 
-function localOnly(): AgentToolResult<undefined> {
-  return errorResult(
-    "This tool is only available in local runner mode. Start Kent with `kent --local` for filesystem access."
-  );
-}
-
 async function convexCall(
   functionPath: string,
   args: Record<string, unknown>
@@ -293,10 +287,9 @@ const getSourceStats: AgentTool<typeof EmptyParams> = {
 const readFile: AgentTool<typeof PathParams> = {
   name: "read_file",
   label: "Reading file...",
-  description: "Read the contents of a file on the user's Mac. Local runner only.",
+  description: "Read the contents of a file. In local mode reads from the user's Mac; in cloud mode reads from the sandbox filesystem.",
   parameters: PathParams,
   execute: async (_id, params) => {
-    if (RUNNER !== "local") return localOnly();
     try {
       const file = Bun.file(params.path);
       const text = await file.text();
@@ -310,10 +303,9 @@ const readFile: AgentTool<typeof PathParams> = {
 const listDirectory: AgentTool<typeof PathParams> = {
   name: "list_directory",
   label: "Listing directory...",
-  description: "List files and directories at a path. Local runner only.",
+  description: "List files and directories at a path.",
   parameters: PathParams,
   execute: async (_id, params) => {
-    if (RUNNER !== "local") return localOnly();
     try {
       const { readdir } = await import("node:fs/promises");
       const entries = await readdir(params.path, { withFileTypes: true });
@@ -331,10 +323,9 @@ const searchFiles: AgentTool<typeof SearchFilesParams> = {
   name: "search_files",
   label: "Searching files...",
   description:
-    "Search file contents using ripgrep. Local runner only.",
+    "Search file contents using ripgrep.",
   parameters: SearchFilesParams,
   execute: async (_id, params) => {
-    if (RUNNER !== "local") return localOnly();
     try {
       const { homedir } = await import("node:os");
       const args = ["rg", "--max-count", "50", "-n"];
@@ -365,10 +356,9 @@ const writeFile: AgentTool<typeof WriteFileParams> = {
   name: "write_file",
   label: "Writing file...",
   description:
-    "Write content to a file in the output directory. Local runner only.",
+    "Write content to a file in the output directory.",
   parameters: WriteFileParams,
   execute: async (_id, params) => {
-    if (RUNNER !== "local") return localOnly();
     try {
       const { join } = await import("node:path");
       const { mkdir } = await import("node:fs/promises");
@@ -390,10 +380,9 @@ const runCommand: AgentTool<typeof RunCommandParams> = {
   name: "run_command",
   label: "Running command...",
   description:
-    "Execute a shell command on the user's Mac. Local runner only.",
+    "Execute a shell command. In local mode runs on the user's Mac; in cloud mode runs in the sandbox.",
   parameters: RunCommandParams,
   execute: async (_id, params) => {
-    if (RUNNER !== "local") return localOnly();
     try {
       const proc = Bun.spawn(["bash", "-c", params.command], {
         cwd: params.cwd,
@@ -420,6 +409,104 @@ const runCommand: AgentTool<typeof RunCommandParams> = {
 };
 
 // ---------------------------------------------------------------------------
+// Prompt Management Tools (Convex — work everywhere)
+// ---------------------------------------------------------------------------
+
+const PromptNameParams = Type.Object({
+  name: Type.String({
+    description:
+      'Prompt file name, e.g. "IDENTITY.md", "SOUL.md", "skills/github.md"',
+  }),
+});
+
+const UpdatePromptParams = Type.Object({
+  name: Type.String({
+    description:
+      'Prompt file name, e.g. "IDENTITY.md", "skills/new-tool.md"',
+  }),
+  content: Type.String({ description: "New file content" }),
+});
+
+const listPromptFiles: AgentTool<typeof EmptyParams> = {
+  name: "list_prompt_files",
+  label: "Listing prompt files...",
+  description:
+    "List all your prompt/config files stored in Convex (identity, soul, tools, skills). Returns names and sizes.",
+  parameters: EmptyParams,
+  execute: async () => {
+    try {
+      const result = await convexCall("prompts:list", {});
+      return textResult(JSON.stringify(result, null, 2));
+    } catch (e) {
+      return errorResult(`list_prompt_files failed: ${e}`);
+    }
+  },
+};
+
+const getPromptFile: AgentTool<typeof PromptNameParams> = {
+  name: "get_prompt_file",
+  label: "Reading prompt file...",
+  description:
+    "Get the content of one of your prompt/config files from Convex. Use this to read your own identity, personality, tools reference, or skill files.",
+  parameters: PromptNameParams,
+  execute: async (_id, params) => {
+    try {
+      const result = await convexCall("prompts:get", { name: params.name });
+      if (!result) return errorResult(`Prompt file "${params.name}" not found.`);
+      return textResult(JSON.stringify(result, null, 2));
+    } catch (e) {
+      return errorResult(`get_prompt_file failed: ${e}`);
+    }
+  },
+};
+
+const updatePromptFile: AgentTool<typeof UpdatePromptParams> = {
+  name: "update_prompt_file",
+  label: "Updating prompt file...",
+  description:
+    "Create or update one of your prompt/config files in Convex. This persists across runs and sandbox restarts. Use this instead of writing to the local filesystem since E2B sandboxes are ephemeral.",
+  parameters: UpdatePromptParams,
+  execute: async (_id, params) => {
+    try {
+      await convexMutation("prompts:upsert", {
+        name: params.name,
+        content: params.content,
+      });
+      return textResult(
+        `Updated "${params.name}" (${params.content.length} bytes)`
+      );
+    } catch (e) {
+      return errorResult(`update_prompt_file failed: ${e}`);
+    }
+  },
+};
+
+/** Add convexMutation helper (mirrors convexCall but for mutations) */
+async function convexMutation(
+  functionPath: string,
+  args: Record<string, unknown>
+): Promise<unknown> {
+  const url = CONVEX_URL.replace(/\/$/, "");
+  const res = await fetch(`${url}/api/mutation`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      path: functionPath,
+      args: { ...args, deviceToken: DEVICE_TOKEN },
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Convex mutation ${functionPath} failed (${res.status}): ${body}`);
+  }
+  const data = (await res.json()) as { status: string; value?: unknown; errorMessage?: string };
+  if (data.status === "error") {
+    throw new Error(`Convex error: ${data.errorMessage ?? JSON.stringify(data)}`);
+  }
+  return data.value;
+}
+
+// ---------------------------------------------------------------------------
 // Export all tools
 // ---------------------------------------------------------------------------
 
@@ -433,7 +520,14 @@ export const memoryTools = [
   getSourceStats,
 ] as unknown as AgentTool[];
 
-/** Filesystem tools — local runner only (return error in cloud mode) */
+/** Prompt management tools — always available */
+export const promptTools = [
+  listPromptFiles,
+  getPromptFile,
+  updatePromptFile,
+] as unknown as AgentTool[];
+
+/** Filesystem tools — available in both local and E2B modes */
 export const filesystemTools = [
   readFile,
   listDirectory,
@@ -443,4 +537,4 @@ export const filesystemTools = [
 ] as unknown as AgentTool[];
 
 /** All tools combined */
-export const allTools = [...memoryTools, ...filesystemTools];
+export const allTools = [...memoryTools, ...promptTools, ...filesystemTools];

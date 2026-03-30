@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
+import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline";
 import {
@@ -630,6 +630,50 @@ export async function handleInit(): Promise<void> {
       const encrypted = await encryptKeys(collectedKeys, deviceToken, salt);
       writeFileSync(join(KENT_DIR, "encrypted_keys"), encrypted, "utf-8");
     }
+  }
+
+  // Upload agent prompt files to Convex
+  try {
+    const promptsDir = join(dirname(new URL(import.meta.url).pathname), "..", "..", "agent", "prompts");
+    const promptFiles: Array<{ name: string; content: string }> = [];
+
+    // Read core prompt files
+    for (const name of ["IDENTITY.md", "SOUL.md", "TOOLS.md", "USER.md"]) {
+      const filePath = join(promptsDir, name);
+      if (existsSync(filePath)) {
+        promptFiles.push({ name, content: readFileSync(filePath, "utf-8") });
+      }
+    }
+
+    // Read skill files
+    const skillsDir = join(promptsDir, "skills");
+    if (existsSync(skillsDir)) {
+      for (const name of readdirSync(skillsDir)) {
+        if (name.endsWith(".md")) {
+          const filePath = join(skillsDir, name);
+          promptFiles.push({ name: `skills/${name}`, content: readFileSync(filePath, "utf-8") });
+        }
+      }
+    }
+
+    if (promptFiles.length > 0) {
+      const uploadUrl = `${CONVEX_URL}/api/mutation`;
+      const uploadRes = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "prompts:batchUpsert",
+          args: { deviceToken, files: promptFiles },
+        }),
+      });
+      if (uploadRes.ok) {
+        success(`${promptFiles.length} agent prompt files uploaded`);
+      } else {
+        warn("Could not upload agent prompts. Agent will use local files.");
+      }
+    }
+  } catch {
+    warn("Could not upload agent prompts. Agent will use local files.");
   }
 
   // ------------------------------------------------------------------
