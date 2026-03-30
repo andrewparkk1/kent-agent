@@ -51,6 +51,7 @@ export const runForTelegram = internalAction({
   args: {
     telegramUserId: v.number(),
     prompt: v.string(),
+    threadId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<string> => {
     // 1. Look up the user by Telegram ID
@@ -98,6 +99,7 @@ export const runForTelegram = internalAction({
           MODEL: "claude-sonnet-4-20250514",
           MAX_TURNS: "10",
           RUN_ID: runId,
+          ...(args.threadId ? { THREAD_ID: args.threadId } : {}),
         },
       });
 

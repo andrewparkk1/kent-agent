@@ -36,7 +36,7 @@ function generatePlist(): string {
 </plist>`;
 }
 
-async function daemonStart(): Promise<void> {
+export async function daemonStart(): Promise<void> {
   ensureKentDir();
 
   const plist = generatePlist();

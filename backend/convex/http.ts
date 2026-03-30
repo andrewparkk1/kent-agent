@@ -89,6 +89,32 @@ http.route({
 
     // ── Run the agent for chat messages ──────────────────────────────
 
+    // Get or create a persistent thread for this Telegram user
+    let threadId: string | null = null;
+    try {
+      // Look up the user's device token to create/resume thread
+      const user = await ctx.runQuery(internal.telegram.getUserByTelegramId, {
+        telegramUserId: userId,
+      });
+      if (user) {
+        threadId = await ctx.runMutation(api.threads.getOrCreate, {
+          deviceToken: user.deviceToken,
+          channel: "telegram",
+          channelId: String(chatId),
+        }) as string;
+
+        // Persist user message
+        await ctx.runMutation(api.threads.addMessage, {
+          deviceToken: user.deviceToken,
+          threadId: threadId as any,
+          role: "user",
+          content: text,
+        });
+      }
+    } catch {
+      // Non-critical — continue without thread persistence
+    }
+
     // Send "thinking..." indicator
     const thinkingMsgId = await sendTelegramMessage(chatId, "🤔 thinking...");
 
@@ -99,12 +125,32 @@ http.route({
         {
           telegramUserId: userId,
           prompt: text,
+          threadId: threadId ?? undefined,
         },
       );
 
       // Delete "thinking..." message
       if (thinkingMsgId) {
         await deleteTelegramMessage(chatId, thinkingMsgId);
+      }
+
+      // Persist assistant response to thread
+      if (threadId) {
+        try {
+          const user = await ctx.runQuery(internal.telegram.getUserByTelegramId, {
+            telegramUserId: userId,
+          });
+          if (user) {
+            await ctx.runMutation(api.threads.addMessage, {
+              deviceToken: user.deviceToken,
+              threadId: threadId as any,
+              role: "assistant",
+              content: agentResponse,
+            });
+          }
+        } catch {
+          // Non-critical
+        }
       }
 
       // Send agent response (split into chunks if needed)

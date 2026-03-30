@@ -75,7 +75,5 @@ export async function broadcastAll(message: string, runId?: string): Promise<voi
 }
 
 // ── Register built-in channels ───────────────────────────────────────────
-registerChannel("telegram", async () => {
-  const { TelegramChannel } = await import("./telegram.ts");
-  return new TelegramChannel();
-});
+// Telegram is handled server-side via Convex webhook (backend/convex/http.ts).
+// No local channel needed.

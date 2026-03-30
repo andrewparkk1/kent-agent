@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline";
@@ -7,14 +7,13 @@ import {
   type Config,
   KENT_DIR,
   CONFIG_PATH,
-  PLIST_PATH,
   DEFAULT_CONFIG,
   CONVEX_URL,
   KENT_TELEGRAM_BOT,
-  loadConfig,
   saveConfig,
   ensureKentDir,
 } from "@shared/config.ts";
+import { daemonStart } from "./daemon.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -211,41 +210,6 @@ async function encryptKeys(
   return packed.toString("base64");
 }
 
-// ---------------------------------------------------------------------------
-// Launchd plist generation
-// ---------------------------------------------------------------------------
-
-function generatePlist(bunPath: string, indexPath: string): string {
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>sh.kent.daemon</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>${bunPath}</string>
-    <string>${indexPath}</string>
-    <string>daemon</string>
-    <string>start</string>
-  </array>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <true/>
-  <key>StandardOutPath</key>
-  <string>${KENT_DIR}/daemon.log</string>
-  <key>StandardErrorPath</key>
-  <string>${KENT_DIR}/daemon.err</string>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>PATH</key>
-    <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:${homedir()}/.bun/bin</string>
-  </dict>
-</dict>
-</plist>`;
-}
 
 // ---------------------------------------------------------------------------
 // Built-in workflow templates
@@ -767,32 +731,8 @@ export async function handleInit(): Promise<void> {
 
   // Install and start launchd daemon
   try {
-    const bunProc = Bun.spawn(["which", "bun"], { stdout: "pipe", stderr: "pipe" });
-    const bunPath = (await new Response(bunProc.stdout).text()).trim();
-    const cliIndex = join(import.meta.dir, "..", "index.ts");
-
-    const plist = generatePlist(bunPath, cliIndex);
-    const plistDir = join(homedir(), "Library", "LaunchAgents");
-    if (!existsSync(plistDir)) {
-      mkdirSync(plistDir, { recursive: true });
-    }
-    writeFileSync(PLIST_PATH, plist, "utf-8");
-
-    // Load the daemon
-    try {
-      const loadProc = Bun.spawn(["launchctl", "load", PLIST_PATH], {
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      const loadCode = await loadProc.exited;
-      if (loadCode === 0) {
-        success("Daemon started");
-      } else {
-        warn("Could not start daemon. Start manually: kent daemon start");
-      }
-    } catch {
-      warn("Could not start daemon. Start manually: kent daemon start");
-    }
+    await daemonStart();
+    success("Daemon started");
   } catch (e) {
     warn(`Daemon setup failed: ${e}`);
     info("Start manually: kent daemon start");
