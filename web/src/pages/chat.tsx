@@ -381,7 +381,7 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
 
       {/* Input */}
       <div className={`w-full ${isEmpty ? "pb-[30vh]" : "pb-6"}`}>
-        <div className="max-w-[900px] mx-auto px-6">
+        <div className="max-w-[680px] mx-auto px-6">
           <div
             className="relative bg-background border border-border/70 rounded-2xl shadow-[0_1px_6px_-1px_rgba(0,0,0,0.06)] hover:shadow-[0_2px_12px_-2px_rgba(0,0,0,0.08)] focus-within:shadow-[0_2px_12px_-2px_rgba(0,0,0,0.08)] focus-within:border-border/90 transition-shadow duration-300"
           >

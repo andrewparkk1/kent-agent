@@ -48,6 +48,7 @@ export function App() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const [totalRuns, setTotalRuns] = useState(0);
   const [workflowsLoading, setWorkflowsLoading] = useState(true);
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [daemon, setDaemon] = useState<DaemonInfo>({ status: "stopped", currentSource: null, intervalMinutes: 5, lastSyncAt: null, nextSyncAt: null });
@@ -83,6 +84,7 @@ export function App() {
       const res = await fetch("/api/workflows");
       const data = await res.json();
       setWorkflows(data.workflows);
+      setTotalRuns(data.totalRuns || 0);
     } catch {}
     setWorkflowsLoading(false);
   }, []);
@@ -119,7 +121,7 @@ export function App() {
         openChat={openChat}
         selectedThreadId={selectedThreadId}
         workflowCount={workflows.length}
-        runCount={workflows.reduce((sum, w) => sum + (w.runCount || 0), 0)}
+        runCount={totalRuns}
       />
 
       <PageTransition pageKey={page === "workflow-detail" ? `workflow-${selectedWorkflowId}` : page}>

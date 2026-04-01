@@ -36,9 +36,9 @@ function readPromptFile(name: string): string {
   }
 }
 
-function getContext(): string {
+async function getContext(): Promise<string> {
   try {
-    const counts = getItemCount();
+    const counts = await getItemCount();
     if (Object.keys(counts).length === 0) {
       return "No synced data available yet. Run `kent sync` to populate.";
     }
@@ -48,7 +48,7 @@ function getContext(): string {
   }
 }
 
-function buildSystemPrompt(): string {
+async function buildSystemPrompt(): Promise<string> {
   const identity = readPromptFile("IDENTITY.md");
   const soul = readPromptFile("SOUL.md");
   const tools = readPromptFile("TOOLS.md");
@@ -85,7 +85,7 @@ function buildSystemPrompt(): string {
     weekday: "long", year: "numeric", month: "long", day: "numeric",
   });
 
-  const user = userTemplate.replace(/\{\{DATE\}\}/g, today).replace(/\{\{CONTEXT\}\}/g, getContext());
+  const user = userTemplate.replace(/\{\{DATE\}\}/g, today).replace(/\{\{CONTEXT\}\}/g, await getContext());
   const identityResolved = identity.replace(/\{\{DATE\}\}/g, today);
 
   return [identityResolved, soul, tools, ...skillContents, user].filter(Boolean).join("\n\n---\n\n");
@@ -100,14 +100,14 @@ async function run(): Promise<void> {
   }
 
   // Resolve or create thread
-  const threadId = THREAD_ID || createThread(PROMPT.slice(0, 80));
+  const threadId = THREAD_ID || await createThread(PROMPT.slice(0, 80));
 
   // Store the user message (unless caller already did it)
   if (!SKIP_USER_MESSAGE) {
-    addMessage(threadId, "user", PROMPT);
+    await addMessage(threadId, "user", PROMPT);
   }
 
-  const systemPrompt = buildSystemPrompt();
+  const systemPrompt = await buildSystemPrompt();
   const model = getModel("anthropic", MODEL_NAME as any);
 
   const agent = new Agent({

@@ -22,6 +22,8 @@ export function handleWorkflows() {
   const runMap: Record<string, any> = {};
   for (const r of runs) runMap[r.workflow_id] = r;
 
+  const totalRuns = db.prepare("SELECT COUNT(*) as count FROM threads WHERE type = 'workflow'").get() as any;
+
   return Response.json({
     workflows: workflows.map((w: any) => ({
       ...w,
@@ -29,6 +31,7 @@ export function handleWorkflows() {
       runCount: runMap[w.id]?.run_count || 0,
       lastRunAt: w.last_run_at || runMap[w.id]?.last_run_at || null,
     })),
+    totalRuns: totalRuns?.count || 0,
   });
 }
 

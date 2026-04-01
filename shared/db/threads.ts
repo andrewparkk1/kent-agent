@@ -1,107 +1,106 @@
 /** Threads and messages — conversation threads with the agent. */
+import { sql } from "kysely";
 import { getDb } from "./connection.ts";
+import type { Thread, Message } from "./schema.ts";
 
-// ─── Threads ─────────────────────────────────────────────────────────────────
+export type { Thread, Message };
 
-export interface DbThread {
-  id: string;
-  title: string | null;
-  type: "chat" | "workflow";
-  workflow_id: string | null;
-  status: "running" | "done" | "error" | null;
-  started_at: number | null;
-  finished_at: number | null;
-  created_at: number;
-  last_message_at: number;
-}
+// ─── Threads ────────────────────────────────────────────────────────────────
 
-export function createThread(title?: string, opts?: {
+export async function createThread(title?: string, opts?: {
   type?: "chat" | "workflow";
   workflow_id?: string;
-}): string {
+}): Promise<string> {
   const id = crypto.randomUUID();
   const type = opts?.type ?? "chat";
   const now = Math.floor(Date.now() / 1000);
-  getDb()
-    .prepare(`
-      INSERT INTO threads (id, title, type, workflow_id, status, started_at)
-      VALUES ($id, $title, $type, $wid, $status, $started_at)
-    `)
-    .run({
-      $id: id,
-      $title: title ?? null,
-      $type: type,
-      $wid: opts?.workflow_id ?? null,
-      $status: type === "workflow" ? "running" : null,
-      $started_at: type === "workflow" ? now : null,
-    });
+
+  await getDb()
+    .insertInto("threads")
+    .values({
+      id,
+      title: title ?? null,
+      type,
+      workflow_id: opts?.workflow_id ?? null,
+      status: type === "workflow" ? "running" : null,
+      started_at: type === "workflow" ? now : null,
+    })
+    .execute();
+
   return id;
 }
 
-export function finishThread(id: string, status: "done" | "error"): void {
-  getDb()
-    .prepare("UPDATE threads SET status = $status, finished_at = unixepoch() WHERE id = $id")
-    .run({ $id: id, $status: status });
+export async function finishThread(id: string, status: "done" | "error"): Promise<void> {
+  await getDb()
+    .updateTable("threads")
+    .set({ status, finished_at: sql`unixepoch()` })
+    .where("id", "=", id)
+    .execute();
 }
 
-export function getRecentThreads(limit = 10, type?: "chat" | "workflow"): DbThread[] {
-  if (type) {
-    return getDb()
-      .prepare("SELECT * FROM threads WHERE type = $type ORDER BY last_message_at DESC LIMIT $limit")
-      .all({ $type: type, $limit: limit }) as DbThread[];
-  }
+export async function getRecentThreads(limit = 10, type?: "chat" | "workflow"): Promise<Thread[]> {
+  let query = getDb()
+    .selectFrom("threads")
+    .orderBy("last_message_at", "desc")
+    .limit(limit)
+    .selectAll();
+
+  if (type) query = query.where("type", "=", type);
+  return query.execute();
+}
+
+export async function getWorkflowRuns(workflowId: string, limit = 50): Promise<Thread[]> {
   return getDb()
-    .prepare("SELECT * FROM threads ORDER BY last_message_at DESC LIMIT $limit")
-    .all({ $limit: limit }) as DbThread[];
+    .selectFrom("threads")
+    .where("workflow_id", "=", workflowId)
+    .orderBy("started_at", "desc")
+    .limit(limit)
+    .selectAll()
+    .execute();
 }
 
-export function getWorkflowRuns(workflowId: string, limit = 50): DbThread[] {
+export async function getThread(id: string): Promise<Thread | undefined> {
   return getDb()
-    .prepare("SELECT * FROM threads WHERE workflow_id = $wid ORDER BY started_at DESC LIMIT $limit")
-    .all({ $wid: workflowId, $limit: limit }) as DbThread[];
+    .selectFrom("threads")
+    .where("id", "=", id)
+    .selectAll()
+    .executeTakeFirst();
 }
 
-export function getThread(id: string): DbThread | null {
-  return getDb()
-    .prepare("SELECT * FROM threads WHERE id = $id")
-    .get({ $id: id }) as DbThread | null;
-}
+// ─── Messages ───────────────────────────────────────────────────────────────
 
-// ─── Messages ────────────────────────────────────────────────────────────────
-
-export interface DbMessage {
-  id: number;
-  thread_id: string;
-  role: "user" | "assistant" | "system" | "tool";
-  content: string;
-  metadata: string | null;
-  created_at: number;
-}
-
-export function addMessage(
+export async function addMessage(
   threadId: string,
   role: "user" | "assistant" | "system" | "tool",
   content: string,
   metadata?: Record<string, any>,
-): number {
-  const db = getDb();
-  const result = db
-    .prepare("INSERT INTO messages (thread_id, role, content, metadata) VALUES ($thread_id, $role, $content, $metadata)")
-    .run({
-      $thread_id: threadId,
-      $role: role,
-      $content: content,
-      $metadata: metadata ? JSON.stringify(metadata) : null,
-    });
+): Promise<number> {
+  const result = await getDb()
+    .insertInto("messages")
+    .values({
+      thread_id: threadId,
+      role,
+      content,
+      metadata: metadata ? JSON.stringify(metadata) : null,
+    })
+    .returning("id")
+    .executeTakeFirstOrThrow();
 
-  db.prepare("UPDATE threads SET last_message_at = unixepoch() WHERE id = $id")
-    .run({ $id: threadId });
+  await getDb()
+    .updateTable("threads")
+    .set({ last_message_at: sql`unixepoch()` })
+    .where("id", "=", threadId)
+    .execute();
 
-  return Number(result.lastInsertRowid);
+  return Number(result.id);
 }
 
-export function getMessages(threadId: string, limit = 200): DbMessage[] {
+export async function getMessages(threadId: string, limit = 200): Promise<Message[]> {
   return getDb()
-    .prepare("SELECT * FROM messages WHERE thread_id = $thread_id ORDER BY created_at ASC LIMIT $limit")
-    .all({ $thread_id: threadId, $limit: limit }) as DbMessage[];
+    .selectFrom("messages")
+    .where("thread_id", "=", threadId)
+    .orderBy("created_at", "asc")
+    .limit(limit)
+    .selectAll()
+    .execute();
 }

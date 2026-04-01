@@ -1,165 +1,174 @@
 # Kent
 
-Kent is an open-source personal AI agent that runs on your Mac.
+Your personal AI agent that runs on your Mac. Kent syncs your data — iMessage, Gmail, GitHub, Chrome, Granola, Apple Notes — indexes it locally, and runs scheduled workflows powered by Claude.
 
-- **Syncs your data** — iMessage, Gmail, GitHub, Granola meetings, Chrome history, Apple Notes. All indexed locally and pushed to Convex.
-- **Answers questions with your context** — "What should I focus on today?" pulls from real messages, meetings, and notifications.
-- **Runs workflows on a schedule** — daily briefs, PR summaries, meeting follow-ups. Delivered to your terminal or Telegram.
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────┐
-│  Mac (daemon — Bun)                                     │
-│  iMessage · Signal · Granola · Gmail · GitHub · Chrome  │
-│       ↓ sync every 5min                                 │
-├─────────────────────────────────────────────────────────┤
-│  Convex Cloud                                           │
-│  items · workflows · runs · encrypted keys              │
-│       ↓ on run/workflow trigger                         │
-├─────────────────────────────────────────────────────────┤
-│  Agent (pi-agent-core)                                  │
-│  Local subprocess OR E2B sandbox (ephemeral)            │
-│  Claude/GPT · tools · your keys injected at runtime     │
-└─────────────────────────────────────────────────────────┘
-```
+Ask it what to focus on today. Get a daily brief of your meetings, emails, and PRs. Let it draft follow-ups from meetings. All your data stays on your machine.
 
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/andrewgao/kent-cli/main/scripts/install.sh | bash
+# requires macOS and Bun (https://bun.sh)
+bun install -g kent-agent
 kent init
 ```
 
-Requires macOS and [Bun](https://bun.sh) (installed automatically if missing).
+`kent init` walks you through connecting sources and adding your API keys.
+
+## Quick start
+
+```bash
+kent                          # interactive chat
+kent daemon start             # start background sync + scheduled workflows
+kent web                      # open web dashboard
+```
+
+## What it does
+
+**Syncs your data** from local and cloud sources every few minutes. Everything is stored in a local SQLite database at `~/.kent/kent.db`.
+
+**Answers questions with your context.** The agent has tools to search across all your synced data, so it can answer things like "what did Sarah say about the launch?" or "summarize my unread GitHub notifications."
+
+**Runs workflows on a schedule.** Workflows are prompts that run on a cron schedule. Kent ships with defaults (morning briefing, evening recap, memory curator) and you can create your own.
+
+**Remembers things.** The agent maintains a persistent knowledge base — people, projects, preferences, events — that it references across conversations.
+
+## Architecture
+
+```
+┌──────────────────────────────────────────┐
+│  CLI / TUI / Web Dashboard               │
+├──────────────────────────────────────────┤
+│  Daemon (background process)             │
+│  ├─ Sync loop → sources every N min      │
+│  └─ Cron loop → run due workflows        │
+├──────────────────────────────────────────┤
+│  Agent (subprocess, pi-agent-core)       │
+│  ├─ Claude API                           │
+│  └─ Tools: data, memory, workflow, fs    │
+├──────────────────────────────────────────┤
+│  SQLite (~/.kent/kent.db)                │
+│  items · threads · workflows · memories  │
+└──────────────────────────────────────────┘
+```
 
 ## Sources
 
 | Source | Status | Notes |
 |--------|--------|-------|
-| iMessage | ✅ Stable | Reads `~/Library/Messages/chat.db`. Requires Full Disk Access for your terminal. |
-| Signal | ⚠️ Requires setup | Needs `brew install sqlcipher` and Signal Desktop installed. |
-| Granola | ✅ Stable | Reads JSON files from `~/Library/Application Support/Granola/`. |
-| Gmail | ✅ Stable | Uses [gws CLI](https://github.com/nicholasgasior/gws). Run `gws auth login` first. |
-| GitHub | ✅ Stable | Uses [gh CLI](https://cli.github.com). Run `gh auth login` first. |
-| Chrome | ✅ Stable | Reads history, bookmarks, downloads, top sites from Chrome's SQLite DBs. |
-| Apple Notes | ✅ Stable | Reads `NoteStore.sqlite`. Requires Full Disk Access. |
+| iMessage | Stable | Reads `chat.db`. Requires Full Disk Access. |
+| Gmail | Stable | Via `gws` CLI. Also syncs Google Calendar and Tasks. |
+| GitHub | Stable | Via `gh` CLI. Notifications, PRs, issues. |
+| Chrome | Stable | History, bookmarks, downloads, search terms. |
+| Granola | Stable | Meeting transcripts from local JSON files. |
+| Apple Notes | Stable | Reads `NoteStore.sqlite`. Requires Full Disk Access. |
+| Signal | Requires setup | Needs `sqlcipher` and Signal Desktop. |
 
-## Built-in Workflows
+## Workflows
 
-Kent ships with workflow templates in `~/.kent/workflows/`:
+Kent ships with default workflows:
 
 | Workflow | Schedule | What it does |
-|----------|----------|-------------|
-| `daily-brief` | Every day at 8am | Summarizes messages, emails, meetings, and GitHub activity. Prioritizes action items. |
-| `weekly-review` | Friday at 5pm | Week-in-review across all sources. Groups by project, highlights shipped work and pending items. |
-| `pr-summary` | On GitHub sync | Lists open PRs with review status and unresolved comments. |
-| `meeting-followup` | On Granola sync | Extracts action items from meetings and drafts follow-up messages. |
+|----------|----------|--------------|
+| Morning briefing | 8am daily | Calendar, emails, to-dos, action items |
+| Evening recap | 6pm daily | Today's summary, highlights, tomorrow preview |
+| Memory curator | 10am daily | Reviews data, updates memories, archives stale ones |
+| Workflow suggestor | 9:30am daily | Analyzes patterns, suggests new automations |
 
-Run any workflow manually:
+### Custom workflows
 
 ```bash
-kent workflow run daily-brief
+kent workflow create
 ```
 
-## Custom Workflows
-
-Create a YAML file in `~/.kent/workflows/`:
+Or create a YAML file in `~/.kent/workflows/`:
 
 ```yaml
-name: "standup-prep"
-prompt: "Based on my activity in the last 24 hours, draft my standup update. Format: what I did yesterday, what I'm doing today, any blockers."
-schedule: "0 9 * * 1-5"
-runner: "cloud"
-output: "telegram"
+name: standup-prep
+description: Draft my standup update
+prompt: >
+  Based on my activity in the last 24 hours, draft my standup update.
+  Format: what I did yesterday, what I'm doing today, any blockers.
+cron_schedule: "0 9 * * 1-5"
 ```
 
-Fields:
+### Run manually
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | Yes | Unique identifier |
-| `prompt` | Yes | The instruction sent to the agent |
-| `schedule` | No | Cron expression. Omit for manual-only. |
-| `trigger` | No | Source name. Runs when that source syncs new data. |
-| `runner` | No | `cloud` (E2B sandbox) or `local` (subprocess with filesystem access). Default: `cloud`. |
-| `output` | No | `stdout`, `telegram`, or `file:/path`. Default: `stdout`. |
+```bash
+kent workflow run morning-briefing
+kent workflow list
+kent workflow history
+```
 
-## Security — BYOK (Bring Your Own Keys)
+## Web dashboard
 
-Kent never stores your API keys in plaintext on any server.
+```bash
+kent web
+```
 
-**How it works:**
+Opens a local React dashboard with pages for:
 
-1. `kent init` generates a random `device_token` (32 bytes, base64url) and a `salt` (16 bytes), both stored locally in `~/.kent/`.
-2. Your API keys (Anthropic, OpenAI, etc.) are encrypted with **AES-256-GCM** using a key derived via **PBKDF2** (600,000 iterations, SHA-256) from your device token + salt.
-3. The encrypted blob is stored in Convex. The device token and salt never leave your Mac.
-4. At runtime, the agent decrypts keys locally before injecting them into the execution environment.
-5. **Local runner**: keys stay on your Mac entirely. The agent runs as a subprocess.
-6. **Cloud runner**: keys are injected into an ephemeral [E2B](https://e2b.dev) sandbox that is destroyed after the run.
+- **Home** — feed of recent workflow runs and briefs
+- **Chat** — multi-turn conversations with the agent
+- **Workflows** — manage, enable/disable, run, view history
+- **Sources** — sync status, item counts, manual sync
+- **Memories** — browse and search the knowledge base
+- **Identity** — set your name, role, goals for better context
+- **Settings** — configure sources, API keys, daemon
 
-**What you need:**
+## CLI reference
+
+```bash
+kent                              # interactive REPL
+kent init                         # setup wizard
+kent daemon start|stop|status     # background sync + scheduler
+kent sync                         # sync all sources now
+kent sync --source imessage       # sync one source
+kent workflow list                # list workflows
+kent workflow run <name>          # run a workflow
+kent workflow create              # create a workflow
+kent web                          # open web dashboard
+```
+
+## Security
+
+Kent uses BYOK (Bring Your Own Keys). Your API keys are encrypted with AES-256-GCM and never leave your machine in plaintext.
+
+- `kent init` generates a device token and salt, stored locally at `~/.kent/`
+- Keys are encrypted at rest using PBKDF2-derived keys (600k iterations)
+- The agent decrypts keys on-demand before execution
+- All data lives locally in SQLite — nothing is sent to external servers unless you configure it
+
+**Required keys:**
 
 | Key | Required | Used for |
 |-----|----------|----------|
-| Anthropic API key | Yes (or OpenAI) | Agent LLM (Claude) |
-| OpenAI API key | Optional | Alternative LLM provider |
-| E2B API key | Optional | Cloud runner sandboxes |
-| Telegram bot token | Optional | Telegram channel |
-
-All keys are set during `kent init` and can be updated by re-running it.
-
-## Channels
-
-| Channel | Status | Description |
-|---------|--------|-------------|
-| TUI | ✅ Default | Interactive terminal REPL. `kent` with no arguments. |
-| Telegram | ✅ Available | Chat with Kent from your phone. Receives workflow notifications. |
-| WhatsApp | Planned | — |
-| Slack | Planned | — |
-| Discord | Planned | — |
-
-Start a channel:
-
-```bash
-kent channel start telegram
-```
-
-## Usage
-
-```bash
-kent                              # Interactive REPL (cloud runner)
-kent --local                      # Interactive REPL (local runner — full filesystem access)
-kent init                         # Setup wizard
-kent daemon start|stop|status     # Manage background sync daemon
-kent sync                         # Manual sync all sources
-kent sync --source imessage       # Sync specific source
-kent workflow list                # List workflows
-kent workflow run <name>          # Run a workflow
-kent channel start telegram       # Start Telegram channel
-```
+| Anthropic API key | Yes | Agent LLM (Claude) |
+| OpenAI API key | Optional | Alternative LLM |
 
 ## Development
 
 ```bash
-git clone https://github.com/andrewgao/kent-cli.git
+git clone https://github.com/andrewparkk1/kent-agent.git
 cd kent-cli
 bun install
 bun run cli/index.ts --help
 ```
 
-Populate demo data:
+Run tests:
 
 ```bash
-bun run scripts/mock-data.ts
+bun test
 ```
 
-Record a demo:
+### Project structure
 
-```bash
-brew install asciinema
-bun run scripts/mock-data.ts
-asciinema rec kent-demo.cast -c "bash scripts/demo.sh"
+```
+cli/          CLI entry point and commands
+daemon/       Background sync daemon and source adapters
+agent/        Agent subprocess, tools, prompts
+shared/       Database, config, shared types
+web/          React web dashboard
+tests/        Test suite
 ```
 
 ## Contributing
@@ -170,13 +179,7 @@ asciinema rec kent-demo.cast -c "bash scripts/demo.sh"
 4. Run tests (`bun test`)
 5. Open a PR
 
-Areas where contributions are welcome:
-
-- New source adapters (Slack, Discord, Notion, Linear, etc.)
-- New channel adapters (WhatsApp, Slack, Discord)
-- Workflow templates
-- Agent skill files
-- Bug fixes and documentation
+Contributions welcome: new source adapters, workflow templates, agent tools, bug fixes.
 
 ## License
 

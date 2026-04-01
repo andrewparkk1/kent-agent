@@ -1,89 +1,95 @@
 /**
- * Database connection singleton and schema initialization.
- * All other db modules import getDb() from here.
+ * Database connection singleton — Kysely + bun:sqlite.
+ * Handles schema creation and migrations.
  */
-import { Database } from "bun:sqlite";
+import { Database as BunDatabase } from "bun:sqlite";
+import { Kysely } from "kysely";
+import { BunSqliteDialect } from "kysely-bun-sqlite";
 import { join } from "node:path";
 import { KENT_DIR, ensureKentDir } from "../config.ts";
+import type { Database } from "./schema.ts";
 
 const DB_PATH = join(KENT_DIR, "kent.db");
 
-let _db: Database | null = null;
+let _db: Kysely<Database> | null = null;
+let _raw: BunDatabase | null = null;
 
-export function getDb(): Database {
+/** Get the Kysely database instance. */
+export function getDb(): Kysely<Database> {
   if (_db) return _db;
 
   ensureKentDir();
-  _db = new Database(DB_PATH);
-  _db.exec("PRAGMA journal_mode = WAL");
-  _db.exec("PRAGMA foreign_keys = ON");
-  _db.exec("PRAGMA busy_timeout = 5000");
+  _raw = new BunDatabase(DB_PATH);
+  _raw.exec("PRAGMA journal_mode = WAL");
+  _raw.exec("PRAGMA foreign_keys = ON");
+  _raw.exec("PRAGMA busy_timeout = 5000");
 
-  initSchema(_db);
-  runMigrations(_db);
-  rebuildFtsIndex(_db);
+  _db = new Kysely<Database>({
+    dialect: new BunSqliteDialect({ database: _raw }),
+  });
+
+  initSchema(_raw);
+  runMigrations(_raw);
+  rebuildFtsIndex(_raw);
   return _db;
 }
 
-/** Rebuild the FTS index from scratch (needed once for pre-existing data). */
-function rebuildFtsIndex(db: Database): void {
+/** Get the raw bun:sqlite instance for operations Kysely can't do (FTS5, transactions). */
+export function getRawDb(): BunDatabase {
+  getDb(); // ensure initialized
+  return _raw!;
+}
+
+// ─── FTS rebuild ────────────────────────────────────────────────────────────
+
+function rebuildFtsIndex(db: BunDatabase): void {
   const count = (db.prepare("SELECT COUNT(*) as n FROM items").get() as any)?.n ?? 0;
   if (count === 0) return;
-
   const ftsCount = (db.prepare("SELECT COUNT(*) as n FROM items_fts").get() as any)?.n ?? 0;
   if (ftsCount > 0) return;
-
   db.exec("INSERT INTO items_fts(rowid, content, source, external_id) SELECT id, content, source, external_id FROM items");
 }
 
-function runMigrations(db: Database): void {
-  // Workflows: add type/source columns
-  const wfCols = db.prepare("PRAGMA table_info(workflows)").all() as any[];
-  const wfColNames = wfCols.map((c: any) => c.name);
-  if (wfCols.length > 0 && !wfColNames.includes("type")) {
-    db.exec("ALTER TABLE workflows ADD COLUMN type TEXT NOT NULL DEFAULT 'cron'");
-  }
-  if (wfCols.length > 0 && !wfColNames.includes("source")) {
-    db.exec("ALTER TABLE workflows ADD COLUMN source TEXT NOT NULL DEFAULT 'user'");
-  }
-  if (wfCols.length > 0 && !wfColNames.includes("is_archived")) {
-    db.exec("ALTER TABLE workflows ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0");
+// ─── Migrations ─────────────────────────────────────────────────────────────
+
+function runMigrations(db: BunDatabase): void {
+  const colNames = (table: string) => {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as any[];
+    return cols.map((c: any) => c.name);
+  };
+
+  // Workflows: add type/source/is_archived
+  const wfCols = colNames("workflows");
+  if (wfCols.length > 0) {
+    if (!wfCols.includes("type")) db.exec("ALTER TABLE workflows ADD COLUMN type TEXT NOT NULL DEFAULT 'cron'");
+    if (!wfCols.includes("source")) db.exec("ALTER TABLE workflows ADD COLUMN source TEXT NOT NULL DEFAULT 'user'");
+    if (!wfCols.includes("is_archived")) db.exec("ALTER TABLE workflows ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0");
   }
 
   // Threads: add type, workflow_id, status, started_at, finished_at
-  const thCols = db.prepare("PRAGMA table_info(threads)").all() as any[];
-  const thColNames = thCols.map((c: any) => c.name);
-  if (thCols.length > 0 && !thColNames.includes("type")) {
-    db.exec("ALTER TABLE threads ADD COLUMN type TEXT NOT NULL DEFAULT 'chat'");
-  }
-  if (thCols.length > 0 && !thColNames.includes("workflow_id")) {
-    db.exec("ALTER TABLE threads ADD COLUMN workflow_id TEXT");
-  }
-  if (thCols.length > 0 && !thColNames.includes("status")) {
-    db.exec("ALTER TABLE threads ADD COLUMN status TEXT");
-  }
-  if (thCols.length > 0 && !thColNames.includes("started_at")) {
-    db.exec("ALTER TABLE threads ADD COLUMN started_at INTEGER");
-  }
-  if (thCols.length > 0 && !thColNames.includes("finished_at")) {
-    db.exec("ALTER TABLE threads ADD COLUMN finished_at INTEGER");
+  const thCols = colNames("threads");
+  if (thCols.length > 0) {
+    if (!thCols.includes("type")) db.exec("ALTER TABLE threads ADD COLUMN type TEXT NOT NULL DEFAULT 'chat'");
+    if (!thCols.includes("workflow_id")) db.exec("ALTER TABLE threads ADD COLUMN workflow_id TEXT");
+    if (!thCols.includes("status")) db.exec("ALTER TABLE threads ADD COLUMN status TEXT");
+    if (!thCols.includes("started_at")) db.exec("ALTER TABLE threads ADD COLUMN started_at INTEGER");
+    if (!thCols.includes("finished_at")) db.exec("ALTER TABLE threads ADD COLUMN finished_at INTEGER");
   }
 
-  // Messages: add metadata column
-  const msgCols = db.prepare("PRAGMA table_info(messages)").all() as any[];
-  const msgColNames = msgCols.map((c: any) => c.name);
-  if (msgCols.length > 0 && !msgColNames.includes("metadata")) {
+  // Messages: add metadata
+  const msgCols = colNames("messages");
+  if (msgCols.length > 0 && !msgCols.includes("metadata")) {
     db.exec("ALTER TABLE messages ADD COLUMN metadata TEXT");
   }
 
-  // Drop workflow_runs if it exists (migrated to threads)
+  // Drop legacy workflow_runs table
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='workflow_runs'").all();
-  if (tables.length > 0) {
-    db.exec("DROP TABLE workflow_runs");
-  }
+  if (tables.length > 0) db.exec("DROP TABLE workflow_runs");
 }
 
-function initSchema(db: Database): void {
+// ─── Schema ─────────────────────────────────────────────────────────────────
+
+function initSchema(db: BunDatabase): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,25 +107,18 @@ function initSchema(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_items_source_created ON items(source, created_at);
 
     CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
-      content,
-      source UNINDEXED,
-      external_id UNINDEXED,
-      content=items,
-      content_rowid=id,
-      tokenize='porter unicode61'
+      content, source UNINDEXED, external_id UNINDEXED,
+      content=items, content_rowid=id, tokenize='porter unicode61'
     );
 
-    -- Triggers to keep FTS index in sync with items table
     CREATE TRIGGER IF NOT EXISTS items_ai AFTER INSERT ON items BEGIN
       INSERT INTO items_fts(rowid, content, source, external_id)
       VALUES (new.id, new.content, new.source, new.external_id);
     END;
-
     CREATE TRIGGER IF NOT EXISTS items_ad AFTER DELETE ON items BEGIN
       INSERT INTO items_fts(items_fts, rowid, content, source, external_id)
       VALUES ('delete', old.id, old.content, old.source, old.external_id);
     END;
-
     CREATE TRIGGER IF NOT EXISTS items_au AFTER UPDATE ON items BEGIN
       INSERT INTO items_fts(items_fts, rowid, content, source, external_id)
       VALUES ('delete', old.id, old.content, old.source, old.external_id);
