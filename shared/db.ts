@@ -97,6 +97,31 @@ function initSchema(db: Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS workflows (
+      id TEXT PRIMARY KEY,
+      name TEXT UNIQUE NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      prompt TEXT NOT NULL,
+      cron_schedule TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      last_run_at INTEGER,
+      next_run_at INTEGER,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+
+    CREATE TABLE IF NOT EXISTS workflow_runs (
+      id TEXT PRIMARY KEY,
+      workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+      status TEXT NOT NULL CHECK(status IN ('pending', 'running', 'done', 'error')) DEFAULT 'pending',
+      output TEXT,
+      error TEXT,
+      started_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      finished_at INTEGER
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow ON workflow_runs(workflow_id, started_at);
   `);
 }
 
@@ -260,4 +285,139 @@ export function getMessages(threadId: string, limit = 200): DbMessage[] {
   return getDb()
     .prepare("SELECT * FROM messages WHERE thread_id = $thread_id ORDER BY created_at ASC LIMIT $limit")
     .all({ $thread_id: threadId, $limit: limit }) as DbMessage[];
+}
+
+// ─── Workflows ──────────────────────────────────────────────────────────────
+
+export interface DbWorkflow {
+  id: string;
+  name: string;
+  description: string;
+  prompt: string;
+  cron_schedule: string | null;
+  enabled: number;
+  last_run_at: number | null;
+  next_run_at: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface DbWorkflowRun {
+  id: string;
+  workflow_id: string;
+  status: "pending" | "running" | "done" | "error";
+  output: string | null;
+  error: string | null;
+  started_at: number;
+  finished_at: number | null;
+}
+
+export function createWorkflow(opts: {
+  name: string;
+  prompt: string;
+  description?: string;
+  cron_schedule?: string;
+}): string {
+  const id = crypto.randomUUID();
+  getDb()
+    .prepare(`
+      INSERT INTO workflows (id, name, description, prompt, cron_schedule)
+      VALUES ($id, $name, $description, $prompt, $cron_schedule)
+    `)
+    .run({
+      $id: id,
+      $name: opts.name,
+      $description: opts.description ?? "",
+      $prompt: opts.prompt,
+      $cron_schedule: opts.cron_schedule ?? null,
+    });
+  return id;
+}
+
+export function listWorkflows(): DbWorkflow[] {
+  return getDb()
+    .prepare("SELECT * FROM workflows ORDER BY created_at DESC")
+    .all() as DbWorkflow[];
+}
+
+export function getWorkflow(idOrName: string): DbWorkflow | null {
+  return (
+    getDb()
+      .prepare("SELECT * FROM workflows WHERE id = $v OR name = $v")
+      .get({ $v: idOrName }) as DbWorkflow | null
+  );
+}
+
+export function updateWorkflow(
+  id: string,
+  fields: Partial<Pick<DbWorkflow, "name" | "description" | "prompt" | "cron_schedule" | "enabled" | "last_run_at" | "next_run_at">>,
+): void {
+  const sets: string[] = [];
+  const params: Record<string, any> = { $id: id };
+
+  for (const [key, value] of Object.entries(fields)) {
+    sets.push(`${key} = $${key}`);
+    params[`$${key}`] = value;
+  }
+  sets.push("updated_at = unixepoch()");
+
+  if (sets.length === 1) return; // only updated_at, no real changes
+
+  getDb()
+    .prepare(`UPDATE workflows SET ${sets.join(", ")} WHERE id = $id`)
+    .run(params);
+}
+
+export function deleteWorkflow(idOrName: string): boolean {
+  const wf = getWorkflow(idOrName);
+  if (!wf) return false;
+  getDb().prepare("DELETE FROM workflows WHERE id = $id").run({ $id: wf.id });
+  return true;
+}
+
+export function getDueWorkflows(now: number): DbWorkflow[] {
+  // Return enabled workflows that have a cron_schedule
+  // The caller (daemon) is responsible for cron matching
+  return getDb()
+    .prepare(`
+      SELECT * FROM workflows
+      WHERE enabled = 1 AND cron_schedule IS NOT NULL
+    `)
+    .all() as DbWorkflow[];
+}
+
+// ─── Workflow Runs ──────────────────────────────────────────────────────────
+
+export function createWorkflowRun(workflowId: string): string {
+  const id = crypto.randomUUID();
+  getDb()
+    .prepare("INSERT INTO workflow_runs (id, workflow_id, status) VALUES ($id, $wid, 'running')")
+    .run({ $id: id, $wid: workflowId });
+  return id;
+}
+
+export function finishWorkflowRun(
+  id: string,
+  status: "done" | "error",
+  output?: string,
+  error?: string,
+): void {
+  getDb()
+    .prepare(`
+      UPDATE workflow_runs
+      SET status = $status, output = $output, error = $error, finished_at = unixepoch()
+      WHERE id = $id
+    `)
+    .run({ $id: id, $status: status, $output: output ?? null, $error: error ?? null });
+}
+
+export function getWorkflowRuns(workflowId: string, limit = 20): DbWorkflowRun[] {
+  return getDb()
+    .prepare(`
+      SELECT * FROM workflow_runs
+      WHERE workflow_id = $wid
+      ORDER BY started_at DESC
+      LIMIT $limit
+    `)
+    .all({ $wid: workflowId, $limit: limit }) as DbWorkflowRun[];
 }
