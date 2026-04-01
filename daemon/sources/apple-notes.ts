@@ -13,7 +13,7 @@
 import { Database } from "bun:sqlite";
 import { join } from "path";
 import { homedir, tmpdir } from "os";
-import { copyFileSync, existsSync, mkdirSync } from "fs";
+import { existsSync, copyFileSync, mkdirSync } from "fs";
 import { gunzipSync } from "zlib";
 import type { Source, SyncState, Item } from "./types";
 
@@ -21,7 +21,6 @@ const NOTES_DB = join(
   homedir(),
   "Library/Group Containers/group.com.apple.notes/NoteStore.sqlite"
 );
-const TEMP_DIR = join(tmpdir(), "kent-notes");
 
 /** Apple Core Data epoch offset: seconds between 2001-01-01 and 1970-01-01 */
 const CORE_DATA_EPOCH_OFFSET = 978307200;
@@ -71,11 +70,18 @@ function extractNoteText(data: Buffer | Uint8Array): string | null {
  * string fields (wire type 2). Avoids interpreting binary varint/fixed
  * data as text, which causes gibberish output.
  */
-function extractProtobufStrings(buf: Buffer): string[] {
+function extractProtobufStrings(buf: Buffer, depth = 0): string[] {
+  // Guard against infinite recursion on malformed data
+  if (depth > 10 || buf.length === 0) return [];
+
   const results: string[] = [];
   let i = 0;
+  let iterations = 0;
+  const maxIterations = buf.length * 2; // safety bound
 
-  while (i < buf.length) {
+  while (i < buf.length && iterations++ < maxIterations) {
+    const prevI = i;
+
     // Read field tag (varint)
     const tagResult = readVarint(buf, i);
     if (!tagResult) break;
@@ -103,7 +109,7 @@ function extractProtobufStrings(buf: Buffer): string[] {
         if (!lenResult) return results;
         const [len, lenEnd] = lenResult;
         i = lenEnd;
-        if (i + len > buf.length) return results;
+        if (len <= 0 || i + len > buf.length) return results;
 
         const slice = buf.slice(i, i + len);
         i += len;
@@ -111,14 +117,13 @@ function extractProtobufStrings(buf: Buffer): string[] {
         // Try to decode as UTF-8 text
         try {
           const text = new TextDecoder("utf-8", { fatal: true }).decode(slice);
-          // Check if it looks like real text (mostly printable chars)
           const printable = text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "");
           if (printable.length > text.length * 0.8 && text.length >= 1) {
             results.push(printable);
           }
         } catch {
           // Not valid UTF-8 — might be an embedded message, try recursing
-          const nested = extractProtobufStrings(slice);
+          const nested = extractProtobufStrings(slice, depth + 1);
           results.push(...nested);
         }
         break;
@@ -132,6 +137,9 @@ function extractProtobufStrings(buf: Buffer): string[] {
         // Unknown wire type — can't continue safely
         return results;
     }
+
+    // If we didn't advance, bail to prevent infinite loop
+    if (i <= prevI) return results;
   }
 
   return results;
@@ -163,26 +171,43 @@ export const appleNotes: Source = {
   async fetchNew(state: SyncState): Promise<Item[]> {
     try {
       if (!existsSync(NOTES_DB)) {
-        console.warn("[apple-notes] NoteStore.sqlite not found, skipping");
+        // On macOS, if existsSync returns false the app likely lacks Full Disk Access
+        // (the sandbox hides the file entirely). Treat as permission-denied.
+        console.warn("[apple-notes] NoteStore.sqlite not found — grant Full Disk Access in System Settings > Privacy & Security");
         return [];
       }
 
-      // Copy DB to temp to avoid lock conflicts
-      mkdirSync(TEMP_DIR, { recursive: true });
-      const tempDb = join(TEMP_DIR, "NoteStore.sqlite");
-      copyFileSync(NOTES_DB, tempDb);
-
-      // Also copy WAL/SHM if they exist for consistency
-      const walPath = NOTES_DB + "-wal";
-      const shmPath = NOTES_DB + "-shm";
-      if (existsSync(walPath)) {
-        copyFileSync(walPath, tempDb + "-wal");
+      // Try to copy DB to temp first (avoids WAL lock contention with Notes.app)
+      // Falls back to opening directly if copy fails (e.g. launchd without FDA)
+      let dbPath = NOTES_DB;
+      try {
+        const tempDir = join(tmpdir(), "kent-apple-notes");
+        mkdirSync(tempDir, { recursive: true });
+        const tmpDb = join(tempDir, "NoteStore.sqlite");
+        copyFileSync(NOTES_DB, tmpDb);
+        const walPath = NOTES_DB + "-wal";
+        const shmPath = NOTES_DB + "-shm";
+        if (existsSync(walPath)) copyFileSync(walPath, tmpDb + "-wal");
+        if (existsSync(shmPath)) copyFileSync(shmPath, tmpDb + "-shm");
+        dbPath = tmpDb;
+      } catch {
+        // Copy failed (likely EPERM under launchd) — open original directly
       }
-      if (existsSync(shmPath)) {
-        copyFileSync(shmPath, tempDb + "-shm");
-      }
 
-      const db = new Database(tempDb, { readonly: true });
+      let db: InstanceType<typeof Database>;
+      try {
+        db = new Database(dbPath, { readonly: true });
+        // Set a busy timeout so we don't hang forever if Notes.app has a WAL lock
+        db.exec("PRAGMA busy_timeout = 5000");
+      } catch (e) {
+        const msg = String(e);
+        if (msg.includes("unable to open") || msg.includes("authorization denied") || msg.includes("EPERM")) {
+          console.warn("[apple-notes] Permission denied — grant Full Disk Access to the daemon in System Settings > Privacy & Security");
+        } else {
+          console.warn(`[apple-notes] Failed to open database: ${e}`);
+        }
+        return [];
+      }
 
       const lastSync = state.getLastSync("apple-notes");
       const lastSyncCoreData = lastSync > 0

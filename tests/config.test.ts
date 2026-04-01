@@ -3,9 +3,6 @@ import { existsSync, mkdirSync, rmSync, readFileSync, writeFileSync } from "node
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-// We need to test config functions with a temp directory to avoid touching real ~/.kent
-// Since config.ts hardcodes homedir(), we test the pure logic and file I/O separately
-
 describe("Config types and defaults", () => {
   test("DEFAULT_CONFIG has expected shape", async () => {
     const { DEFAULT_CONFIG } = await import("../shared/config.ts");
@@ -16,8 +13,6 @@ describe("Config types and defaults", () => {
     expect(DEFAULT_CONFIG.daemon.sync_interval_minutes).toBe(5);
     expect(DEFAULT_CONFIG.agent.default_model).toBe("claude-sonnet-4-20250514");
     expect(DEFAULT_CONFIG.agent.max_turns).toBe(10);
-    expect(DEFAULT_CONFIG.agent.default_runner).toBe("auto");
-    expect(DEFAULT_CONFIG.telegram.linked).toBe(false);
   });
 
   test("DEFAULT_CONFIG sources are all disabled", async () => {
@@ -74,7 +69,6 @@ describe("Config file I/O", () => {
   test("saveConfig writes valid JSON", async () => {
     const { DEFAULT_CONFIG } = await import("../shared/config.ts");
 
-    // Manually test the write/read logic since saveConfig uses hardcoded paths
     writeFileSync(configPath, JSON.stringify(DEFAULT_CONFIG, null, 2), "utf-8");
 
     expect(existsSync(configPath)).toBe(true);
@@ -87,9 +81,9 @@ describe("Config file I/O", () => {
   test("config roundtrip preserves all fields", async () => {
     const { DEFAULT_CONFIG } = await import("../shared/config.ts");
 
-    const config: typeof DEFAULT_CONFIG = {
+    const config = {
       ...DEFAULT_CONFIG,
-      core: { convex_url: "https://test.convex.cloud", device_token: "tok123" },
+      core: { device_token: "tok123" },
       keys: { openai: "sk-test", anthropic: "sk-ant-test" },
       sources: { ...DEFAULT_CONFIG.sources, imessage: true, github: true },
       agent: { ...DEFAULT_CONFIG.agent, max_turns: 25 },
@@ -99,7 +93,6 @@ describe("Config file I/O", () => {
     const raw = readFileSync(configPath, "utf-8");
     const restored = JSON.parse(raw);
 
-    expect(restored.core.convex_url).toBe("https://test.convex.cloud");
     expect(restored.core.device_token).toBe("tok123");
     expect(restored.keys.openai).toBe("sk-test");
     expect(restored.sources.imessage).toBe(true);
@@ -111,11 +104,9 @@ describe("Config file I/O", () => {
   test("loadConfig returns DEFAULT_CONFIG when file missing", async () => {
     const { DEFAULT_CONFIG } = await import("../shared/config.ts");
 
-    // If we read a non-existent file, fallback logic should give defaults
     const nonExistent = join(tempDir, "nope.json");
     expect(existsSync(nonExistent)).toBe(false);
 
-    // Simulate loadConfig logic
     let result: typeof DEFAULT_CONFIG;
     try {
       const raw = readFileSync(nonExistent, "utf-8");

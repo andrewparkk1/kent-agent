@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { BaseRunner, type RunResult, type StreamCallback, type TypedStreamCallback } from "./runner-base.ts";
 import type { Config } from "@shared/config.ts";
-import { KENT_DIR, CONVEX_URL } from "@shared/config.ts";
+import { KENT_DIR } from "@shared/config.ts";
 
 export class LocalRunner extends BaseRunner {
   private config: Config;
@@ -34,7 +34,6 @@ export class LocalRunner extends BaseRunner {
     const env: Record<string, string> = {
       ...process.env as Record<string, string>,
       ANTHROPIC_API_KEY: this.config.keys.anthropic || process.env.ANTHROPIC_API_KEY || "",
-      CONVEX_URL: CONVEX_URL,
       DEVICE_TOKEN: this.config.core.device_token || process.env.DEVICE_TOKEN || "",
       RUNNER: "local",
       RUN_ID: runId,

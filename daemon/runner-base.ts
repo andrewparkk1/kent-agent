@@ -1,9 +1,8 @@
 /**
  * Base runner interface and abstract class.
  *
- * Runners execute the agent (agent/agent.ts) in different environments:
- * - E2BRunner: sandboxed cloud environment via E2B
- * - LocalRunner: local Bun subprocess with filesystem access
+ * Runners execute the agent (agent/agent.ts).
+ * Currently only LocalRunner is supported (local Bun subprocess).
  */
 
 export interface RunResult {

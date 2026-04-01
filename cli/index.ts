@@ -3,10 +3,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { handleDaemon } from "./commands/daemon.ts";
-import { handleChannel } from "./commands/channel.ts";
 import { handleInit } from "./commands/init.ts";
 import { handleSync } from "./commands/sync.ts";
-import { handleWorkflow } from "./commands/workflow.ts";
 
 function getVersion(): string {
   try {
@@ -27,11 +25,8 @@ Usage:
   kent init                     Setup wizard
   kent daemon <start|stop|status>  Manage background daemon
   kent sync [--source <name>]   Sync data sources
-  kent workflow <list|run|push|disable>  Manage workflows
-  kent channel <start|stop|status>  Manage channels
 
 Flags:
-  --local       Set runner to local mode
   --version     Print version
   --help        Show this help message
 `);
@@ -51,16 +46,13 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const isLocal = args.includes("--local");
-  const filteredArgs = args.filter((a) => a !== "--local");
-
-  const command = filteredArgs[0];
-  const subArgs = filteredArgs.slice(1);
+  const command = args[0];
+  const subArgs = args.slice(1);
 
   if (!command) {
     // No command = interactive REPL mode
     const { startRepl } = await import("@cli/repl.tsx");
-    await startRepl(isLocal);
+    await startRepl();
     return;
   }
 
@@ -73,12 +65,6 @@ async function main(): Promise<void> {
       break;
     case "sync":
       await handleSync(subArgs);
-      break;
-    case "workflow":
-      await handleWorkflow(subArgs);
-      break;
-    case "channel":
-      await handleChannel(subArgs);
       break;
     default:
       console.error(`Unknown command: ${command}`);

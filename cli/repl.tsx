@@ -1,31 +1,32 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import { render, Box, Text, Static, useInput, useApp, useStdout } from "ink";
+import { render, Box, Text, Static, useInput, useApp } from "ink";
 import Spinner from "ink-spinner";
 import { loadConfig, saveConfig } from "@shared/config.ts";
 import { getRunner } from "@daemon/runner.ts";
-import { threads } from "@shared/convex-client.ts";
+import {
+  createThread,
+  getRecentThreads,
+  getMessages as dbGetMessages,
+  addMessage as dbAddMessage,
+  getItemCount,
+} from "@shared/db.ts";
 import type { Config } from "@shared/config.ts";
 import type { BaseRunner } from "@daemon/runner-base.ts";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+interface ToolCallState {
+  name: string;
+  args: string;
+  status: "running" | "done" | "error";
+}
+
 interface Message {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
-  toolCalls?: string[];
-}
-
-interface AppState {
-  messages: Message[];
-  input: string;
-  cursorPos: number;
-  isStreaming: boolean;
-  currentStreamText: string;
-  currentToolCall: string | null;
-  runnerMode: "local" | "cloud" | "auto";
-  scrollOffset: number;
-  promptHistoryIndex: number;
+  toolCalls?: ToolCallState[];
+  duration?: number;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -35,85 +36,271 @@ function nextId(): string {
   return `msg-${++messageCounter}-${Date.now()}`;
 }
 
-const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+function getTermWidth(): number {
+  return Math.min(process.stdout.columns || 80, 120);
+}
 
-// ─── StatusBar ───────────────────────────────────────────────────────────────
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return `${m}m ${s}s`;
+}
 
-function StatusBar({
-  config,
-  runnerMode,
-}: {
-  config: Config;
-  runnerMode: string;
-}) {
+function truncate(str: string, max: number): string {
+  if (str.length <= max) return str;
+  return str.slice(0, max - 1) + "…";
+}
+
+// ─── WelcomeHeader ──────────────────────────────────────────────────────────
+
+function WelcomeHeader({ config }: { config: Config }) {
   const model = config.agent.default_model;
-  const syncInterval = config.daemon.sync_interval_minutes;
   const sources = Object.entries(config.sources)
     .filter(([, enabled]) => enabled)
     .map(([name]) => name);
 
   return (
-    <Box
-      borderStyle="round"
-      borderColor="cyan"
-      paddingX={1}
-      flexDirection="column"
-      width="100%"
-    >
-      <Box gap={2}>
-        <Text bold color="cyan">
-          kent
-        </Text>
+    <Box flexDirection="column" marginBottom={1}>
+      <Box>
+        <Text color="magenta" bold>{"╭─ "}</Text>
+        <Text bold color="white">Kent</Text>
+        <Text dimColor>{" v0.1"}</Text>
+      </Box>
+      <Box>
+        <Text color="magenta">{"│  "}</Text>
+        <Text dimColor>{model}</Text>
+        {sources.length > 0 && (
+          <Text dimColor>{"  ·  "}{sources.join(", ")}</Text>
+        )}
+      </Box>
+      <Box>
+        <Text color="magenta" bold>{"╰─ "}</Text>
         <Text dimColor>
-          model: <Text color="yellow">{model}</Text>
-        </Text>
-        <Text dimColor>
-          runner: <Text color="green">{runnerMode}</Text>
-        </Text>
-        <Text dimColor>
-          sync: <Text color="white">{syncInterval}m</Text>
+          {"Type a message or "}
+          <Text color="white">/help</Text>
+          {" for commands"}
         </Text>
       </Box>
-      {sources.length > 0 && (
-        <Box>
-          <Text dimColor>
-            sources: <Text color="white">{sources.join(", ")}</Text>
-          </Text>
-        </Box>
-      )}
     </Box>
   );
 }
 
-// ─── ToolIndicator ───────────────────────────────────────────────────────────
+// ─── Tool Call Display ──────────────────────────────────────────────────────
 
-function ToolIndicator({ toolName }: { toolName: string }) {
+function ToolCallLine({ tool }: { tool: ToolCallState }) {
+  const icon =
+    tool.status === "running" ? (
+      <Text color="yellow"><Spinner type="dots" /></Text>
+    ) : tool.status === "error" ? (
+      <Text color="red">{"✗"}</Text>
+    ) : (
+      <Text color="green">{"✓"}</Text>
+    );
+
+  const nameColor =
+    tool.status === "error" ? "red" : tool.status === "done" ? "green" : "yellow";
+
+  // Parse the args for a cleaner display
+  let argDisplay = "";
+  try {
+    const parsed = JSON.parse(tool.args);
+    if (parsed.query) argDisplay = parsed.query;
+    else if (parsed.path) argDisplay = parsed.path;
+    else if (parsed.command) argDisplay = truncate(parsed.command, 60);
+    else if (parsed.pattern) argDisplay = parsed.pattern;
+    else argDisplay = truncate(tool.args, 60);
+  } catch {
+    argDisplay = truncate(tool.args, 60);
+  }
+
   return (
-    <Box paddingLeft={2}>
-      <Text color="yellow">
-        <Spinner type="dots" /> {toolName}
-      </Text>
+    <Box paddingLeft={2} gap={1}>
+      {icon}
+      <Text bold color={nameColor}>{tool.name}</Text>
+      {argDisplay && <Text dimColor>{argDisplay}</Text>}
     </Box>
   );
 }
 
-// ─── MessageView ─────────────────────────────────────────────────────────────
+function ToolCallsBlock({ tools }: { tools: ToolCallState[] }) {
+  return (
+    <Box flexDirection="column">
+      {tools.map((tool, i) => (
+        <ToolCallLine key={`${tool.name}-${i}`} tool={tool} />
+      ))}
+    </Box>
+  );
+}
+
+// ─── Active Tool Indicator (during streaming) ───────────────────────────────
+
+function ActiveToolIndicator({ tools }: { tools: ToolCallState[] }) {
+  if (tools.length === 0) return null;
+  return (
+    <Box flexDirection="column" marginTop={0}>
+      {tools.map((tool, i) => (
+        <ToolCallLine key={`${tool.name}-${i}`} tool={tool} />
+      ))}
+    </Box>
+  );
+}
+
+// ─── Markdown Renderer ──────────────────────────────────────────────────────
+
+function renderMarkdownLine(line: string): React.ReactNode[] {
+  const elements: React.ReactNode[] = [];
+  const regex = /(\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|_(.+?)_|`([^`]+)`)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+
+  while ((match = regex.exec(line)) !== null) {
+    if (match.index > lastIndex) {
+      elements.push(<Text key={key++}>{line.slice(lastIndex, match.index)}</Text>);
+    }
+    if (match[2]) {
+      elements.push(<Text key={key++} bold italic>{match[2]}</Text>);
+    } else if (match[3]) {
+      elements.push(<Text key={key++} bold>{match[3]}</Text>);
+    } else if (match[4]) {
+      elements.push(<Text key={key++} bold>{match[4]}</Text>);
+    } else if (match[5]) {
+      elements.push(<Text key={key++} italic>{match[5]}</Text>);
+    } else if (match[6]) {
+      elements.push(<Text key={key++} italic>{match[6]}</Text>);
+    } else if (match[7]) {
+      elements.push(
+        <Text key={key++} color="cyan">{"`"}{match[7]}{"`"}</Text>
+      );
+    }
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < line.length) {
+    elements.push(<Text key={key++}>{line.slice(lastIndex)}</Text>);
+  }
+
+  return elements.length > 0 ? elements : [<Text key={0}>{line}</Text>];
+}
+
+function MarkdownText({ content }: { content: string }) {
+  const lines = content.split("\n");
+  const elements: React.ReactNode[] = [];
+  let inCodeBlock = false;
+  let codeLines: string[] = [];
+  let codeLang = "";
+  let key = 0;
+
+  for (const line of lines) {
+    if (line.startsWith("```")) {
+      if (inCodeBlock) {
+        elements.push(
+          <Box key={key++} flexDirection="column" marginY={0} paddingLeft={1}>
+            {codeLang && (
+              <Text dimColor color="blue">{`  ${codeLang}`}</Text>
+            )}
+            <Box flexDirection="column" paddingLeft={1}>
+              {codeLines.map((cl, i) => (
+                <Text key={i} color="green">{cl}</Text>
+              ))}
+            </Box>
+          </Box>
+        );
+        codeLines = [];
+        codeLang = "";
+        inCodeBlock = false;
+      } else {
+        inCodeBlock = true;
+        codeLang = line.slice(3).trim();
+      }
+      continue;
+    }
+
+    if (inCodeBlock) {
+      codeLines.push(line);
+      continue;
+    }
+
+    if (line.startsWith("### ")) {
+      elements.push(
+        <Box key={key++} marginTop={1}>
+          <Text bold color="blue">{"   "}{line.slice(4)}</Text>
+        </Box>
+      );
+    } else if (line.startsWith("## ")) {
+      elements.push(
+        <Box key={key++} marginTop={1}>
+          <Text bold color="blue">{"   "}{line.slice(3)}</Text>
+        </Box>
+      );
+    } else if (line.startsWith("# ")) {
+      elements.push(
+        <Box key={key++} marginTop={1}>
+          <Text bold color="blue">{"   "}{line.slice(2)}</Text>
+        </Box>
+      );
+    } else if (line.match(/^\s*[-*]\s/)) {
+      const indent = line.match(/^(\s*)/)?.[1]?.length ?? 0;
+      const text = line.replace(/^\s*[-*]\s/, "");
+      elements.push(
+        <Box key={key++} paddingLeft={indent + 2}>
+          <Text dimColor>{"• "}</Text>
+          <Text>{renderMarkdownLine(text)}</Text>
+        </Box>
+      );
+    } else if (line.match(/^\s*\d+\.\s/)) {
+      const m = line.match(/^(\s*)(\d+)\.\s(.*)/);
+      if (m) {
+        elements.push(
+          <Box key={key++} paddingLeft={(m[1]?.length ?? 0) + 2}>
+            <Text dimColor>{m[2]}. </Text>
+            <Text>{renderMarkdownLine(m[3] || "")}</Text>
+          </Box>
+        );
+      }
+    } else if (line.match(/^---+$/)) {
+      elements.push(
+        <Box key={key++} marginY={0}>
+          <Text dimColor>{"  "}{"─".repeat(Math.min(getTermWidth() - 8, 50))}</Text>
+        </Box>
+      );
+    } else if (line.startsWith("> ")) {
+      elements.push(
+        <Box key={key++} paddingLeft={2}>
+          <Text color="gray">{"│ "}</Text>
+          <Text italic dimColor>{renderMarkdownLine(line.slice(2))}</Text>
+        </Box>
+      );
+    } else if (line.trim() === "") {
+      elements.push(<Box key={key++}><Text>{" "}</Text></Box>);
+    } else {
+      elements.push(
+        <Box key={key++} paddingLeft={2}>
+          <Text>{renderMarkdownLine(line)}</Text>
+        </Box>
+      );
+    }
+  }
+
+  return <Box flexDirection="column">{elements}</Box>;
+}
+
+// ─── MessageView ────────────────────────────────────────────────────────────
 
 function MessageView({ message }: { message: Message }) {
   if (message.role === "user") {
     return (
-      <Box paddingLeft={1} marginTop={1}>
-        <Text bold color="blue">
-          {"❯ "}
-        </Text>
-        <Text>{message.content}</Text>
+      <Box marginTop={1} paddingLeft={0}>
+        <Text color="magenta" bold>{"❯ "}</Text>
+        <Text bold color="white">{message.content}</Text>
       </Box>
     );
   }
 
   if (message.role === "system") {
     return (
-      <Box paddingLeft={2} marginTop={1}>
+      <Box paddingLeft={2} marginTop={0}>
         <Text dimColor italic>
           {message.content}
         </Text>
@@ -121,40 +308,75 @@ function MessageView({ message }: { message: Message }) {
     );
   }
 
-  // assistant
+  // Assistant message
   return (
-    <Box paddingLeft={2} marginTop={1} flexDirection="column">
-      <Text>{message.content}</Text>
+    <Box marginTop={1} flexDirection="column">
+      {message.toolCalls && message.toolCalls.length > 0 && (
+        <Box flexDirection="column" marginBottom={0}>
+          <ToolCallsBlock tools={message.toolCalls} />
+        </Box>
+      )}
+
+      {message.content && (
+        <Box flexDirection="column">
+          <MarkdownText content={message.content} />
+        </Box>
+      )}
+
+      {message.duration !== undefined && (
+        <Box paddingLeft={2} marginTop={0}>
+          <Text dimColor>{"  · "}{formatDuration(message.duration)}</Text>
+        </Box>
+      )}
     </Box>
   );
 }
 
-// ─── MessageList (completed messages rendered via Static) ─────────────────────
+// ─── MessageList ────────────────────────────────────────────────────────────
 
-function MessageList({ messages }: { messages: Message[] }) {
+function MessageList({
+  messages,
+  headerConfig,
+}: {
+  messages: Message[];
+  headerConfig: Config | null;
+}) {
+  const items = headerConfig
+    ? [{ id: "__header__", role: "system" as const, content: "" }, ...messages]
+    : messages;
+
   return (
-    <Static items={messages}>
-      {(message) => (
-        <Box key={message.id} flexDirection="column">
-          <MessageView message={message} />
-        </Box>
-      )}
+    <Static items={items}>
+      {(message) => {
+        if (message.id === "__header__" && headerConfig) {
+          return (
+            <Box key="__header__" flexDirection="column">
+              <WelcomeHeader config={headerConfig} />
+            </Box>
+          );
+        }
+        return (
+          <Box key={message.id} flexDirection="column">
+            <MessageView message={message as Message} />
+          </Box>
+        );
+      }}
     </Static>
   );
 }
 
-// ─── StreamingOutput ─────────────────────────────────────────────────────────
+// ─── StreamingOutput ────────────────────────────────────────────────────────
 
 function StreamingOutput({ text }: { text: string }) {
   if (!text) return null;
   return (
-    <Box paddingLeft={2} marginTop={1}>
-      <Text>{text}</Text>
+    <Box marginTop={1} flexDirection="column">
+      <MarkdownText content={text} />
     </Box>
   );
 }
 
-// ─── InputArea ───────────────────────────────────────────────────────────────
+// ─── InputArea ──────────────────────────────────────────────────────────────
 
 function InputArea({
   input,
@@ -165,75 +387,83 @@ function InputArea({
 }) {
   if (isStreaming) {
     return (
-      <Box marginTop={1} paddingLeft={1}>
+      <Box marginTop={1} paddingLeft={0}>
+        <Text color="yellow">
+          <Spinner type="dots" />
+        </Text>
         <Text dimColor>
-          <Spinner type="dots" /> thinking...{" "}
-          <Text dimColor italic>
-            (ctrl+c to cancel)
-          </Text>
+          {"  "}
         </Text>
       </Box>
     );
   }
 
   return (
-    <Box flexDirection="column" marginTop={1}>
-      <Box>
-        <Text dimColor>
-          {"─".repeat(Math.min(process.stdout.columns || 80, 120))}
-        </Text>
-      </Box>
-      <Box paddingLeft={1}>
-        <Text bold color="cyan">
-          {"❯ "}
-        </Text>
-        <Text>
-          {input}
-          <Text color="cyan">█</Text>
-        </Text>
-      </Box>
+    <Box marginTop={1}>
+      <Text color="magenta" bold>{"❯ "}</Text>
+      <Text>{input}</Text>
+      <Text color="gray">{"█"}</Text>
     </Box>
   );
 }
 
-// ─── Help text ───────────────────────────────────────────────────────────────
+// ─── Help text ──────────────────────────────────────────────────────────────
 
 const HELP_TEXT = `
   Slash commands:
     /sync [source]          Trigger a sync
-    /status                 Show daemon status
-    /workflow list|run      Manage workflows
+    /status                 Show daemon & data status
     /threads                List recent threads
     /thread new             Start a new thread
     /thread <number>        Switch to thread
     /model <name>           Switch model
-    /runner local|cloud     Switch runner
     /clear                  Clear history
     /history                Show past prompts
     /help                   Show this help
     /exit                   Quit`;
 
-// ─── Main App ────────────────────────────────────────────────────────────────
+// ─── Tool Event Parser ──────────────────────────────────────────────────────
+
+function parseToolEvent(raw: string): { name: string; type: "start" | "end" | "error"; args: string } | null {
+  const lines = raw.split("\n").filter(Boolean);
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    const doneMatch = trimmed.match(/^\[([\w_]+)\]\s+done$/);
+    if (doneMatch) {
+      return { name: doneMatch[1]!, type: "end", args: "" };
+    }
+
+    const errorMatch = trimmed.match(/^\[([\w_]+)\]\s+ERROR$/);
+    if (errorMatch) {
+      return { name: errorMatch[1]!, type: "error", args: "" };
+    }
+
+    const startMatch = trimmed.match(/^\[([\w_]+)\]\s+(.*)/);
+    if (startMatch) {
+      return { name: startMatch[1]!, type: "start", args: startMatch[2] || "" };
+    }
+  }
+  return null;
+}
+
+// ─── Main App ───────────────────────────────────────────────────────────────
 
 function App({
   initialConfig,
   initialRunner,
-  initialRunnerMode,
 }: {
   initialConfig: Config;
   initialRunner: BaseRunner;
-  initialRunnerMode: "local" | "cloud" | "auto";
 }) {
   const { exit } = useApp();
-  const { stdout } = useStdout();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [currentStreamText, setCurrentStreamText] = useState("");
-  const [currentToolCall, setCurrentToolCall] = useState<string | null>(null);
+  const [activeTools, setActiveTools] = useState<ToolCallState[]>([]);
   const [config, setConfig] = useState(initialConfig);
-  const [runnerMode, setRunnerMode] = useState(initialRunnerMode);
 
   const runnerRef = useRef<BaseRunner>(initialRunner);
   const abortRef = useRef<AbortController | null>(null);
@@ -241,65 +471,54 @@ function App({
   const historyIndexRef = useRef(-1);
   const conversationRef = useRef<Array<{ role: "user" | "assistant"; content: string }>>([]);
   const threadIdRef = useRef<string | null>(null);
-  const deviceTokenRef = useRef(initialConfig.core.device_token);
+  const toolCallsRef = useRef<ToolCallState[]>([]);
+  const startTimeRef = useRef<number>(0);
 
   // Initialize thread on mount
   useEffect(() => {
-    const deviceToken = deviceTokenRef.current;
-    if (!deviceToken) return;
-
-    (async () => {
-      try {
-        const recent = await threads.getRecent(deviceToken, "cli", 1);
-        if (recent.length > 0) {
-          const latest = recent[0]!;
-          const hoursSince = (Date.now() - latest.lastMessageAt) / (1000 * 60 * 60);
-          if (hoursSince < 24) {
-            threadIdRef.current = latest._id;
-            const msgs = await threads.getMessages(deviceToken, latest._id);
-            const history = msgs
-              .filter((m) => m.role === "user" || m.role === "assistant")
-              .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
-            conversationRef.current = history;
-            if (history.length > 0) {
-              for (const m of history) {
-                setMessages((prev) => [
-                  ...prev,
-                  { id: nextId(), role: m.role, content: m.content },
-                ]);
-              }
-            }
-            const title = latest.title || "(untitled)";
+    const recent = getRecentThreads(1);
+    if (recent.length > 0) {
+      const latest = recent[0]!;
+      const hoursSince = (Date.now() / 1000 - latest.last_message_at) / 3600;
+      if (hoursSince < 24) {
+        threadIdRef.current = latest.id;
+        const msgs = dbGetMessages(latest.id);
+        const history = msgs
+          .filter((m) => m.role === "user" || m.role === "assistant")
+          .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+        conversationRef.current = history;
+        if (history.length > 0) {
+          for (const m of history) {
             setMessages((prev) => [
               ...prev,
-              { id: nextId(), role: "system", content: `  Resumed thread: ${title} (${history.length} messages)` },
-            ]);
-          } else {
-            threadIdRef.current = await threads.create(deviceToken, "cli");
-            setMessages((prev) => [
-              ...prev,
-              { id: nextId(), role: "system", content: "  Started new thread." },
+              { id: nextId(), role: m.role, content: m.content },
             ]);
           }
-        } else {
-          threadIdRef.current = await threads.create(deviceToken, "cli");
-          setMessages((prev) => [
-            ...prev,
-            { id: nextId(), role: "system", content: "  Started new thread." },
-          ]);
         }
-      } catch {
+        const title = latest.title || "(untitled)";
         setMessages((prev) => [
           ...prev,
-          { id: nextId(), role: "system", content: "  (offline — thread history unavailable)" },
+          { id: nextId(), role: "system", content: `Resumed: ${title} (${history.length} messages)` },
+        ]);
+      } else {
+        threadIdRef.current = createThread();
+        setMessages((prev) => [
+          ...prev,
+          { id: nextId(), role: "system", content: "New thread started." },
         ]);
       }
-    })();
+    } else {
+      threadIdRef.current = createThread();
+      setMessages((prev) => [
+        ...prev,
+        { id: nextId(), role: "system", content: "New thread started." },
+      ]);
+    }
   }, []);
 
   const addMessage = useCallback(
-    (role: Message["role"], content: string) => {
-      const msg: Message = { id: nextId(), role, content };
+    (role: Message["role"], content: string, extra?: Partial<Message>) => {
+      const msg: Message = { id: nextId(), role, content, ...extra };
       setMessages((prev) => [...prev, msg]);
       return msg;
     },
@@ -328,15 +547,16 @@ function App({
 
         case "/clear": {
           conversationRef.current = [];
+          threadIdRef.current = createThread();
           setMessages([]);
-          addMessage("system", "  [conversation cleared]");
+          addMessage("system", "Conversation cleared, new thread started.");
           return;
         }
 
         case "/history": {
           const history = promptHistoryRef.current;
           if (history.length === 0) {
-            addMessage("system", "  [no prompt history]");
+            addMessage("system", "No prompt history.");
           } else {
             const lines = history
               .map((p, i) => {
@@ -345,7 +565,7 @@ function App({
                 return `  ${i + 1}. ${display}`;
               })
               .join("\n");
-            addMessage("system", `  Prompt history:\n${lines}`);
+            addMessage("system", `Prompt history:\n${lines}`);
           }
           return;
         }
@@ -355,8 +575,8 @@ function App({
           addMessage(
             "system",
             source
-              ? `  [syncing ${source}...]`
-              : "  [syncing all sources...]",
+              ? `Syncing ${source}...`
+              : "Syncing all sources...",
           );
           try {
             const { handleSync } = await import("@cli/commands/sync.ts");
@@ -367,9 +587,9 @@ function App({
             } finally {
               process.exit = originalExit;
             }
-            addMessage("system", "  [sync complete]");
+            addMessage("system", "Sync complete.");
           } catch {
-            addMessage("system", "  [sync failed]");
+            addMessage("system", "Sync failed.");
           }
           return;
         }
@@ -397,120 +617,80 @@ function App({
             .filter(([, v]) => !v)
             .map(([k]) => k);
 
+          const counts = getItemCount();
+          const countLines = Object.entries(counts)
+            .map(([source, count]) => `    ${source}: ${count}`)
+            .join("\n");
+
           addMessage(
             "system",
             [
-              `  Daemon:   ${daemonStatus}`,
-              `  Model:    ${config.agent.default_model}`,
-              `  Runner:   ${runnerMode}`,
-              `  Sync:     every ${config.daemon.sync_interval_minutes}m`,
-              `  Sources (on):  ${enabled.length > 0 ? enabled.join(", ") : "none"}`,
-              `  Sources (off): ${disabled.length > 0 ? disabled.join(", ") : "none"}`,
+              `Daemon:   ${daemonStatus}`,
+              `Model:    ${config.agent.default_model}`,
+              `Sync:     every ${config.daemon.sync_interval_minutes}m`,
+              `Sources (on):  ${enabled.length > 0 ? enabled.join(", ") : "none"}`,
+              `Sources (off): ${disabled.length > 0 ? disabled.join(", ") : "none"}`,
+              Object.keys(counts).length > 0 ? `Data:\n${countLines}` : "Data: (empty)",
             ].join("\n"),
           );
           return;
         }
 
-        case "/workflow": {
-          const sub = parts[1];
-          if (!sub) {
-            addMessage("system", "  Usage: /workflow list | /workflow run <name>");
-            return;
-          }
-          try {
-            const { handleWorkflow } = await import(
-              "@cli/commands/workflow.ts"
-            );
-            const originalExit = process.exit;
-            process.exit = (() => {}) as never;
-            try {
-              await handleWorkflow(parts.slice(1));
-            } finally {
-              process.exit = originalExit;
-            }
-          } catch {
-            addMessage("system", "  [workflow command failed]");
-          }
-          return;
-        }
-
         case "/threads": {
-          const deviceToken = deviceTokenRef.current;
-          if (!deviceToken) {
-            addMessage("system", "  [no device token — run `kent init` first]");
-            return;
-          }
-          try {
-            const recentThreads = await threads.getRecent(deviceToken, "cli", 10);
-            if (recentThreads.length === 0) {
-              addMessage("system", "  [no threads yet]");
-            } else {
-              const lines = recentThreads.map((t, i) => {
-                const active = threadIdRef.current === t._id ? " ←" : "";
-                const title = t.title || "(untitled)";
-                const date = new Date(t.lastMessageAt).toLocaleDateString();
-                return `  ${i + 1}. ${title}  (${date})${active}`;
-              });
-              addMessage(
-                "system",
-                `  Recent threads:\n${lines.join("\n")}\n\n  Use /thread <number> to switch, /thread new to start fresh.`,
-              );
-            }
-          } catch (err) {
-            addMessage("system", `  [failed to list threads: ${err instanceof Error ? err.message : err}]`);
+          const recentThreads = getRecentThreads(10);
+          if (recentThreads.length === 0) {
+            addMessage("system", "No threads yet.");
+          } else {
+            const lines = recentThreads.map((t, i) => {
+              const active = threadIdRef.current === t.id ? " ←" : "";
+              const title = t.title || "(untitled)";
+              const date = new Date(t.last_message_at * 1000).toLocaleDateString();
+              return `  ${i + 1}. ${title}  (${date})${active}`;
+            });
+            addMessage(
+              "system",
+              `Recent threads:\n${lines.join("\n")}\n\n  /thread <number> to switch, /thread new to start fresh.`,
+            );
           }
           return;
         }
 
         case "/thread": {
           const sub = parts[1];
-          const deviceToken = deviceTokenRef.current;
-          if (!deviceToken) {
-            addMessage("system", "  [no device token — run `kent init` first]");
-            return;
-          }
 
           if (sub === "new") {
-            try {
-              threadIdRef.current = await threads.create(deviceToken, "cli");
-              conversationRef.current = [];
-              setMessages([]);
-              addMessage("system", "  [started new thread]");
-            } catch (err) {
-              addMessage("system", `  [failed: ${err instanceof Error ? err.message : err}]`);
-            }
+            threadIdRef.current = createThread();
+            conversationRef.current = [];
+            setMessages([]);
+            addMessage("system", "Started new thread.");
             return;
           }
 
           const num = parseInt(sub || "", 10);
           if (isNaN(num) || num < 1) {
-            addMessage("system", "  Usage: /thread new | /thread <number>");
+            addMessage("system", "Usage: /thread new | /thread <number>");
             return;
           }
 
-          try {
-            const recentThreads = await threads.getRecent(deviceToken, "cli", 10);
-            if (num > recentThreads.length) {
-              addMessage("system", `  [thread ${num} not found]`);
-              return;
-            }
-            const selected = recentThreads[num - 1]!;
-            threadIdRef.current = selected._id;
-
-            const msgs = await threads.getMessages(deviceToken, selected._id);
-            conversationRef.current = msgs
-              .filter((m) => m.role === "user" || m.role === "assistant")
-              .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
-
-            setMessages([]);
-            for (const m of conversationRef.current) {
-              addMessage(m.role, m.content);
-            }
-            const title = selected.title || "(untitled)";
-            addMessage("system", `  [switched to: ${title} — ${conversationRef.current.length} messages]`);
-          } catch (err) {
-            addMessage("system", `  [failed: ${err instanceof Error ? err.message : err}]`);
+          const recentThreads = getRecentThreads(10);
+          if (num > recentThreads.length) {
+            addMessage("system", `Thread ${num} not found.`);
+            return;
           }
+          const selected = recentThreads[num - 1]!;
+          threadIdRef.current = selected.id;
+
+          const msgs = dbGetMessages(selected.id);
+          conversationRef.current = msgs
+            .filter((m) => m.role === "user" || m.role === "assistant")
+            .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+
+          setMessages([]);
+          for (const m of conversationRef.current) {
+            addMessage(m.role, m.content);
+          }
+          const title = selected.title || "(untitled)";
+          addMessage("system", `Switched to: ${title} — ${conversationRef.current.length} messages`);
           return;
         }
 
@@ -519,7 +699,7 @@ function App({
           if (!modelName) {
             addMessage(
               "system",
-              `  Current model: ${config.agent.default_model}\n  Usage: /model <model-name>`,
+              `Current model: ${config.agent.default_model}\nUsage: /model <model-name>`,
             );
             return;
           }
@@ -527,68 +707,42 @@ function App({
           setConfig(newConfig);
           saveConfig(newConfig);
           await runnerRef.current.kill().catch(() => {});
-          runnerRef.current = getRunner(
-            newConfig,
-            runnerMode === "auto" ? undefined : runnerMode,
-          );
-          addMessage("system", `  [model switched to ${modelName}]`);
-          return;
-        }
-
-        case "/runner": {
-          const mode = parts[1] as "local" | "cloud" | undefined;
-          if (!mode || (mode !== "local" && mode !== "cloud")) {
-            addMessage(
-              "system",
-              `  Current runner: ${runnerMode}\n  Usage: /runner local|cloud`,
-            );
-            return;
-          }
-          setRunnerMode(mode);
-          await runnerRef.current.kill().catch(() => {});
-          runnerRef.current = getRunner(config, mode);
-          addMessage("system", `  [runner switched to ${mode}]`);
+          runnerRef.current = getRunner(newConfig);
+          addMessage("system", `Model switched to ${modelName}`);
           return;
         }
 
         default: {
           addMessage(
             "system",
-            `  Unknown command: ${cmd}. Type /help for commands.`,
+            `Unknown command: ${cmd}. Type /help for commands.`,
           );
         }
       }
     },
-    [config, runnerMode, addMessage, exit],
+    [config, addMessage, exit],
   );
 
-  // ─── Submit prompt ───────────────────────────────────────────────────
+  // ─── Submit prompt ────────────────────────────────────────────────────
 
   const submitPrompt = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
       if (!trimmed) return;
 
-      // Slash commands
       if (trimmed.startsWith("/")) {
         await handleSlashCommand(trimmed);
         return;
       }
 
-      // Add to history
       promptHistoryRef.current.push(trimmed);
       historyIndexRef.current = -1;
 
-      // Show user message
       addMessage("user", trimmed);
-
-      // Build conversation context
       conversationRef.current.push({ role: "user", content: trimmed });
 
-      // Persist user message to thread
-      const deviceToken = deviceTokenRef.current;
-      if (threadIdRef.current && deviceToken) {
-        threads.addMessage(deviceToken, threadIdRef.current, "user", trimmed).catch(() => {});
+      if (threadIdRef.current) {
+        dbAddMessage(threadIdRef.current, "user", trimmed);
       }
 
       const fullPrompt = conversationRef.current
@@ -598,10 +752,11 @@ function App({
         )
         .join("\n\n");
 
-      // Start streaming
       setIsStreaming(true);
       setCurrentStreamText("");
-      setCurrentToolCall(null);
+      setActiveTools([]);
+      toolCallsRef.current = [];
+      startTimeRef.current = Date.now();
       abortRef.current = new AbortController();
 
       let output = "";
@@ -611,16 +766,44 @@ function App({
         const result = await runnerRef.current.run(
           fullPrompt,
           undefined,
-          (chunk: string) => {
+          (chunk: string, type: "text" | "tool") => {
             if (cancelled) return;
-            output += chunk;
-            setCurrentStreamText((prev) => prev + chunk);
+
+            if (type === "text") {
+              output += chunk;
+              setCurrentStreamText((prev) => prev + chunk);
+            } else if (type === "tool") {
+              const event = parseToolEvent(chunk);
+              if (event) {
+                if (event.type === "start") {
+                  const newTool: ToolCallState = {
+                    name: event.name,
+                    args: event.args,
+                    status: "running",
+                  };
+                  toolCallsRef.current = [...toolCallsRef.current, newTool];
+                  setActiveTools([...toolCallsRef.current]);
+                } else if (event.type === "end") {
+                  toolCallsRef.current = toolCallsRef.current.map((t) =>
+                    t.name === event.name && t.status === "running"
+                      ? { ...t, status: "done" }
+                      : t
+                  );
+                  setActiveTools([...toolCallsRef.current]);
+                } else if (event.type === "error") {
+                  toolCallsRef.current = toolCallsRef.current.map((t) =>
+                    t.name === event.name && t.status === "running"
+                      ? { ...t, status: "error" }
+                      : t
+                  );
+                  setActiveTools([...toolCallsRef.current]);
+                }
+              }
+            }
           },
-          { threadId: threadIdRef.current ?? undefined },
         );
 
         if (!cancelled) {
-          // If no streaming happened, use the full output
           if (!output && result.output) {
             output = result.output;
           }
@@ -631,43 +814,46 @@ function App({
             content: assistantContent,
           });
 
-          // Persist assistant message to thread
-          if (threadIdRef.current && deviceToken && assistantContent) {
-            threads.addMessage(deviceToken, threadIdRef.current, "assistant", assistantContent).catch(() => {});
+          if (threadIdRef.current && assistantContent) {
+            dbAddMessage(threadIdRef.current, "assistant", assistantContent);
           }
 
-          // Finalize: move stream text into a permanent message
+          const duration = (Date.now() - startTimeRef.current) / 1000;
+
           setCurrentStreamText("");
-          addMessage("assistant", assistantContent || "[no response]");
+          setActiveTools([]);
+          addMessage("assistant", assistantContent || "[no response]", {
+            toolCalls: toolCallsRef.current.length > 0 ? toolCallsRef.current : undefined,
+            duration,
+          });
+          toolCallsRef.current = [];
         }
       } catch (err) {
         if (!cancelled) {
           const message =
             err instanceof Error ? err.message : String(err);
           setCurrentStreamText("");
-          addMessage("system", `  [error] ${message}`);
+          setActiveTools([]);
+          addMessage("system", `Error: ${message}`);
         }
       } finally {
         setIsStreaming(false);
-        setCurrentToolCall(null);
         abortRef.current = null;
       }
     },
     [handleSlashCommand, addMessage],
   );
 
-  // ─── Keyboard input ─────────────────────────────────────────────────
+  // ─── Keyboard input ──────────────────────────────────────────────────
 
   useInput(
     (ch, key) => {
-      // Ctrl+D = exit
       if (key.ctrl && ch === "d") {
         runnerRef.current.kill().catch(() => {});
         exit();
         return;
       }
 
-      // Ctrl+C = cancel current run
       if (key.ctrl && ch === "c") {
         if (isStreaming) {
           abortRef.current?.abort();
@@ -675,20 +861,24 @@ function App({
           setIsStreaming(false);
           setCurrentStreamText((prev) => {
             if (prev) {
-              addMessage("assistant", prev + "\n[cancelled]");
+              const duration = (Date.now() - startTimeRef.current) / 1000;
+              addMessage("assistant", prev + "\n\n*[cancelled]*", {
+                toolCalls: toolCallsRef.current.length > 0 ? toolCallsRef.current : undefined,
+                duration,
+              });
             } else {
-              addMessage("system", "  [cancelled]");
+              addMessage("system", "Cancelled.");
             }
             return "";
           });
+          setActiveTools([]);
+          toolCallsRef.current = [];
         }
         return;
       }
 
-      // Don't accept input while streaming
       if (isStreaming) return;
 
-      // Enter = submit
       if (key.return) {
         const text = input;
         setInput("");
@@ -697,19 +887,11 @@ function App({
         return;
       }
 
-      // Backspace
-      if (key.backspace) {
+      if (key.backspace || key.delete) {
         setInput((prev) => prev.slice(0, -1));
         return;
       }
 
-      // Delete
-      if (key.delete) {
-        setInput((prev) => prev.slice(0, -1));
-        return;
-      }
-
-      // Up arrow = prompt history
       if (key.upArrow) {
         const history = promptHistoryRef.current;
         if (history.length === 0) return;
@@ -722,7 +904,6 @@ function App({
         return;
       }
 
-      // Down arrow = prompt history
       if (key.downArrow) {
         const history = promptHistoryRef.current;
         if (historyIndexRef.current === -1) return;
@@ -737,17 +918,14 @@ function App({
         return;
       }
 
-      // Tab = ignore
       if (key.tab) return;
 
-      // Escape = clear input
       if (key.escape) {
         setInput("");
         historyIndexRef.current = -1;
         return;
       }
 
-      // Regular character input
       if (ch && !key.ctrl && !key.meta) {
         setInput((prev) => prev + ch);
       }
@@ -755,60 +933,35 @@ function App({
     { isActive: true },
   );
 
-  // ─── Render ──────────────────────────────────────────────────────────
+  // ─── Render ───────────────────────────────────────────────────────────
 
   return (
     <Box flexDirection="column" width="100%">
-      <StatusBar config={config} runnerMode={runnerMode} />
+      <MessageList messages={messages} headerConfig={config} />
 
-      <Box marginTop={1} paddingLeft={1}>
-        <Text dimColor>
-          Type a message to chat, or{" "}
-          <Text color="cyan">/help</Text> for commands.{" "}
-          <Text dimColor italic>
-            ctrl+c cancels, ctrl+d exits.
-          </Text>
-        </Text>
-      </Box>
+      {isStreaming && activeTools.length > 0 && (
+        <ActiveToolIndicator tools={activeTools} />
+      )}
 
-      {/* Completed messages */}
-      <MessageList messages={messages} />
-
-      {/* Streaming output (live) */}
       {isStreaming && currentStreamText && (
         <StreamingOutput text={currentStreamText} />
       )}
 
-      {/* Tool call indicator */}
-      {isStreaming && currentToolCall && (
-        <ToolIndicator toolName={currentToolCall} />
-      )}
-
-      {/* Input area */}
       <InputArea input={input} isStreaming={isStreaming} />
     </Box>
   );
 }
 
-// ─── Entry point ─────────────────────────────────────────────────────────────
+// ─── Entry point ────────────────────────────────────────────────────────────
 
-export async function startRepl(isLocal: boolean): Promise<void> {
+export async function startRepl(): Promise<void> {
   const config = loadConfig();
-
-  const runnerMode: "local" | "cloud" | "auto" = isLocal
-    ? "local"
-    : (config.agent.default_runner as "local" | "cloud" | "auto");
-
-  const runner = getRunner(
-    config,
-    runnerMode === "auto" ? undefined : runnerMode,
-  );
+  const runner = getRunner(config);
 
   const instance = render(
     <App
       initialConfig={config}
       initialRunner={runner}
-      initialRunnerMode={runnerMode}
     />,
     {
       exitOnCtrlC: false,

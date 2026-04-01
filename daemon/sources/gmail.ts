@@ -262,14 +262,24 @@ export const gmail: Source = {
         return [];
       }
 
+      const lastSync = state.getLastSync("gmail");
+      const daysBack = lastSync > 0
+        ? Math.max(1, Math.ceil((Date.now() / 1000 - lastSync) / 86400))
+        : 3;
+
       // Fetch all GWS sources concurrently
       const [gmailItems, calendarItems, taskItems] = await Promise.all([
-        fetchGmail(1),
-        fetchCalendar(1),
+        fetchGmail(daysBack),
+        fetchCalendar(daysBack),
         fetchTasks(),
       ]);
 
-      return [...gmailItems, ...calendarItems, ...taskItems];
+      const allItems = [...gmailItems, ...calendarItems, ...taskItems];
+      // Filter out items we've already synced
+      if (lastSync > 0) {
+        return allItems.filter((item) => item.createdAt > lastSync);
+      }
+      return allItems;
     } catch (e) {
       console.warn(`[gmail] Failed to fetch data: ${e}`);
       return [];

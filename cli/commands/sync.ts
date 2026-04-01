@@ -1,4 +1,5 @@
-import { loadConfig, CONVEX_URL } from "@shared/config.ts";
+import { loadConfig } from "@shared/config.ts";
+import { upsertItems } from "@shared/db.ts";
 import { FileSyncState } from "@daemon/sync-state.ts";
 import type { Source } from "@daemon/sources/types.ts";
 import { imessage } from "@daemon/sources/imessage.ts";
@@ -9,10 +10,6 @@ import { github } from "@daemon/sources/github.ts";
 import { chrome } from "@daemon/sources/chrome.ts";
 import { appleNotes } from "@daemon/sources/apple-notes.ts";
 
-/**
- * Map of source name → Source implementation.
- * Keys match the config.sources field names.
- */
 const sourceRegistry: Record<string, Source> = {
   imessage,
   signal,
@@ -30,7 +27,6 @@ export async function handleSync(args: string[]): Promise<void> {
   const config = loadConfig();
   const state = new FileSyncState();
 
-  // Determine which sources to sync
   let sourcesToSync: Source[];
 
   if (sourceFilter) {
@@ -42,7 +38,6 @@ export async function handleSync(args: string[]): Promise<void> {
     }
     sourcesToSync = [source];
   } else {
-    // Sync all enabled sources from config
     sourcesToSync = [];
     for (const [key, source] of Object.entries(sourceRegistry)) {
       const configKey = key as keyof typeof config.sources;
@@ -57,38 +52,37 @@ export async function handleSync(args: string[]): Promise<void> {
     }
   }
 
-  // Fetch all sources in parallel, then upload batches
-  const { ConvexHttpClient } = await import("convex/browser");
-  const client = new ConvexHttpClient(CONVEX_URL);
-  const BATCH_SIZE = 100;
-
-  const results = await Promise.allSettled(
-    sourcesToSync.map(async (source) => {
+  // Sync sources sequentially so output is readable
+  for (const source of sourcesToSync) {
+    process.stdout.write(`  Syncing ${source.name}...`);
+    try {
+      const start = performance.now();
       const items = await source.fetchNew(state);
-      console.log(`Syncing ${source.name}... ${items.length} new items`);
+      const fetchMs = Math.round(performance.now() - start);
 
       if (items.length > 0) {
-        // Batch uploads to stay within Convex read limits (4096 per mutation)
-        for (let i = 0; i < items.length; i += BATCH_SIZE) {
-          const batch = items.slice(i, i + BATCH_SIZE);
-          await client.mutation("items:batchUpsert" as any, {
-            deviceToken: config.core.device_token,
-            items: batch,
-          });
-        }
+        process.stdout.write(` ${items.length} items, saving...`);
+        const dbStart = performance.now();
+        const dbItems = items.map((item) => ({
+          source: item.source,
+          external_id: item.externalId,
+          content: item.content,
+          metadata: item.metadata,
+          created_at: item.createdAt,
+        }));
+        upsertItems(dbItems);
+        const dbMs = Math.round(performance.now() - dbStart);
+        console.log(` done (${fetchMs}ms fetch, ${dbMs}ms save)`);
+      } else {
+        console.log(` 0 items (${fetchMs}ms)`);
       }
 
       state.markSynced(source.name);
-      return { source: source.name, count: items.length };
-    })
-  );
-
-  for (const result of results) {
-    if (result.status === "rejected") {
-      console.error(`Error syncing: ${result.reason}`);
+    } catch (e) {
+      console.log(` error: ${e instanceof Error ? e.message : e}`);
     }
   }
 
-  console.log("Sync complete.");
+  console.log("  Sync complete.");
   process.exit(0);
 }

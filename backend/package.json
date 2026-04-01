@@ -1,9 +1,0 @@
-{
-  "name": "kent-backend",
-  "version": "0.1.0",
-  "private": true,
-  "dependencies": {
-    "convex": "^1.25.2",
-    "e2b": "^2.18.0"
-  }
-}

@@ -131,8 +131,13 @@ function querySignalDb(sql: string): any[] | null {
       env: { ...process.env, PATH: CLI_PATH },
     });
 
-    if (!result.trim()) return [];
-    return JSON.parse(result);
+    const trimmed = result.trim();
+    if (!trimmed) return [];
+    // sqlcipher may output "ok" or other non-JSON lines from PRAGMA commands.
+    // Find the first '[' which starts the JSON array.
+    const jsonStart = trimmed.indexOf('[');
+    if (jsonStart === -1) return [];
+    return JSON.parse(trimmed.slice(jsonStart));
   } catch (e) {
     console.warn(`[signal] sqlcipher query failed: ${e}`);
     return null;

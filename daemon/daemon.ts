@@ -1,5 +1,25 @@
 import { appendFileSync, writeFileSync } from "node:fs";
-import { loadConfig, ensureKentDir, PID_PATH, LOG_PATH } from "@shared/config.ts";
+import { loadConfig, ensureKentDir, PID_PATH, LOG_PATH, DAEMON_STATE_PATH } from "@shared/config.ts";
+import { upsertItems } from "@shared/db.ts";
+import { FileSyncState } from "./sync-state.ts";
+import type { Source } from "./sources/types.ts";
+import { imessage } from "./sources/imessage.ts";
+import { signal } from "./sources/signal.ts";
+import { granola } from "./sources/granola.ts";
+import { gmail } from "./sources/gmail.ts";
+import { github } from "./sources/github.ts";
+import { chrome } from "./sources/chrome.ts";
+import { appleNotes } from "./sources/apple-notes.ts";
+
+const sourceRegistry: Record<string, Source> = {
+  imessage,
+  signal,
+  granola,
+  gmail,
+  github,
+  chrome,
+  apple_notes: appleNotes,
+};
 
 function log(message: string): void {
   const timestamp = new Date().toISOString();
@@ -7,13 +27,31 @@ function log(message: string): void {
   try {
     appendFileSync(LOG_PATH, line, "utf-8");
   } catch {
-    // If log file isn't writable, write to stdout as fallback
     process.stdout.write(line);
   }
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+interface DaemonState {
+  pid: number;
+  status: "syncing" | "waiting";
+  currentSource?: string;
+  nextSyncAt?: number;
+  lastSyncAt?: number;
+  lastSyncResults?: Record<string, number>;
+  enabledSources: string[];
+  intervalMinutes: number;
+}
+
+function writeDaemonState(state: DaemonState): void {
+  try {
+    writeFileSync(DAEMON_STATE_PATH, JSON.stringify(state), "utf-8");
+  } catch {
+    // non-fatal
+  }
 }
 
 async function main(): Promise<void> {
@@ -26,6 +64,23 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const intervalMs = config.daemon.sync_interval_minutes * 60 * 1000;
 
+  // Build list of enabled sources
+  const enabledSources: Source[] = [];
+  for (const [key, source] of Object.entries(sourceRegistry)) {
+    const configKey = key as keyof typeof config.sources;
+    if (config.sources[configKey]) {
+      enabledSources.push(source);
+    }
+  }
+
+  const sourceNames = enabledSources.map((s) => s.name);
+
+  if (enabledSources.length === 0) {
+    log("No sources enabled — daemon will idle. Enable sources in ~/.kent/config.json");
+  } else {
+    log(`Sources: ${sourceNames.join(", ")}`);
+  }
+
   log(`Sync interval: ${config.daemon.sync_interval_minutes} minutes`);
 
   // Handle graceful shutdown
@@ -34,8 +89,9 @@ async function main(): Promise<void> {
     try {
       const { unlinkSync } = require("node:fs");
       unlinkSync(PID_PATH);
+      unlinkSync(DAEMON_STATE_PATH);
     } catch {
-      // PID file may already be removed
+      // files may already be removed
     }
     process.exit(0);
   };
@@ -43,9 +99,60 @@ async function main(): Promise<void> {
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
 
+  const state = new FileSyncState();
+
   // Main loop
   while (true) {
-    log("tick");
+    const syncResults: Record<string, number> = {};
+
+    for (const source of enabledSources) {
+      writeDaemonState({
+        pid: process.pid,
+        status: "syncing",
+        currentSource: source.name,
+        enabledSources: sourceNames,
+        intervalMinutes: config.daemon.sync_interval_minutes,
+      });
+
+      try {
+        const items = await source.fetchNew(state);
+        syncResults[source.name] = items.length;
+        if (items.length > 0) {
+          log(`${source.name}: ${items.length} new items — saving to db`);
+          const dbItems = items.map((item) => ({
+            source: item.source,
+            external_id: item.externalId,
+            content: item.content,
+            metadata: item.metadata,
+            created_at: item.createdAt,
+          }));
+          upsertItems(dbItems);
+          log(`${source.name}: save complete`);
+        } else {
+          log(`${source.name}: no new items`);
+        }
+        state.markSynced(source.name);
+      } catch (e) {
+        log(`${source.name}: ERROR — ${e}`);
+        syncResults[source.name] = -1;
+      }
+    }
+
+    if (enabledSources.length === 0) {
+      log("tick (idle — no sources enabled)");
+    }
+
+    const nextSyncAt = Date.now() + intervalMs;
+    writeDaemonState({
+      pid: process.pid,
+      status: "waiting",
+      nextSyncAt,
+      lastSyncAt: Date.now(),
+      lastSyncResults: syncResults,
+      enabledSources: sourceNames,
+      intervalMinutes: config.daemon.sync_interval_minutes,
+    });
+
     await sleep(intervalMs);
   }
 }

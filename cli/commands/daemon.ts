@@ -1,7 +1,7 @@
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, unlinkSync, watchFile, unwatchFile } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
-import { PID_PATH, PLIST_PATH, LOG_PATH, ensureKentDir } from "@shared/config.ts";
+import { PID_PATH, PLIST_PATH, LOG_PATH, DAEMON_STATE_PATH, ensureKentDir } from "@shared/config.ts";
 
 const VALID_SUBCOMMANDS = ["start", "stop", "status"] as const;
 
@@ -69,45 +69,183 @@ async function daemonStop(): Promise<void> {
     unlinkSync(PID_PATH);
     console.log("Removed PID file");
   }
+  if (existsSync(DAEMON_STATE_PATH)) {
+    try { unlinkSync(DAEMON_STATE_PATH); } catch {}
+  }
+}
+
+// ─── Live Status Dashboard ──────────────────────────────────────────────────
+
+const BOLD = "\x1b[1m";
+const GREEN = "\x1b[32m";
+const YELLOW = "\x1b[33m";
+const RED = "\x1b[31m";
+const CYAN = "\x1b[36m";
+const DIM = "\x1b[2m";
+const NC = "\x1b[0m";
+
+interface DaemonState {
+  pid: number;
+  status: "syncing" | "waiting";
+  currentSource?: string;
+  nextSyncAt?: number;
+  lastSyncAt?: number;
+  lastSyncResults?: Record<string, number>;
+  enabledSources: string[];
+  intervalMinutes: number;
+}
+
+function readDaemonState(): DaemonState | null {
+  try {
+    if (!existsSync(DAEMON_STATE_PATH)) return null;
+    return JSON.parse(readFileSync(DAEMON_STATE_PATH, "utf-8"));
+  } catch {
+    return null;
+  }
+}
+
+function isDaemonRunning(): { running: boolean; pid?: string } {
+  if (!existsSync(PID_PATH)) return { running: false };
+  const pid = readFileSync(PID_PATH, "utf-8").trim();
+  try {
+    process.kill(Number(pid), 0);
+    return { running: true, pid };
+  } catch {
+    return { running: false, pid };
+  }
+}
+
+function getRecentLogs(n = 8): string[] {
+  if (!existsSync(LOG_PATH)) return [];
+  const content = readFileSync(LOG_PATH, "utf-8").trim();
+  if (!content) return [];
+  return content.split("\n").slice(-n);
+}
+
+function formatCountdown(ms: number): string {
+  if (ms <= 0) return "now";
+  const totalSec = Math.ceil(ms / 1000);
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  if (min > 0) return `${min}m ${sec}s`;
+  return `${sec}s`;
+}
+
+function renderDashboard(): void {
+  const { running, pid } = isDaemonRunning();
+  const state = readDaemonState();
+
+  // Clear screen and move cursor to top
+  process.stdout.write("\x1b[2J\x1b[H");
+
+  // Header
+  console.log(`${BOLD}${CYAN}  Kent Daemon${NC}`);
+  console.log(`${DIM}  ${"─".repeat(50)}${NC}`);
+
+  // Status
+  if (!running) {
+    console.log(`  Status:  ${RED}not running${NC}`);
+    if (pid) console.log(`  ${DIM}(stale PID ${pid})${NC}`);
+    console.log(`\n  ${DIM}Start with: kent daemon start${NC}`);
+  } else {
+    console.log(`  Status:  ${GREEN}running${NC} ${DIM}(PID ${pid})${NC}`);
+
+    if (state) {
+      // Current activity
+      if (state.status === "syncing") {
+        console.log(`  Activity: ${YELLOW}syncing ${state.currentSource}...${NC}`);
+      } else if (state.nextSyncAt) {
+        const remaining = state.nextSyncAt - Date.now();
+        const countdown = formatCountdown(remaining);
+        console.log(`  Next sync: ${CYAN}${countdown}${NC}`);
+      }
+
+      console.log(`  Interval: ${state.intervalMinutes}m`);
+      console.log(`  Sources:  ${state.enabledSources.join(", ")}`);
+
+      // Last sync results
+      if (state.lastSyncResults && state.lastSyncAt) {
+        const ago = formatCountdown(Date.now() - state.lastSyncAt);
+        console.log(`\n  ${BOLD}Last sync${NC} ${DIM}(${ago} ago)${NC}`);
+        for (const [source, count] of Object.entries(state.lastSyncResults)) {
+          if (count === -1) {
+            console.log(`    ${RED}✗${NC} ${source}: error`);
+          } else if (count > 0) {
+            console.log(`    ${GREEN}✓${NC} ${source}: ${count} items`);
+          } else {
+            console.log(`    ${DIM}·${NC} ${source}: ${DIM}0 items${NC}`);
+          }
+        }
+      }
+    }
+  }
+
+  // Recent logs
+  const logs = getRecentLogs(8);
+  if (logs.length > 0) {
+    console.log(`\n  ${BOLD}Recent logs${NC}`);
+    for (const line of logs) {
+      // Parse timestamp and message
+      const match = line.match(/^\[([^\]]+)\]\s*(.*)/);
+      if (match) {
+        const date = new Date(match[1]!);
+        const time = isNaN(date.getTime()) ? match[1]! : date.toLocaleTimeString();
+        const msg = match[2]!;
+        // Color based on content
+        if (msg.includes("ERROR")) {
+          console.log(`  ${DIM}${time}${NC}  ${RED}${msg}${NC}`);
+        } else if (msg.includes("new items")) {
+          console.log(`  ${DIM}${time}${NC}  ${GREEN}${msg}${NC}`);
+        } else {
+          console.log(`  ${DIM}${time}  ${msg}${NC}`);
+        }
+      } else {
+        console.log(`  ${DIM}${line}${NC}`);
+      }
+    }
+  }
+
+  console.log(`\n  ${DIM}ctrl+c to exit${NC}`);
 }
 
 async function daemonStatus(): Promise<void> {
-  // Check launchctl registration
-  let launchctlLoaded = false;
-  try {
-    const output = execFileSync("launchctl", ["list", "sh.kent.daemon"], {
-      encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
+  const { running } = isDaemonRunning();
+
+  if (!running) {
+    // Not running — just print once and exit
+    renderDashboard();
+    return;
+  }
+
+  // Live mode — refresh every second
+  console.log(`${DIM}  Watching daemon... (ctrl+c to stop)${NC}\n`);
+
+  renderDashboard();
+
+  const interval = setInterval(() => {
+    renderDashboard();
+  }, 1000);
+
+  // Also re-render immediately when daemon state file changes
+  if (existsSync(DAEMON_STATE_PATH)) {
+    watchFile(DAEMON_STATE_PATH, { interval: 500 }, () => {
+      renderDashboard();
     });
-    launchctlLoaded = true;
-    const pidMatch = output.match(/"PID"\s*=\s*(\d+)/);
-    if (pidMatch) {
-      console.log(`Daemon status: running (PID ${pidMatch[1]}, managed by launchctl)`);
-      return;
-    }
-  } catch {
-    // not registered with launchctl
   }
 
-  // Check PID file
-  if (existsSync(PID_PATH)) {
-    const pid = readFileSync(PID_PATH, "utf-8").trim();
-    try {
-      process.kill(Number(pid), 0);
-      console.log(`Daemon status: running (PID ${pid})`);
-      return;
-    } catch {
-      console.log(`Daemon status: stale PID file (PID ${pid} not found)`);
-      return;
-    }
-  }
+  // Handle ctrl+c
+  const cleanup = () => {
+    clearInterval(interval);
+    try { unwatchFile(DAEMON_STATE_PATH); } catch {}
+    process.stdout.write("\x1b[?25h"); // show cursor
+    process.exit(0);
+  };
 
-  if (launchctlLoaded) {
-    console.log("Daemon status: registered with launchctl but not running (likely crashing on startup)");
-    console.log(`  Check logs: tail -20 ${LOG_PATH}`);
-  } else {
-    console.log("Daemon status: not running");
-  }
+  process.on("SIGINT", cleanup);
+  process.on("SIGTERM", cleanup);
+
+  // Keep alive
+  await new Promise(() => {});
 }
 
 export async function handleDaemon(args: string[]): Promise<void> {

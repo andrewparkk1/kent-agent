@@ -1,13 +1,11 @@
-import { Type, type Static } from "@sinclair/typebox";
+import { Type } from "@sinclair/typebox";
 import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
+import { searchItems, getItemsBySource, getItemCount } from "@shared/db.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-const RUNNER = process.env.RUNNER ?? "cloud";
-const CONVEX_URL = process.env.CONVEX_URL ?? "";
-const DEVICE_TOKEN = process.env.DEVICE_TOKEN ?? "";
 const OUTPUT_DIR = process.env.OUTPUT_DIR ?? "/outputs";
 
 function textResult(text: string): AgentToolResult<undefined> {
@@ -18,112 +16,27 @@ function errorResult(text: string): AgentToolResult<undefined> {
   return { content: [{ type: "text", text }], details: undefined };
 }
 
-async function convexCall(
-  functionPath: string,
-  args: Record<string, unknown>
-): Promise<unknown> {
-  const url = CONVEX_URL.replace(/\/$/, "");
-  const res = await fetch(`${url}/api/query`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      path: functionPath,
-      args: { ...args, deviceToken: DEVICE_TOKEN },
-    }),
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Convex call ${functionPath} failed (${res.status}): ${body}`);
-  }
-  const data = (await res.json()) as { status: string; value?: unknown; errorMessage?: string };
-  if (data.status === "error") {
-    throw new Error(`Convex error: ${data.errorMessage ?? JSON.stringify(data)}`);
-  }
-  return data.value;
-}
-
-async function convexAction(
-  functionPath: string,
-  args: Record<string, unknown>
-): Promise<unknown> {
-  const url = CONVEX_URL.replace(/\/$/, "");
-  const res = await fetch(`${url}/api/action`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      path: functionPath,
-      args: { ...args, deviceToken: DEVICE_TOKEN },
-    }),
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Convex action ${functionPath} failed (${res.status}): ${body}`);
-  }
-  const data = (await res.json()) as { status: string; value?: unknown; errorMessage?: string };
-  if (data.status === "error") {
-    throw new Error(`Convex error: ${data.errorMessage ?? JSON.stringify(data)}`);
-  }
-  return data.value;
-}
-
 // ---------------------------------------------------------------------------
 // Schema definitions
 // ---------------------------------------------------------------------------
 
-const SearchSemanticParams = Type.Object({
-  query: Type.String({ description: "Natural language search query" }),
-  sources: Type.Optional(
-    Type.Array(Type.String(), {
-      description: "Filter to specific sources (e.g. ['imessage', 'gmail'])",
-    })
+const SearchParams = Type.Object({
+  query: Type.String({ description: "Keywords to search for in synced items" }),
+  source: Type.Optional(
+    Type.String({ description: "Filter to a specific source (e.g. 'imessage', 'gmail')" })
   ),
   limit: Type.Optional(
-    Type.Number({ description: "Max results (default 20)" })
-  ),
-});
-
-const SearchExactParams = Type.Object({
-  query: Type.String({ description: "Keywords to search" }),
-  sources: Type.Optional(
-    Type.Array(Type.String(), { description: "Filter to specific sources" })
-  ),
-  limit: Type.Optional(
-    Type.Number({ description: "Max results (default 20)" })
+    Type.Number({ description: "Max results (default 50)" })
   ),
 });
 
 const GetRecentItemsParams = Type.Object({
-  sources: Type.Optional(
-    Type.Array(Type.String(), { description: "Filter to specific sources" })
-  ),
-  limit: Type.Optional(
-    Type.Number({ description: "Max results (default 20)" })
-  ),
-});
-
-const BrowseItemsParams = Type.Object({
   source: Type.Optional(
-    Type.String({ description: "Source name (e.g. 'imessage', 'gmail')" })
-  ),
-  sender: Type.Optional(
-    Type.String({ description: "Filter by sender name" })
-  ),
-  after: Type.Optional(
-    Type.String({ description: "ISO date string — items after this date" })
-  ),
-  before: Type.Optional(
-    Type.String({ description: "ISO date string — items before this date" })
-  ),
-  cursor: Type.Optional(
-    Type.String({ description: "Pagination cursor from previous result" })
+    Type.String({ description: "Filter to a specific source" })
   ),
   limit: Type.Optional(
-    Type.Number({ description: "Max results per page (default 20)" })
+    Type.Number({ description: "Max results (default 50)" })
   ),
-});
-
-const GetItemDetailParams = Type.Object({
-  id: Type.String({ description: "Item ID" }),
 });
 
 const EmptyParams = Type.Object({});
@@ -157,45 +70,24 @@ const RunCommandParams = Type.Object({
 });
 
 // ---------------------------------------------------------------------------
-// Memory Tools (Convex — work everywhere)
+// Memory Tools (local SQLite)
 // ---------------------------------------------------------------------------
 
-const searchSemantic: AgentTool<typeof SearchSemanticParams> = {
-  name: "search_semantic",
+const searchMemory: AgentTool<typeof SearchParams> = {
+  name: "search_memory",
   label: "Searching memory...",
   description:
-    "Semantic search across all synced sources using embeddings. Best for natural language queries like 'what was discussed about deployment'.",
-  parameters: SearchSemanticParams,
+    "Search across all synced sources (iMessage, Gmail, GitHub, etc.) by keywords. Returns matching items sorted by recency.",
+  parameters: SearchParams,
   execute: async (_id, params) => {
     try {
-      const results = await convexAction("items:searchSemantic", {
-        queryText: params.query,
-        topK: params.limit ?? 20,
-        source: params.sources?.[0],
-      });
-      return textResult(JSON.stringify(results, null, 2));
+      const results = searchItems(params.query, params.limit ?? 50);
+      const filtered = params.source
+        ? results.filter((r) => r.source === params.source)
+        : results;
+      return textResult(JSON.stringify(filtered, null, 2));
     } catch (e) {
-      return errorResult(`search_semantic failed: ${e}`);
-    }
-  },
-};
-
-const searchExact: AgentTool<typeof SearchExactParams> = {
-  name: "search_exact",
-  label: "Searching keywords...",
-  description:
-    "Full-text keyword search across all synced sources. Best for exact names, IDs, or specific phrases.",
-  parameters: SearchExactParams,
-  execute: async (_id, params) => {
-    try {
-      const results = await convexCall("items:searchFTS", {
-        queryText: params.query,
-        source: params.sources?.[0],
-        limit: params.limit ?? 20,
-      });
-      return textResult(JSON.stringify(results, null, 2));
-    } catch (e) {
-      return errorResult(`search_exact failed: ${e}`);
+      return errorResult(`search_memory failed: ${e}`);
     }
   },
 };
@@ -208,58 +100,21 @@ const getRecentItems: AgentTool<typeof GetRecentItemsParams> = {
   parameters: GetRecentItemsParams,
   execute: async (_id, params) => {
     try {
-      const results = await convexCall("items:getRecentItems", {
-        source: params.sources?.[0],
-        limit: params.limit ?? 20,
-      });
-      return textResult(JSON.stringify(results, null, 2));
+      if (params.source) {
+        const results = getItemsBySource(params.source, params.limit ?? 50);
+        return textResult(JSON.stringify(results, null, 2));
+      }
+      // Get recent from all sources
+      const counts = getItemCount();
+      const allItems: any[] = [];
+      for (const source of Object.keys(counts)) {
+        const items = getItemsBySource(source, params.limit ?? 10);
+        allItems.push(...items);
+      }
+      allItems.sort((a, b) => b.created_at - a.created_at);
+      return textResult(JSON.stringify(allItems.slice(0, params.limit ?? 50), null, 2));
     } catch (e) {
       return errorResult(`get_recent_items failed: ${e}`);
-    }
-  },
-};
-
-const browseItems: AgentTool<typeof BrowseItemsParams> = {
-  name: "browse_items",
-  label: "Browsing items...",
-  description:
-    "Filter and paginate items by source, date range, or sender. Use for structured browsing.",
-  parameters: BrowseItemsParams,
-  execute: async (_id, params) => {
-    try {
-      const results = await convexCall("items:browse", {
-        source: params.source,
-        sender: params.sender,
-        startDate: params.after ? new Date(params.after).getTime() : undefined,
-        endDate: params.before
-          ? new Date(params.before).getTime()
-          : undefined,
-        paginationOpts: {
-          numItems: params.limit ?? 20,
-          cursor: params.cursor ?? null,
-        },
-      });
-      return textResult(JSON.stringify(results, null, 2));
-    } catch (e) {
-      return errorResult(`browse_items failed: ${e}`);
-    }
-  },
-};
-
-const getItemDetail: AgentTool<typeof GetItemDetailParams> = {
-  name: "get_item_detail",
-  label: "Getting item detail...",
-  description:
-    "Get the full content of a specific item by its ID. Use when search results are truncated.",
-  parameters: GetItemDetailParams,
-  execute: async (_id, params) => {
-    try {
-      const result = await convexCall("items:getById", {
-        itemId: params.id,
-      });
-      return textResult(JSON.stringify(result, null, 2));
-    } catch (e) {
-      return errorResult(`get_item_detail failed: ${e}`);
     }
   },
 };
@@ -268,12 +123,12 @@ const getSourceStats: AgentTool<typeof EmptyParams> = {
   name: "get_source_stats",
   label: "Getting source stats...",
   description:
-    "Get item counts and date ranges per source. Use to understand what data is available before searching.",
+    "Get item counts per source. Use to understand what data is available before searching.",
   parameters: EmptyParams,
   execute: async () => {
     try {
-      const result = await convexCall("items:getStats", {});
-      return textResult(JSON.stringify(result, null, 2));
+      const counts = getItemCount();
+      return textResult(JSON.stringify(counts, null, 2));
     } catch (e) {
       return errorResult(`get_source_stats failed: ${e}`);
     }
@@ -281,13 +136,13 @@ const getSourceStats: AgentTool<typeof EmptyParams> = {
 };
 
 // ---------------------------------------------------------------------------
-// Filesystem Tools (local runner only)
+// Filesystem Tools
 // ---------------------------------------------------------------------------
 
 const readFile: AgentTool<typeof PathParams> = {
   name: "read_file",
   label: "Reading file...",
-  description: "Read the contents of a file. In local mode reads from the user's Mac; in cloud mode reads from the sandbox filesystem.",
+  description: "Read the contents of a file from the user's Mac.",
   parameters: PathParams,
   execute: async (_id, params) => {
     try {
@@ -322,8 +177,7 @@ const listDirectory: AgentTool<typeof PathParams> = {
 const searchFiles: AgentTool<typeof SearchFilesParams> = {
   name: "search_files",
   label: "Searching files...",
-  description:
-    "Search file contents using ripgrep.",
+  description: "Search file contents using ripgrep.",
   parameters: SearchFilesParams,
   execute: async (_id, params) => {
     try {
@@ -355,8 +209,7 @@ const searchFiles: AgentTool<typeof SearchFilesParams> = {
 const writeFile: AgentTool<typeof WriteFileParams> = {
   name: "write_file",
   label: "Writing file...",
-  description:
-    "Write content to a file in the output directory.",
+  description: "Write content to a file in the output directory.",
   parameters: WriteFileParams,
   execute: async (_id, params) => {
     try {
@@ -364,7 +217,6 @@ const writeFile: AgentTool<typeof WriteFileParams> = {
       const { mkdir } = await import("node:fs/promises");
       const fullPath = join(OUTPUT_DIR, params.path);
 
-      // Ensure parent directory exists
       const dir = fullPath.substring(0, fullPath.lastIndexOf("/"));
       if (dir) await mkdir(dir, { recursive: true });
 
@@ -379,8 +231,7 @@ const writeFile: AgentTool<typeof WriteFileParams> = {
 const runCommand: AgentTool<typeof RunCommandParams> = {
   name: "run_command",
   label: "Running command...",
-  description:
-    "Execute a shell command. In local mode runs on the user's Mac; in cloud mode runs in the sandbox.",
+  description: "Execute a shell command on the user's Mac.",
   parameters: RunCommandParams,
   execute: async (_id, params) => {
     try {
@@ -409,125 +260,15 @@ const runCommand: AgentTool<typeof RunCommandParams> = {
 };
 
 // ---------------------------------------------------------------------------
-// Prompt Management Tools (Convex — work everywhere)
-// ---------------------------------------------------------------------------
-
-const PromptNameParams = Type.Object({
-  name: Type.String({
-    description:
-      'Prompt file name, e.g. "IDENTITY.md", "SOUL.md", "skills/github.md"',
-  }),
-});
-
-const UpdatePromptParams = Type.Object({
-  name: Type.String({
-    description:
-      'Prompt file name, e.g. "IDENTITY.md", "skills/new-tool.md"',
-  }),
-  content: Type.String({ description: "New file content" }),
-});
-
-const listPromptFiles: AgentTool<typeof EmptyParams> = {
-  name: "list_prompt_files",
-  label: "Listing prompt files...",
-  description:
-    "List all your prompt/config files stored in Convex (identity, soul, tools, skills). Returns names and sizes.",
-  parameters: EmptyParams,
-  execute: async () => {
-    try {
-      const result = await convexCall("prompts:list", {});
-      return textResult(JSON.stringify(result, null, 2));
-    } catch (e) {
-      return errorResult(`list_prompt_files failed: ${e}`);
-    }
-  },
-};
-
-const getPromptFile: AgentTool<typeof PromptNameParams> = {
-  name: "get_prompt_file",
-  label: "Reading prompt file...",
-  description:
-    "Get the content of one of your prompt/config files from Convex. Use this to read your own identity, personality, tools reference, or skill files.",
-  parameters: PromptNameParams,
-  execute: async (_id, params) => {
-    try {
-      const result = await convexCall("prompts:get", { name: params.name });
-      if (!result) return errorResult(`Prompt file "${params.name}" not found.`);
-      return textResult(JSON.stringify(result, null, 2));
-    } catch (e) {
-      return errorResult(`get_prompt_file failed: ${e}`);
-    }
-  },
-};
-
-const updatePromptFile: AgentTool<typeof UpdatePromptParams> = {
-  name: "update_prompt_file",
-  label: "Updating prompt file...",
-  description:
-    "Create or update one of your prompt/config files in Convex. This persists across runs and sandbox restarts. Use this instead of writing to the local filesystem since E2B sandboxes are ephemeral.",
-  parameters: UpdatePromptParams,
-  execute: async (_id, params) => {
-    try {
-      await convexMutation("prompts:upsert", {
-        name: params.name,
-        content: params.content,
-      });
-      return textResult(
-        `Updated "${params.name}" (${params.content.length} bytes)`
-      );
-    } catch (e) {
-      return errorResult(`update_prompt_file failed: ${e}`);
-    }
-  },
-};
-
-/** Add convexMutation helper (mirrors convexCall but for mutations) */
-async function convexMutation(
-  functionPath: string,
-  args: Record<string, unknown>
-): Promise<unknown> {
-  const url = CONVEX_URL.replace(/\/$/, "");
-  const res = await fetch(`${url}/api/mutation`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      path: functionPath,
-      args: { ...args, deviceToken: DEVICE_TOKEN },
-    }),
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Convex mutation ${functionPath} failed (${res.status}): ${body}`);
-  }
-  const data = (await res.json()) as { status: string; value?: unknown; errorMessage?: string };
-  if (data.status === "error") {
-    throw new Error(`Convex error: ${data.errorMessage ?? JSON.stringify(data)}`);
-  }
-  return data.value;
-}
-
-// ---------------------------------------------------------------------------
 // Export all tools
 // ---------------------------------------------------------------------------
 
-/** Memory tools — always available */
 export const memoryTools = [
-  searchSemantic,
-  searchExact,
+  searchMemory,
   getRecentItems,
-  browseItems,
-  getItemDetail,
   getSourceStats,
 ] as unknown as AgentTool[];
 
-/** Prompt management tools — always available */
-export const promptTools = [
-  listPromptFiles,
-  getPromptFile,
-  updatePromptFile,
-] as unknown as AgentTool[];
-
-/** Filesystem tools — available in both local and E2B modes */
 export const filesystemTools = [
   readFile,
   listDirectory,
@@ -536,5 +277,4 @@ export const filesystemTools = [
   runCommand,
 ] as unknown as AgentTool[];
 
-/** All tools combined */
-export const allTools = [...memoryTools, ...promptTools, ...filesystemTools];
+export const allTools = [...memoryTools, ...filesystemTools];

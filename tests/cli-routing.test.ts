@@ -1,10 +1,5 @@
 import { test, expect, describe } from "bun:test";
 
-/**
- * Tests for CLI entry point routing and argument parsing.
- * We test by spawning the CLI as a subprocess to verify real behavior.
- */
-
 const CLI_PATH = new URL("../cli/index.ts", import.meta.url).pathname;
 
 async function runCli(args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
@@ -50,19 +45,12 @@ describe("CLI --help", () => {
     expect(stdout).toContain("init");
     expect(stdout).toContain("daemon");
     expect(stdout).toContain("sync");
-    expect(stdout).toContain("workflow");
-    expect(stdout).toContain("channel");
   });
 
   test("-h also prints help", async () => {
     const { stdout, exitCode } = await runCli(["-h"]);
     expect(exitCode).toBe(0);
     expect(stdout).toContain("Usage:");
-  });
-
-  test("help includes --local flag", async () => {
-    const { stdout } = await runCli(["--help"]);
-    expect(stdout).toContain("--local");
   });
 });
 
@@ -85,41 +73,5 @@ describe("CLI daemon subcommand validation", () => {
     const { stdout, exitCode } = await runCli(["daemon", "invalid"]);
     expect(exitCode).toBe(1);
     expect(stdout).toContain("Usage: kent daemon");
-  });
-});
-
-describe("CLI workflow subcommand validation", () => {
-  test("workflow with no subcommand shows usage", async () => {
-    const { stdout, exitCode } = await runCli(["workflow"]);
-    expect(exitCode).toBe(1);
-    expect(stdout).toContain("Usage:");
-    expect(stdout).toContain("workflow");
-  });
-
-  test("workflow with invalid subcommand shows usage", async () => {
-    const { stdout, exitCode } = await runCli(["workflow", "invalid"]);
-    expect(exitCode).toBe(1);
-  });
-});
-
-describe("CLI channel subcommand validation", () => {
-  test("channel with no subcommand shows usage", async () => {
-    const { stdout, exitCode } = await runCli(["channel"]);
-    expect(exitCode).toBe(1);
-    expect(stdout).toContain("Usage:");
-  });
-
-  test("channel start with no name shows usage", async () => {
-    const { stderr, exitCode } = await runCli(["channel", "start"]);
-    expect(exitCode).toBe(1);
-  });
-});
-
-describe("CLI --local flag parsing", () => {
-  test("--local flag is stripped from args (does not cause unknown command)", async () => {
-    // --local with --help should still print help
-    const { stdout, exitCode } = await runCli(["--local", "--help"]);
-    expect(exitCode).toBe(0);
-    expect(stdout).toContain("Usage:");
   });
 });

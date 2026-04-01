@@ -2,20 +2,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-// Kent hosted infrastructure — reads from .env (Bun auto-loads)
-export const CONVEX_URL_DEV = process.env.CONVEX_URL_DEV ?? "";
-export const CONVEX_URL_PROD = process.env.CONVEX_URL ?? "";
-export const CONVEX_URL = process.env.KENT_ENV === "dev" ? CONVEX_URL_DEV : CONVEX_URL_PROD;
-export const KENT_TELEGRAM_BOT = process.env.KENT_TELEGRAM_BOT ?? "";
-
 export interface Config {
   core: {
     device_token: string;
   };
-  // No more convex_url, e2b keys — these are hosted
   keys: {
-    anthropic: string; // placeholder "[encrypted]" — real keys in Convex
-    openai: string; // placeholder "[encrypted]" — real keys in Convex
+    anthropic: string;
+    openai: string;
   };
   sources: {
     imessage: boolean;
@@ -32,12 +25,6 @@ export interface Config {
   agent: {
     default_model: string;
     max_turns: number;
-    default_runner: "cloud" | "local" | "auto";
-  };
-  telegram: {
-    linked: boolean;
-    user_id: number | null; // auto-detected via deep link
-    username: string | null;
   };
 }
 
@@ -45,6 +32,7 @@ export const KENT_DIR = join(homedir(), ".kent");
 export const CONFIG_PATH = join(KENT_DIR, "config.json");
 export const PID_PATH = join(KENT_DIR, "daemon.pid");
 export const LOG_PATH = join(KENT_DIR, "daemon.log");
+export const DAEMON_STATE_PATH = join(KENT_DIR, "daemon-state.json");
 export const PLIST_PATH = join(
   homedir(),
   "Library",
@@ -75,12 +63,6 @@ export const DEFAULT_CONFIG: Config = {
   agent: {
     default_model: "claude-sonnet-4-20250514",
     max_turns: 10,
-    default_runner: "auto",
-  },
-  telegram: {
-    linked: false,
-    user_id: null,
-    username: null,
   },
 };
 
