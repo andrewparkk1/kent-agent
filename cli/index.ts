@@ -1,4 +1,8 @@
 #!/usr/bin/env bun
+/**
+ * CLI entry point — routes `kent <command>` to the right handler.
+ * No args = interactive REPL, otherwise: init, daemon, sync.
+ */
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

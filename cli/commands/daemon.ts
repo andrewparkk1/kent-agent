@@ -1,3 +1,13 @@
+/** Daemon management — start/stop/status/logs for the background sync daemon via launchd. */
+/**
+ * `kent daemon start|stop|status|logs` — manages the background sync process.
+ * The daemon runs as a macOS launchd service that periodically pulls new data from
+ * all enabled sources (iMessage, Gmail, GitHub, etc.) and saves it to the local SQLite DB.
+ * - start: writes a launchd plist and bootstraps it so syncing runs even when the terminal is closed
+ * - stop: kills the daemon process and unloads the plist
+ * - status: reads daemon-state.json to show what's syncing, last results, next sync time
+ * - logs: tails ~/.kent/daemon.log
+ */
 import { existsSync, readFileSync, writeFileSync, unlinkSync, watchFile, unwatchFile } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";

@@ -1,3 +1,8 @@
+/**
+ * `kent sync [--source <name>]` — pulls new data from enabled sources and saves to SQLite.
+ * Runs each source sequentially, logs item counts and timing. Can filter to a single source.
+ * Used both as a CLI command and called from the REPL's /sync slash command.
+ */
 import { loadConfig } from "@shared/config.ts";
 import { upsertItems } from "@shared/db.ts";
 import { FileSyncState } from "@daemon/sync-state.ts";

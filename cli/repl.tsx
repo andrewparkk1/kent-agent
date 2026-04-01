@@ -1,3 +1,9 @@
+/**
+ * Interactive terminal UI (Ink/React). Shows a chat interface where you type messages,
+ * the agent responds with streaming text + tool call indicators, and conversation is
+ * persisted to threads in SQLite. Supports slash commands (/sync, /status, /threads, etc.),
+ * prompt history (up/down arrows), markdown rendering, and model switching.
+ */
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { render, Box, Text, Static, useInput, useApp } from "ink";
 import Spinner from "ink-spinner";

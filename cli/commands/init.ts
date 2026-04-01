@@ -1,3 +1,10 @@
+/** Interactive setup wizard — configures API keys, source toggles, OAuth, and starts the daemon. */
+/**
+ * `kent init` — interactive setup wizard that runs on first use.
+ * Walks through: generate device token, set API keys, pick which sources to enable
+ * (with live prerequisite checks like "is Signal installed?"), run OAuth for Gmail/GitHub,
+ * install bundled prompt files to ~/.kent/prompts/, start the daemon, and do an initial sync.
+ */
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";

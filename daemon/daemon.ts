@@ -1,3 +1,9 @@
+/**
+ * Background sync loop — runs as a long-lived process managed by launchd.
+ * On each tick: iterates through enabled sources, fetches new items, upserts into SQLite,
+ * writes daemon-state.json (so `kent daemon status` can report progress), then sleeps
+ * for the configured interval. Logs to ~/.kent/daemon.log.
+ */
 import { appendFileSync, writeFileSync } from "node:fs";
 import { loadConfig, ensureKentDir, PID_PATH, LOG_PATH, DAEMON_STATE_PATH } from "@shared/config.ts";
 import { upsertItems } from "@shared/db.ts";

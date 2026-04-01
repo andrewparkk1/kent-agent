@@ -1,3 +1,10 @@
+/**
+ * Config schema + paths. Everything lives under ~/.kent/:
+ * - config.json: API keys, source toggles, daemon interval, agent model
+ * - kent.db: SQLite database (items, threads, messages)
+ * - daemon.pid / daemon.log / daemon-state.json: daemon lifecycle
+ * - prompts/: agent system prompt files
+ */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";

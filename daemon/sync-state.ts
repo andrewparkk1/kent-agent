@@ -1,3 +1,8 @@
+/**
+ * Tracks the last successful sync timestamp per source in ~/.kent/state.json.
+ * Sources use this to only fetch items newer than the last sync (incremental sync).
+ * Writes are atomic (write to .tmp then rename) to avoid corruption.
+ */
 import { join } from "path";
 import { homedir } from "os";
 import {

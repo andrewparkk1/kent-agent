@@ -1,3 +1,10 @@
+/** Agent entry point — assembles system prompt from prompt files and runs the AI agent with tools. */
+/**
+ * Kent's AI brain. Loads prompt files (IDENTITY, SOUL, TOOLS, USER, skills/) from
+ * ~/.kent/prompts, injects today's date + synced data context, then runs a multi-turn
+ * agent loop that can call tools (search memory, read files, run commands).
+ * Invoked as a subprocess by LocalRunner — reads PROMPT from env, writes output to OUTPUT_DIR.
+ */
 import { Agent } from "@mariozechner/pi-agent-core";
 import { streamSimple, getModel } from "@mariozechner/pi-ai";
 import { existsSync, readFileSync, readdirSync } from "node:fs";

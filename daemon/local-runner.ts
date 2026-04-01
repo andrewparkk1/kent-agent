@@ -1,3 +1,8 @@
+/**
+ * Runs the agent as a local Bun subprocess. Spawns `bun run agent/agent.ts` with the
+ * prompt and config passed via env vars, streams stdout (text) and stderr (tool events)
+ * back to the caller in real time, and collects any output files the agent writes.
+ */
 import { join } from "node:path";
 import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { BaseRunner, type RunResult, type StreamCallback, type TypedStreamCallback } from "./runner-base.ts";

@@ -1,3 +1,4 @@
+/** Shared types for all data sources. Each source implements Source.fetchNew(). */
 export interface Item {
   source: string;
   externalId: string;

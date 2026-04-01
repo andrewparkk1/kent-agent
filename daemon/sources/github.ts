@@ -1,3 +1,8 @@
+/**
+ * GitHub source — pulls notifications, PRs, and issues via the `gh` CLI.
+ * Requires `gh auth login` to be set up. Fetches recent activity and formats
+ * it as searchable items with repo, title, author, and URL metadata.
+ */
 import { arch } from "os";
 import type { Source, SyncState, Item } from "./types";
 

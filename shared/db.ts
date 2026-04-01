@@ -1,3 +1,10 @@
+/**
+ * Local SQLite database — all synced data and conversations live here (~/.kent/kent.db).
+ * - items: synced data from all sources (iMessage, Gmail, GitHub, etc.) with FTS5 full-text search
+ * - threads: conversation threads with the agent
+ * - messages: individual messages within threads (user, assistant, system)
+ * FTS5 index auto-syncs via triggers on insert/update/delete.
+ */
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { KENT_DIR, ensureKentDir } from "./config.ts";

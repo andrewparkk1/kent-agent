@@ -1,3 +1,13 @@
+/** Agent tool definitions — memory search (FTS5), filesystem ops, and shell commands. */
+/**
+ * Tools the agent can call during a conversation:
+ * - search_memory: FTS5 full-text search across all synced sources (iMessage, Gmail, etc.)
+ * - get_recent_items: latest items from one or all sources, sorted by time
+ * - get_source_stats: item counts per source so the agent knows what data exists
+ * - read_file / list_directory / search_files: read and search the user's filesystem
+ * - write_file: write files to the output directory
+ * - run_command: execute shell commands on the user's Mac
+ */
 import { Type } from "@sinclair/typebox";
 import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 import { searchItems, getItemsBySource, getItemCount } from "@shared/db.ts";
