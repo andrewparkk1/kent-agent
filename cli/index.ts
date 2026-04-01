@@ -25,6 +25,7 @@ Usage:
   kent init                     Setup wizard
   kent daemon <start|stop|status>  Manage background daemon
   kent sync [--source <name>]   Sync data sources
+  kent web                      Open web dashboard
 
 Flags:
   --version     Print version
@@ -66,6 +67,11 @@ async function main(): Promise<void> {
     case "sync":
       await handleSync(subArgs);
       break;
+    case "web": {
+      const { handleWeb } = await import("./commands/web.ts");
+      await handleWeb();
+      break;
+    }
     default:
       console.error(`Unknown command: ${command}`);
       printHelp();

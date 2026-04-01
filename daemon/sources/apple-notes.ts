@@ -173,8 +173,7 @@ export const appleNotes: Source = {
       if (!existsSync(NOTES_DB)) {
         // On macOS, if existsSync returns false the app likely lacks Full Disk Access
         // (the sandbox hides the file entirely). Treat as permission-denied.
-        console.warn("[apple-notes] NoteStore.sqlite not found — grant Full Disk Access in System Settings > Privacy & Security");
-        return [];
+        throw new Error("Permission denied — NoteStore.sqlite not accessible (likely missing Full Disk Access)");
       }
 
       // Try to copy DB to temp first (avoids WAL lock contention with Notes.app)
@@ -202,16 +201,14 @@ export const appleNotes: Source = {
       } catch (e) {
         const msg = String(e);
         if (msg.includes("unable to open") || msg.includes("authorization denied") || msg.includes("EPERM")) {
-          console.warn("[apple-notes] Permission denied — grant Full Disk Access to the daemon in System Settings > Privacy & Security");
-        } else {
-          console.warn(`[apple-notes] Failed to open database: ${e}`);
+          throw new Error("Permission denied — cannot open NoteStore.sqlite (likely missing Full Disk Access)");
         }
-        return [];
+        throw e;
       }
 
       const lastSync = state.getLastSync("apple-notes");
       const lastSyncCoreData = lastSync > 0
-        ? (lastSync / 1000) - CORE_DATA_EPOCH_OFFSET
+        ? lastSync - CORE_DATA_EPOCH_OFFSET
         : 0;
 
       const rows = db

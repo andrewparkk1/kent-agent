@@ -1,12 +1,13 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline";
 import {
   type Config,
   KENT_DIR,
   CONFIG_PATH,
+  PROMPTS_DIR,
   DEFAULT_CONFIG,
   saveConfig,
   ensureKentDir,
@@ -162,6 +163,58 @@ ${BOLD}  _  __          _
 }
 
 // ---------------------------------------------------------------------------
+// Install bundled prompts to ~/.kent/prompts/
+// ---------------------------------------------------------------------------
+
+function installPrompts(): void {
+  const bundledDir = join(dirname(import.meta.path), "..", "..", "agent", "prompts");
+
+  // Resolve to absolute in case of symlinks
+  const resolvedBundled = join(bundledDir);
+
+  if (!existsSync(resolvedBundled)) {
+    warn("Bundled prompts not found — skipping prompt install");
+    return;
+  }
+
+  mkdirSync(PROMPTS_DIR, { recursive: true });
+  mkdirSync(join(PROMPTS_DIR, "skills"), { recursive: true });
+
+  let copied = 0;
+
+  // Copy top-level prompt files
+  for (const name of readdirSync(resolvedBundled)) {
+    const srcPath = join(resolvedBundled, name);
+    const destPath = join(PROMPTS_DIR, name);
+
+    if (name === "skills") {
+      // Copy skills subdirectory
+      const skillsSrc = join(resolvedBundled, "skills");
+      for (const skillFile of readdirSync(skillsSrc)) {
+        if (!skillFile.endsWith(".md")) continue;
+        const skillSrc = join(skillsSrc, skillFile);
+        const skillDest = join(PROMPTS_DIR, "skills", skillFile);
+        if (!existsSync(skillDest)) {
+          writeFileSync(skillDest, readFileSync(skillSrc, "utf-8"), "utf-8");
+          copied++;
+        }
+      }
+    } else if (name.endsWith(".md")) {
+      if (!existsSync(destPath)) {
+        writeFileSync(destPath, readFileSync(srcPath, "utf-8"), "utf-8");
+        copied++;
+      }
+    }
+  }
+
+  if (copied > 0) {
+    success(`Installed ${copied} prompt files to ~/.kent/prompts/`);
+  } else {
+    info("  Prompts already installed (skipped existing files)");
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Source prerequisite checks
 // ---------------------------------------------------------------------------
 
@@ -213,7 +266,7 @@ const SOURCES: SourceInfo[] = [
   },
   {
     key: "gmail",
-    label: "Gmail & Calendar",
+    label: "Google (Gmail, Calendar, Tasks, Drive)",
     check: async () => {
       const hasGws = await commandExists("gws");
       if (!hasGws) return { ok: false, message: "gws CLI not installed" };
@@ -278,14 +331,14 @@ const SOURCES: SourceInfo[] = [
       }
 
       info("Opening Gmail OAuth in your browser...");
-      const authProc = Bun.spawn(["gws", "auth", "login", "-s", "gmail,calendar"], {
+      const authProc = Bun.spawn(["gws", "auth", "login", "-s", "gmail,calendar,tasks,drive"], {
         stdout: "inherit", stderr: "inherit", stdin: "inherit",
       });
       const code = await authProc.exited;
       if (code === 0) {
         success("Gmail: authenticated");
       } else {
-        warn("Gmail auth failed. Run 'gws auth login -s gmail,calendar' later.");
+        warn("Gmail auth failed. Run 'gws auth login -s gmail,calendar,tasks' later.");
       }
       return {};
     },
@@ -391,6 +444,9 @@ export async function handleInit(): Promise<void> {
   success(`Generated device token: ${deviceToken.slice(0, 12)}...`);
   ensureKentDir();
 
+  // Copy bundled prompts to ~/.kent/prompts/
+  installPrompts();
+
   // ------------------------------------------------------------------
   // Step 2: AI Provider
   // ------------------------------------------------------------------
@@ -441,8 +497,19 @@ export async function handleInit(): Promise<void> {
     if (opt.selected) {
       config.sources[sourceInfo.key] = true;
       enabledSources.push(sourceInfo);
+      // Gmail also enables Google Calendar + Tasks + Drive (same gws CLI)
+      if (sourceInfo.key === "gmail") {
+        config.sources.gcal = true;
+        config.sources.gtasks = true;
+        config.sources.gdrive = true;
+      }
     } else {
       config.sources[sourceInfo.key] = false;
+      if (sourceInfo.key === "gmail") {
+        config.sources.gcal = false;
+        config.sources.gtasks = false;
+        config.sources.gdrive = false;
+      }
     }
   }
 

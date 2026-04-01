@@ -1,7 +1,8 @@
 import { Agent } from "@mariozechner/pi-agent-core";
 import { streamSimple, getModel } from "@mariozechner/pi-ai";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { homedir } from "node:os";
 import { allTools } from "./tools.ts";
 import { getItemCount } from "@shared/db.ts";
 
@@ -20,10 +21,17 @@ const MODEL_NAME = process.env.MODEL ?? "claude-sonnet-4-20250514";
 // Prompt assembly
 // ---------------------------------------------------------------------------
 
+// Read from ~/.kent/prompts/ first, fall back to bundled prompts
+const USER_PROMPTS_DIR = join(homedir(), ".kent", "prompts");
+const BUNDLED_PROMPTS_DIR = join(dirname(import.meta.path), "prompts");
+
 function readPromptFile(name: string): string {
-  const promptsDir = join(dirname(import.meta.path), "prompts");
+  const userPath = join(USER_PROMPTS_DIR, name);
+  if (existsSync(userPath)) {
+    try { return readFileSync(userPath, "utf-8"); } catch {}
+  }
   try {
-    return readFileSync(join(promptsDir, name), "utf-8");
+    return readFileSync(join(BUNDLED_PROMPTS_DIR, name), "utf-8");
   } catch {
     return "";
   }
@@ -51,18 +59,24 @@ function buildSystemPrompt(): string {
   const tools = readPromptFile("TOOLS.md");
   const userTemplate = readPromptFile("USER.md");
 
-  // Gather skill files
+  // Gather skill files (merge user + bundled, user takes precedence)
   const skillContents: string[] = [];
-  const skillsDir = join(dirname(import.meta.path), "prompts", "skills");
-  try {
-    for (const name of readdirSync(skillsDir)) {
-      if (name.endsWith(".md")) {
-        const content = readPromptFile(`skills/${name}`);
+  const seenSkills = new Set<string>();
+  const skillsDirs = [
+    join(USER_PROMPTS_DIR, "skills"),
+    join(BUNDLED_PROMPTS_DIR, "skills"),
+  ];
+  for (const skillsDir of skillsDirs) {
+    try {
+      for (const name of readdirSync(skillsDir)) {
+        if (!name.endsWith(".md") || seenSkills.has(name)) continue;
+        seenSkills.add(name);
+        const content = readFileSync(join(skillsDir, name), "utf-8");
         if (content) skillContents.push(`# Skill: ${name}\n\n${content}`);
       }
+    } catch {
+      // Directory doesn't exist
     }
-  } catch {
-    // No skills directory
   }
 
   const today = new Date().toLocaleDateString("en-US", {
@@ -120,16 +134,29 @@ async function run(): Promise<void> {
       }
       case "tool_execution_start":
         console.error(
-          `\n[${event.toolName}] ${JSON.stringify(event.args).slice(0, 200)}`
+          JSON.stringify({ event: "tool_start", name: event.toolName, args: event.args })
         );
         break;
-      case "tool_execution_end":
-        if (event.isError) {
-          console.error(`[${event.toolName}] ERROR`);
-        } else {
-          console.error(`[${event.toolName}] done`);
-        }
+      case "tool_execution_end": {
+        // Extract text preview from result content
+        let preview = "";
+        try {
+          const contents = event.result?.content ?? [];
+          const texts = contents
+            .filter((c: any) => c.type === "text")
+            .map((c: any) => c.text);
+          preview = texts.join("\n").slice(0, 500);
+        } catch {}
+        console.error(
+          JSON.stringify({
+            event: "tool_end",
+            name: event.toolName,
+            error: event.isError,
+            result: preview,
+          })
+        );
         break;
+      }
       case "turn_end":
         turnCount++;
         if (turnCount >= MAX_TURNS) {

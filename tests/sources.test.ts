@@ -80,7 +80,7 @@ describe("Gmail source", () => {
     expect(items).toBeArray();
     for (const item of items) {
       expect(item.source).toBe("gmail");
-      expect(item.externalId).toMatch(/^gmail-/);
+      expect(item.externalId).toMatch(/^(gmail-|gcal-|gtask-)/);
     }
   });
 });

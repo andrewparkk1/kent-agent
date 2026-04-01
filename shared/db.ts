@@ -15,7 +15,19 @@ export function getDb(): Database {
   _db.exec("PRAGMA foreign_keys = ON");
 
   initSchema(_db);
+  rebuildFtsIndex(_db);
   return _db;
+}
+
+/** Rebuild the FTS index from scratch (needed once for pre-existing data). */
+function rebuildFtsIndex(db: Database): void {
+  const count = (db.prepare("SELECT COUNT(*) as n FROM items").get() as any)?.n ?? 0;
+  if (count === 0) return;
+
+  const ftsCount = (db.prepare("SELECT COUNT(*) as n FROM items_fts").get() as any)?.n ?? 0;
+  if (ftsCount > 0) return;
+
+  db.exec("INSERT INTO items_fts(rowid, content, source, external_id) SELECT id, content, source, external_id FROM items");
 }
 
 function initSchema(db: Database): void {
@@ -34,6 +46,33 @@ function initSchema(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_items_source ON items(source);
     CREATE INDEX IF NOT EXISTS idx_items_created_at ON items(created_at);
     CREATE INDEX IF NOT EXISTS idx_items_source_created ON items(source, created_at);
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
+      content,
+      source UNINDEXED,
+      external_id UNINDEXED,
+      content=items,
+      content_rowid=id,
+      tokenize='porter unicode61'
+    );
+
+    -- Triggers to keep FTS index in sync with items table
+    CREATE TRIGGER IF NOT EXISTS items_ai AFTER INSERT ON items BEGIN
+      INSERT INTO items_fts(rowid, content, source, external_id)
+      VALUES (new.id, new.content, new.source, new.external_id);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS items_ad AFTER DELETE ON items BEGIN
+      INSERT INTO items_fts(items_fts, rowid, content, source, external_id)
+      VALUES ('delete', old.id, old.content, old.source, old.external_id);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS items_au AFTER UPDATE ON items BEGIN
+      INSERT INTO items_fts(items_fts, rowid, content, source, external_id)
+      VALUES ('delete', old.id, old.content, old.source, old.external_id);
+      INSERT INTO items_fts(rowid, content, source, external_id)
+      VALUES (new.id, new.content, new.source, new.external_id);
+    END;
 
     CREATE TABLE IF NOT EXISTS threads (
       id TEXT PRIMARY KEY,
@@ -96,16 +135,28 @@ export function upsertItems(items: DbItem[]): number {
   return count;
 }
 
-export function searchItems(query: string, limit = 50): Array<DbItem & { id: number }> {
+export function searchItems(query: string, limit = 50, source?: string): Array<DbItem & { id: number; rank: number }> {
+  // Escape FTS5 special chars and build a prefix query so partial words match
+  const sanitized = query.replace(/['"()*:^~]/g, " ").trim();
+  if (!sanitized) return [];
+
+  const ftsQuery = sanitized
+    .split(/\s+/)
+    .map((word) => `"${word}"*`)
+    .join(" ");
+
+  const sourceFilter = source ? "AND i.source = $source" : "";
+
   const rows = getDb()
     .prepare(`
-      SELECT id, source, external_id, content, metadata, created_at
-      FROM items
-      WHERE content LIKE $query
-      ORDER BY created_at DESC
+      SELECT i.id, i.source, i.external_id, i.content, i.metadata, i.created_at, f.rank
+      FROM items_fts f
+      JOIN items i ON i.id = f.rowid
+      WHERE items_fts MATCH $query ${sourceFilter}
+      ORDER BY f.rank
       LIMIT $limit
     `)
-    .all({ $query: `%${query}%`, $limit: limit }) as any[];
+    .all({ $query: ftsQuery, $limit: limit, ...(source ? { $source: source } : {}) }) as any[];
 
   return rows.map((r) => ({
     ...r,

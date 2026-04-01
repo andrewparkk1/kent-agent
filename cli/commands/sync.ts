@@ -5,7 +5,7 @@ import type { Source } from "@daemon/sources/types.ts";
 import { imessage } from "@daemon/sources/imessage.ts";
 import { signal } from "@daemon/sources/signal.ts";
 import { granola } from "@daemon/sources/granola.ts";
-import { gmail } from "@daemon/sources/gmail.ts";
+import { gmail, gcal, gtasks, gdrive } from "@daemon/sources/gmail.ts";
 import { github } from "@daemon/sources/github.ts";
 import { chrome } from "@daemon/sources/chrome.ts";
 import { appleNotes } from "@daemon/sources/apple-notes.ts";
@@ -15,6 +15,9 @@ const sourceRegistry: Record<string, Source> = {
   signal,
   granola,
   gmail,
+  gcal,
+  gtasks,
+  gdrive,
   github,
   chrome,
   apple_notes: appleNotes,

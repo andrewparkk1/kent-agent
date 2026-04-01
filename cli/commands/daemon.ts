@@ -36,42 +36,86 @@ function generatePlist(): string {
 </plist>`;
 }
 
+/** Check if a process with the given PID is alive. */
+function isProcessAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
 export async function daemonStart(): Promise<void> {
   ensureKentDir();
 
-  const plist = generatePlist();
-  writeFileSync(PLIST_PATH, plist, "utf-8");
-  console.log(`Wrote plist to ${PLIST_PATH}`);
-
-  try {
-    execFileSync("launchctl", ["load", PLIST_PATH], { stdio: "inherit" });
-    console.log("Daemon started via launchctl");
-  } catch (err) {
-    console.error("Failed to load launchd plist:", err);
-    process.exit(1);
+  // If already running, tell the user
+  if (existsSync(PID_PATH)) {
+    const pid = Number(readFileSync(PID_PATH, "utf-8").trim());
+    if (isProcessAlive(pid)) {
+      console.log(`Daemon is already running (PID ${pid})`);
+      console.log("Run `kent daemon stop` first, or `kent daemon status` to view.");
+      return;
+    }
+    // Stale PID file — clean up
+    try { unlinkSync(PID_PATH); } catch {}
   }
+
+  // Spawn daemon as a fully detached background process
+  const projectRoot = resolve(import.meta.dir, "../..");
+  const daemonScript = resolve(projectRoot, "daemon/daemon.ts");
+  const bunPath = execFileSync("which", ["bun"], { encoding: "utf-8" }).trim();
+
+  const proc = Bun.spawn(["bash", "-c", `nohup "${bunPath}" run "${daemonScript}" > /dev/null 2>&1 &`], {
+    cwd: projectRoot,
+    stdout: "ignore",
+    stderr: "ignore",
+    stdin: "ignore",
+  });
+  await proc.exited;
+
+  // Wait briefly for PID file to appear
+  const deadline = Date.now() + 3000;
+  while (Date.now() < deadline) {
+    if (existsSync(PID_PATH)) {
+      const pid = readFileSync(PID_PATH, "utf-8").trim();
+      console.log(`Daemon started (PID ${pid})`);
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+
+  console.log("Daemon started");
 }
 
 async function daemonStop(): Promise<void> {
-  if (!existsSync(PLIST_PATH)) {
-    console.log("Daemon is not installed (no plist found)");
-    process.exit(1);
+  if (!existsSync(PID_PATH)) {
+    console.log("Daemon is not running");
+    return;
   }
 
-  try {
-    execFileSync("launchctl", ["unload", PLIST_PATH], { stdio: "inherit" });
-    console.log("Daemon stopped via launchctl");
-  } catch (err) {
-    console.error("Failed to unload launchd plist:", err);
+  const pid = Number(readFileSync(PID_PATH, "utf-8").trim());
+
+  // Unload from launchctl if a plist exists (clean up legacy installs)
+  if (existsSync(PLIST_PATH)) {
+    try { execFileSync("launchctl", ["bootout", `gui/${process.getuid()}`, PLIST_PATH], { stdio: "pipe", timeout: 3000 }); } catch {}
+    try { execFileSync("launchctl", ["unload", PLIST_PATH], { stdio: "pipe", timeout: 3000 }); } catch {}
+    try { unlinkSync(PLIST_PATH); } catch {}
   }
 
-  if (existsSync(PID_PATH)) {
-    unlinkSync(PID_PATH);
-    console.log("Removed PID file");
+  // Kill the process
+  if (isProcessAlive(pid)) {
+    try { process.kill(pid, "SIGTERM"); } catch {}
+    // Brief wait for graceful shutdown
+    const deadline = Date.now() + 2000;
+    while (Date.now() < deadline && isProcessAlive(pid)) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    // Force kill if still alive
+    if (isProcessAlive(pid)) {
+      try { process.kill(pid, "SIGKILL"); } catch {}
+    }
   }
-  if (existsSync(DAEMON_STATE_PATH)) {
-    try { unlinkSync(DAEMON_STATE_PATH); } catch {}
-  }
+
+  try { unlinkSync(PID_PATH); } catch {}
+  try { unlinkSync(DAEMON_STATE_PATH); } catch {}
+
+  console.log("Daemon stopped");
 }
 
 // ─── Live Status Dashboard ──────────────────────────────────────────────────
@@ -91,6 +135,8 @@ interface DaemonState {
   nextSyncAt?: number;
   lastSyncAt?: number;
   lastSyncResults?: Record<string, number>;
+  lastSyncTitles?: Record<string, string[]>;
+  lastSyncErrors?: Record<string, string>;
   enabledSources: string[];
   intervalMinutes: number;
 }
@@ -168,10 +214,24 @@ function renderDashboard(): void {
         const ago = formatCountdown(Date.now() - state.lastSyncAt);
         console.log(`\n  ${BOLD}Last sync${NC} ${DIM}(${ago} ago)${NC}`);
         for (const [source, count] of Object.entries(state.lastSyncResults)) {
+          const titles = state.lastSyncTitles?.[source] ?? [];
           if (count === -1) {
+            const errMsg = state.lastSyncErrors?.[source];
             console.log(`    ${RED}✗${NC} ${source}: error`);
+            if (errMsg) {
+              for (const line of errMsg.split("\n")) {
+                console.log(`      ${RED}${line}${NC}`);
+              }
+            }
           } else if (count > 0) {
             console.log(`    ${GREEN}✓${NC} ${source}: ${count} items`);
+            for (const title of titles) {
+              const truncated = title.length > 60 ? title.slice(0, 57) + "..." : title;
+              console.log(`      ${DIM}→ ${truncated}${NC}`);
+            }
+            if (count > titles.length) {
+              console.log(`      ${DIM}  …and ${count - titles.length} more${NC}`);
+            }
           } else {
             console.log(`    ${DIM}·${NC} ${source}: ${DIM}0 items${NC}`);
           }

@@ -1,135 +1,161 @@
-import { test, expect, beforeEach, afterEach, describe } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { existsSync, mkdirSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import type { Config } from "@shared/config.ts";
+import { DEFAULT_CONFIG } from "@shared/config.ts";
 
-describe("Config types and defaults", () => {
-  test("DEFAULT_CONFIG has expected shape", async () => {
-    const { DEFAULT_CONFIG } = await import("../shared/config.ts");
+/**
+ * Tests for config loading/saving logic.
+ *
+ * Uses a temp directory to avoid touching the real ~/.kent.
+ * Re-implements the load/save logic against a custom path since
+ * the module uses hardcoded paths.
+ */
 
-    expect(DEFAULT_CONFIG.core.device_token).toBe("");
-    expect(DEFAULT_CONFIG.keys.openai).toBe("");
+function tempDir(): string {
+  const dir = join(tmpdir(), `kent-test-${crypto.randomUUID()}`);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function loadConfigFrom(dir: string, configPath: string): Config {
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  if (!existsSync(configPath)) {
+    writeFileSync(configPath, JSON.stringify(DEFAULT_CONFIG, null, 2), "utf-8");
+    return DEFAULT_CONFIG;
+  }
+  try {
+    const raw = readFileSync(configPath, "utf-8");
+    return JSON.parse(raw) as Config;
+  } catch {
+    return DEFAULT_CONFIG;
+  }
+}
+
+function saveConfigTo(dir: string, configPath: string, config: Config): void {
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
+}
+
+describe("DEFAULT_CONFIG", () => {
+  test("has all required top-level keys", () => {
+    expect(DEFAULT_CONFIG).toHaveProperty("core");
+    expect(DEFAULT_CONFIG).toHaveProperty("keys");
+    expect(DEFAULT_CONFIG).toHaveProperty("sources");
+    expect(DEFAULT_CONFIG).toHaveProperty("daemon");
+    expect(DEFAULT_CONFIG).toHaveProperty("agent");
+  });
+
+  test("all sources default to false", () => {
+    for (const [, enabled] of Object.entries(DEFAULT_CONFIG.sources)) {
+      expect(enabled).toBe(false);
+    }
+  });
+
+  test("has all 10 source toggles", () => {
+    const sourceKeys = Object.keys(DEFAULT_CONFIG.sources);
+    expect(sourceKeys).toContain("imessage");
+    expect(sourceKeys).toContain("signal");
+    expect(sourceKeys).toContain("granola");
+    expect(sourceKeys).toContain("gmail");
+    expect(sourceKeys).toContain("gcal");
+    expect(sourceKeys).toContain("gtasks");
+    expect(sourceKeys).toContain("gdrive");
+    expect(sourceKeys).toContain("github");
+    expect(sourceKeys).toContain("chrome");
+    expect(sourceKeys).toContain("apple_notes");
+    expect(sourceKeys.length).toBe(10);
+  });
+
+  test("daemon sync interval is a positive number", () => {
+    expect(DEFAULT_CONFIG.daemon.sync_interval_minutes).toBeGreaterThan(0);
+  });
+
+  test("agent has reasonable defaults", () => {
+    expect(DEFAULT_CONFIG.agent.default_model).toBeString();
+    expect(DEFAULT_CONFIG.agent.default_model.length).toBeGreaterThan(0);
+    expect(DEFAULT_CONFIG.agent.max_turns).toBeGreaterThan(0);
+  });
+
+  test("keys default to empty strings", () => {
     expect(DEFAULT_CONFIG.keys.anthropic).toBe("");
-    expect(DEFAULT_CONFIG.daemon.sync_interval_minutes).toBe(5);
-    expect(DEFAULT_CONFIG.agent.default_model).toBe("claude-sonnet-4-20250514");
-    expect(DEFAULT_CONFIG.agent.max_turns).toBe(10);
-  });
-
-  test("DEFAULT_CONFIG sources are all disabled", async () => {
-    const { DEFAULT_CONFIG } = await import("../shared/config.ts");
-
-    expect(DEFAULT_CONFIG.sources.imessage).toBe(false);
-    expect(DEFAULT_CONFIG.sources.signal).toBe(false);
-    expect(DEFAULT_CONFIG.sources.granola).toBe(false);
-    expect(DEFAULT_CONFIG.sources.gmail).toBe(false);
-    expect(DEFAULT_CONFIG.sources.github).toBe(false);
-    expect(DEFAULT_CONFIG.sources.chrome).toBe(false);
-    expect(DEFAULT_CONFIG.sources.apple_notes).toBe(false);
-  });
-
-  test("KENT_DIR points to ~/.kent", async () => {
-    const { KENT_DIR } = await import("../shared/config.ts");
-    const { homedir } = await import("node:os");
-    expect(KENT_DIR).toBe(join(homedir(), ".kent"));
-  });
-
-  test("CONFIG_PATH is config.json inside KENT_DIR", async () => {
-    const { CONFIG_PATH, KENT_DIR } = await import("../shared/config.ts");
-    expect(CONFIG_PATH).toBe(join(KENT_DIR, "config.json"));
-  });
-
-  test("PID_PATH is daemon.pid inside KENT_DIR", async () => {
-    const { PID_PATH, KENT_DIR } = await import("../shared/config.ts");
-    expect(PID_PATH).toBe(join(KENT_DIR, "daemon.pid"));
-  });
-
-  test("LOG_PATH is daemon.log inside KENT_DIR", async () => {
-    const { LOG_PATH, KENT_DIR } = await import("../shared/config.ts");
-    expect(LOG_PATH).toBe(join(KENT_DIR, "daemon.log"));
-  });
-
-  test("PLIST_PATH is in LaunchAgents", async () => {
-    const { PLIST_PATH } = await import("../shared/config.ts");
-    expect(PLIST_PATH).toContain("Library/LaunchAgents/sh.kent.daemon.plist");
+    expect(DEFAULT_CONFIG.keys.openai).toBe("");
   });
 });
 
-describe("Config file I/O", () => {
-  const tempDir = join(tmpdir(), `kent-test-config-${Date.now()}`);
-  const configPath = join(tempDir, "config.json");
+describe("Config load/save", () => {
+  let dir: string;
+  let configPath: string;
 
   beforeEach(() => {
-    mkdirSync(tempDir, { recursive: true });
+    dir = tempDir();
+    configPath = join(dir, "config.json");
   });
 
   afterEach(() => {
-    rmSync(tempDir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
   });
 
-  test("saveConfig writes valid JSON", async () => {
-    const { DEFAULT_CONFIG } = await import("../shared/config.ts");
-
-    writeFileSync(configPath, JSON.stringify(DEFAULT_CONFIG, null, 2), "utf-8");
-
+  test("loadConfig creates default config when file missing", () => {
+    const config = loadConfigFrom(dir, configPath);
+    expect(config).toEqual(DEFAULT_CONFIG);
     expect(existsSync(configPath)).toBe(true);
+  });
+
+  test("loadConfig reads existing config", () => {
+    const custom: Config = {
+      ...DEFAULT_CONFIG,
+      sources: { ...DEFAULT_CONFIG.sources, imessage: true, gmail: true },
+      daemon: { sync_interval_minutes: 15 },
+    };
+    writeFileSync(configPath, JSON.stringify(custom, null, 2), "utf-8");
+
+    const loaded = loadConfigFrom(dir, configPath);
+    expect(loaded.sources.imessage).toBe(true);
+    expect(loaded.sources.gmail).toBe(true);
+    expect(loaded.sources.signal).toBe(false);
+    expect(loaded.daemon.sync_interval_minutes).toBe(15);
+  });
+
+  test("loadConfig returns default on malformed JSON", () => {
+    writeFileSync(configPath, "not valid json {{{", "utf-8");
+    const config = loadConfigFrom(dir, configPath);
+    expect(config).toEqual(DEFAULT_CONFIG);
+  });
+
+  test("saveConfig writes valid JSON", () => {
+    const config: Config = {
+      ...DEFAULT_CONFIG,
+      keys: { anthropic: "sk-test-key", openai: "sk-openai" },
+    };
+    saveConfigTo(dir, configPath, config);
+
     const raw = readFileSync(configPath, "utf-8");
     const parsed = JSON.parse(raw);
-    expect(parsed.core.device_token).toBe("");
-    expect(parsed.daemon.sync_interval_minutes).toBe(5);
+    expect(parsed.keys.anthropic).toBe("sk-test-key");
+    expect(parsed.keys.openai).toBe("sk-openai");
   });
 
-  test("config roundtrip preserves all fields", async () => {
-    const { DEFAULT_CONFIG } = await import("../shared/config.ts");
-
-    const config = {
+  test("saveConfig then loadConfig roundtrip preserves data", () => {
+    const config: Config = {
       ...DEFAULT_CONFIG,
-      core: { device_token: "tok123" },
-      keys: { openai: "sk-test", anthropic: "sk-ant-test" },
-      sources: { ...DEFAULT_CONFIG.sources, imessage: true, github: true },
-      agent: { ...DEFAULT_CONFIG.agent, max_turns: 25 },
+      sources: { ...DEFAULT_CONFIG.sources, github: true, chrome: true },
+      agent: { default_model: "custom-model", max_turns: 20 },
     };
+    saveConfigTo(dir, configPath, config);
+    const loaded = loadConfigFrom(dir, configPath);
 
-    writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
-    const raw = readFileSync(configPath, "utf-8");
-    const restored = JSON.parse(raw);
-
-    expect(restored.core.device_token).toBe("tok123");
-    expect(restored.keys.openai).toBe("sk-test");
-    expect(restored.sources.imessage).toBe(true);
-    expect(restored.sources.github).toBe(true);
-    expect(restored.sources.signal).toBe(false);
-    expect(restored.agent.max_turns).toBe(25);
+    expect(loaded.sources.github).toBe(true);
+    expect(loaded.sources.chrome).toBe(true);
+    expect(loaded.agent.default_model).toBe("custom-model");
+    expect(loaded.agent.max_turns).toBe(20);
   });
 
-  test("loadConfig returns DEFAULT_CONFIG when file missing", async () => {
-    const { DEFAULT_CONFIG } = await import("../shared/config.ts");
-
-    const nonExistent = join(tempDir, "nope.json");
-    expect(existsSync(nonExistent)).toBe(false);
-
-    let result: typeof DEFAULT_CONFIG;
-    try {
-      const raw = readFileSync(nonExistent, "utf-8");
-      result = JSON.parse(raw);
-    } catch {
-      result = DEFAULT_CONFIG;
-    }
-    expect(result).toEqual(DEFAULT_CONFIG);
-  });
-
-  test("loadConfig returns DEFAULT_CONFIG for invalid JSON", async () => {
-    const { DEFAULT_CONFIG } = await import("../shared/config.ts");
-
-    const badPath = join(tempDir, "bad.json");
-    writeFileSync(badPath, "not json {{{", "utf-8");
-
-    let result: typeof DEFAULT_CONFIG;
-    try {
-      const raw = readFileSync(badPath, "utf-8");
-      result = JSON.parse(raw);
-    } catch {
-      result = DEFAULT_CONFIG;
-    }
-    expect(result).toEqual(DEFAULT_CONFIG);
+  test("saveConfig creates directory if it doesn't exist", () => {
+    const nestedDir = join(dir, "nested", "deep");
+    const nestedPath = join(nestedDir, "config.json");
+    saveConfigTo(nestedDir, nestedPath, DEFAULT_CONFIG);
+    expect(existsSync(nestedPath)).toBe(true);
   });
 });

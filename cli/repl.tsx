@@ -19,6 +19,7 @@ interface ToolCallState {
   name: string;
   args: string;
   status: "running" | "done" | "error";
+  result?: string;
 }
 
 interface Message {
@@ -30,6 +31,16 @@ interface Message {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const UI = {
+  fg: "white",
+  muted: "gray",
+  accent: "cyan",
+  info: "blue",
+  success: "green",
+  warning: "yellow",
+  danger: "red",
+} as const;
 
 let messageCounter = 0;
 function nextId(): string {
@@ -52,6 +63,25 @@ function truncate(str: string, max: number): string {
   return str.slice(0, max - 1) + "…";
 }
 
+function humanizeToolName(name: string): string {
+  const normalized = name.replace(/[_-]+/g, " ").trim().toLowerCase();
+  switch (normalized) {
+    case "read file":
+      return "Read file";
+    case "search":
+      return "Search";
+    case "run command":
+    case "run terminal cmd":
+      return "Run command";
+    default:
+      return normalized
+        .split(" ")
+        .filter(Boolean)
+        .map((w) => w[0]!.toUpperCase() + w.slice(1))
+        .join(" ");
+  }
+}
+
 // ─── WelcomeHeader ──────────────────────────────────────────────────────────
 
 function WelcomeHeader({ config }: { config: Config }) {
@@ -59,28 +89,27 @@ function WelcomeHeader({ config }: { config: Config }) {
   const sources = Object.entries(config.sources)
     .filter(([, enabled]) => enabled)
     .map(([name]) => name);
+  const width = Math.max(30, Math.min(getTermWidth() - 2, 96));
 
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Box>
-        <Text color="magenta" bold>{"╭─ "}</Text>
-        <Text bold color="white">Kent</Text>
-        <Text dimColor>{" v0.1"}</Text>
+        <Text color={UI.fg} bold>Kent</Text>
+        <Text color={UI.muted}>{"  ·  "}{model}</Text>
       </Box>
       <Box>
-        <Text color="magenta">{"│  "}</Text>
-        <Text dimColor>{model}</Text>
-        {sources.length > 0 && (
-          <Text dimColor>{"  ·  "}{sources.join(", ")}</Text>
-        )}
-      </Box>
-      <Box>
-        <Text color="magenta" bold>{"╰─ "}</Text>
-        <Text dimColor>
-          {"Type a message or "}
-          <Text color="white">/help</Text>
-          {" for commands"}
+        <Text color={UI.muted}>
+          {sources.length > 0 ? `sources: ${sources.join(", ")}` : "sources: none enabled"}
         </Text>
+      </Box>
+      <Box>
+        <Text color={UI.muted}>
+          {"Enter to send  ·  Ctrl+C to cancel  ·  "}
+          <Text color={UI.fg}>/help</Text>
+        </Text>
+      </Box>
+      <Box>
+        <Text color={UI.muted}>{"─".repeat(width)}</Text>
       </Box>
     </Box>
   );
@@ -88,44 +117,134 @@ function WelcomeHeader({ config }: { config: Config }) {
 
 // ─── Tool Call Display ──────────────────────────────────────────────────────
 
-function ToolCallLine({ tool }: { tool: ToolCallState }) {
-  const icon =
+/** Format tool args into a concise one-liner. */
+function formatToolArgs(name: string, argsJson: string): string {
+  try {
+    const a = JSON.parse(argsJson);
+    switch (name) {
+      case "search_memory":
+        return a.query + (a.source ? ` (${a.source})` : "");
+      case "get_recent_items":
+        return a.source ? `source=${a.source}` : "all sources";
+      case "get_source_stats":
+        return "";
+      case "read_file":
+        return a.path?.replace(/^\/Users\/[^/]+/, "~") ?? a.path;
+      case "list_directory":
+        return a.path?.replace(/^\/Users\/[^/]+/, "~") ?? a.path;
+      case "search_files":
+        return `/${a.pattern}/` + (a.glob ? ` ${a.glob}` : "") + (a.path ? ` in ${a.path.replace(/^\/Users\/[^/]+/, "~")}` : "");
+      case "write_file":
+        return a.path;
+      case "run_command":
+        return truncate(a.command, 70);
+      default:
+        if (a.query) return a.query;
+        if (a.path) return a.path;
+        if (a.command) return truncate(a.command, 70);
+        return truncate(argsJson, 60);
+    }
+  } catch {
+    return truncate(argsJson, 60);
+  }
+}
+
+/** Summarize a tool result into compact display lines. */
+function formatToolResult(name: string, result: string, maxLines: number = 4): string[] {
+  if (!result) return [];
+  const raw = result.trim();
+  if (!raw) return [];
+
+  // For JSON array results (search_memory, get_recent_items), count + preview
+  if (raw.startsWith("[")) {
+    try {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        const lines: string[] = [`${arr.length} result${arr.length === 1 ? "" : "s"}`];
+        for (const item of arr.slice(0, maxLines - 1)) {
+          const label = item.metadata?.subject
+            ?? item.metadata?.title
+            ?? item.metadata?.summary
+            ?? (item.content ? truncate(item.content.split("\n")[0] ?? "", 80) : "");
+          if (label) {
+            const src = item.source ? `[${item.source}] ` : "";
+            lines.push(`  ${src}${truncate(label, 75)}`);
+          }
+        }
+        if (arr.length > maxLines - 1) lines.push(`  … and ${arr.length - (maxLines - 1)} more`);
+        return lines;
+      }
+    } catch {}
+  }
+
+  // For JSON object results (get_source_stats), format as key: value
+  if (raw.startsWith("{")) {
+    try {
+      const obj = JSON.parse(raw);
+      if (typeof obj === "object" && obj !== null) {
+        const entries = Object.entries(obj);
+        if (entries.length <= maxLines) {
+          return entries.map(([k, v]) => `  ${k}: ${v}`);
+        }
+        const lines = entries.slice(0, maxLines - 1).map(([k, v]) => `  ${k}: ${v}`);
+        lines.push(`  … and ${entries.length - (maxLines - 1)} more`);
+        return lines;
+      }
+    } catch {}
+  }
+
+  // For plain text (file contents, command output), show first few lines
+  const textLines = raw.split("\n").filter(Boolean);
+  if (textLines.length <= maxLines) {
+    return textLines.map((l) => `  ${truncate(l, 80)}`);
+  }
+  const lines = textLines.slice(0, maxLines - 1).map((l) => `  ${truncate(l, 80)}`);
+  lines.push(`  … ${textLines.length - (maxLines - 1)} more lines`);
+  return lines;
+}
+
+function ToolCallLine({ tool, expanded }: { tool: ToolCallState; expanded?: boolean }) {
+  const icon: React.ReactNode =
     tool.status === "running" ? (
-      <Text color="yellow"><Spinner type="dots" /></Text>
+      <Text color={UI.accent}><Spinner type="dots" /></Text>
     ) : tool.status === "error" ? (
-      <Text color="red">{"✗"}</Text>
+      <Text color={UI.danger}>{"✕"}</Text>
     ) : (
-      <Text color="green">{"✓"}</Text>
+      <Text color={UI.success}>{"✓"}</Text>
     );
 
   const nameColor =
-    tool.status === "error" ? "red" : tool.status === "done" ? "green" : "yellow";
+    tool.status === "error" ? UI.danger : tool.status === "running" ? UI.accent : UI.muted;
 
-  // Parse the args for a cleaner display
-  let argDisplay = "";
-  try {
-    const parsed = JSON.parse(tool.args);
-    if (parsed.query) argDisplay = parsed.query;
-    else if (parsed.path) argDisplay = parsed.path;
-    else if (parsed.command) argDisplay = truncate(parsed.command, 60);
-    else if (parsed.pattern) argDisplay = parsed.pattern;
-    else argDisplay = truncate(tool.args, 60);
-  } catch {
-    argDisplay = truncate(tool.args, 60);
-  }
+  const argStr = formatToolArgs(tool.name, tool.args);
+  const showResult = expanded !== false && tool.status !== "running" && tool.result;
+  const resultLines = showResult ? formatToolResult(tool.name, tool.result!, 4) : [];
 
   return (
-    <Box paddingLeft={2} gap={1}>
-      {icon}
-      <Text bold color={nameColor}>{tool.name}</Text>
-      {argDisplay && <Text dimColor>{argDisplay}</Text>}
+    <Box flexDirection="column">
+      <Box gap={1}>
+        {icon}
+        <Text color={nameColor} bold={tool.status === "running"}>
+          {humanizeToolName(tool.name)}
+        </Text>
+        {argStr ? <Text color={UI.muted}>{argStr}</Text> : null}
+      </Box>
+      {resultLines.length > 0 && (
+        <Box flexDirection="column" paddingLeft={3}>
+          {resultLines.map((line, i) => (
+            <Text key={i} color={UI.muted}>{line}</Text>
+          ))}
+        </Box>
+      )}
     </Box>
   );
 }
 
 function ToolCallsBlock({ tools }: { tools: ToolCallState[] }) {
+  if (tools.length === 0) return null;
+
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" marginBottom={1}>
       {tools.map((tool, i) => (
         <ToolCallLine key={`${tool.name}-${i}`} tool={tool} />
       ))}
@@ -137,10 +256,18 @@ function ToolCallsBlock({ tools }: { tools: ToolCallState[] }) {
 
 function ActiveToolIndicator({ tools }: { tools: ToolCallState[] }) {
   if (tools.length === 0) return null;
+
+  // Show all completed tools with results, plus the running one
+  const completed = tools.filter((t) => t.status !== "running");
+  const running = tools.filter((t) => t.status === "running");
+
   return (
-    <Box flexDirection="column" marginTop={0}>
-      {tools.map((tool, i) => (
-        <ToolCallLine key={`${tool.name}-${i}`} tool={tool} />
+    <Box flexDirection="column" marginTop={1}>
+      {completed.map((tool, i) => (
+        <ToolCallLine key={`done-${tool.name}-${i}`} tool={tool} />
+      ))}
+      {running.map((tool, i) => (
+        <ToolCallLine key={`run-${tool.name}-${i}`} tool={tool} />
       ))}
     </Box>
   );
@@ -171,7 +298,7 @@ function renderMarkdownLine(line: string): React.ReactNode[] {
       elements.push(<Text key={key++} italic>{match[6]}</Text>);
     } else if (match[7]) {
       elements.push(
-        <Text key={key++} color="cyan">{"`"}{match[7]}{"`"}</Text>
+        <Text key={key++} color="cyan" backgroundColor="#1a1a2e">{" "}{match[7]}{" "}</Text>
       );
     }
     lastIndex = match.index + match[0].length;
@@ -202,11 +329,11 @@ function MarkdownText({ content }: { content: string }) {
             )}
             <Box flexDirection="column" paddingLeft={1}>
               {codeLines.map((cl, i) => (
-                <Text key={i} color="green">{cl}</Text>
-              ))}
-            </Box>
+              <Text key={i} color={UI.accent}>{cl}</Text>
+            ))}
           </Box>
-        );
+        </Box>
+      );
         codeLines = [];
         codeLang = "";
         inCodeBlock = false;
@@ -226,6 +353,7 @@ function MarkdownText({ content }: { content: string }) {
       elements.push(
         <Box key={key++} marginTop={1}>
           <Text bold color="blue">{"   "}{line.slice(4)}</Text>
+          
         </Box>
       );
     } else if (line.startsWith("## ")) {
@@ -240,12 +368,12 @@ function MarkdownText({ content }: { content: string }) {
           <Text bold color="blue">{"   "}{line.slice(2)}</Text>
         </Box>
       );
-    } else if (line.match(/^\s*[-*]\s/)) {
+    } else if (line.match(/^\s*[-]\s/) || line.match(/^\s*\*\s[^*]/)) {
       const indent = line.match(/^(\s*)/)?.[1]?.length ?? 0;
       const text = line.replace(/^\s*[-*]\s/, "");
       elements.push(
         <Box key={key++} paddingLeft={indent + 2}>
-          <Text dimColor>{"• "}</Text>
+          <Text color={UI.muted}>{"• "}</Text>
           <Text>{renderMarkdownLine(text)}</Text>
         </Box>
       );
@@ -254,7 +382,7 @@ function MarkdownText({ content }: { content: string }) {
       if (m) {
         elements.push(
           <Box key={key++} paddingLeft={(m[1]?.length ?? 0) + 2}>
-            <Text dimColor>{m[2]}. </Text>
+            <Text color={UI.muted}>{m[2]}. </Text>
             <Text>{renderMarkdownLine(m[3] || "")}</Text>
           </Box>
         );
@@ -262,21 +390,21 @@ function MarkdownText({ content }: { content: string }) {
     } else if (line.match(/^---+$/)) {
       elements.push(
         <Box key={key++} marginY={0}>
-          <Text dimColor>{"  "}{"─".repeat(Math.min(getTermWidth() - 8, 50))}</Text>
+          <Text color={UI.muted}>{"─".repeat(Math.min(getTermWidth() - 2, 72))}</Text>
         </Box>
       );
     } else if (line.startsWith("> ")) {
       elements.push(
-        <Box key={key++} paddingLeft={2}>
-          <Text color="gray">{"│ "}</Text>
-          <Text italic dimColor>{renderMarkdownLine(line.slice(2))}</Text>
+        <Box key={key++} paddingLeft={0}>
+          <Text color={UI.muted}>{"│ "}</Text>
+          <Text italic color={UI.muted}>{renderMarkdownLine(line.slice(2))}</Text>
         </Box>
       );
     } else if (line.trim() === "") {
       elements.push(<Box key={key++}><Text>{" "}</Text></Box>);
     } else {
       elements.push(
-        <Box key={key++} paddingLeft={2}>
+        <Box key={key++} paddingLeft={0}>
           <Text>{renderMarkdownLine(line)}</Text>
         </Box>
       );
@@ -291,17 +419,17 @@ function MarkdownText({ content }: { content: string }) {
 function MessageView({ message }: { message: Message }) {
   if (message.role === "user") {
     return (
-      <Box marginTop={1} paddingLeft={0}>
-        <Text color="magenta" bold>{"❯ "}</Text>
-        <Text bold color="white">{message.content}</Text>
+      <Box marginTop={1}>
+        <Text color={UI.fg} bold>{"› "}</Text>
+        <Text color={UI.fg}>{message.content}</Text>
       </Box>
     );
   }
 
   if (message.role === "system") {
     return (
-      <Box paddingLeft={2} marginTop={0}>
-        <Text dimColor italic>
+      <Box marginTop={0}>
+        <Text color={UI.muted} italic>
           {message.content}
         </Text>
       </Box>
@@ -312,7 +440,7 @@ function MessageView({ message }: { message: Message }) {
   return (
     <Box marginTop={1} flexDirection="column">
       {message.toolCalls && message.toolCalls.length > 0 && (
-        <Box flexDirection="column" marginBottom={0}>
+        <Box flexDirection="column" marginBottom={0} marginTop={0}>
           <ToolCallsBlock tools={message.toolCalls} />
         </Box>
       )}
@@ -324,8 +452,8 @@ function MessageView({ message }: { message: Message }) {
       )}
 
       {message.duration !== undefined && (
-        <Box paddingLeft={2} marginTop={0}>
-          <Text dimColor>{"  · "}{formatDuration(message.duration)}</Text>
+        <Box marginTop={0}>
+          <Text color={UI.muted}>{"· "}{formatDuration(message.duration)}</Text>
         </Box>
       )}
     </Box>
@@ -387,12 +515,12 @@ function InputArea({
 }) {
   if (isStreaming) {
     return (
-      <Box marginTop={1} paddingLeft={0}>
-        <Text color="yellow">
+      <Box marginTop={1}>
+        <Text color={UI.muted}>
           <Spinner type="dots" />
         </Text>
-        <Text dimColor>
-          {"  "}
+        <Text color={UI.muted}>
+          {"  thinking…"}
         </Text>
       </Box>
     );
@@ -400,9 +528,9 @@ function InputArea({
 
   return (
     <Box marginTop={1}>
-      <Text color="magenta" bold>{"❯ "}</Text>
-      <Text>{input}</Text>
-      <Text color="gray">{"█"}</Text>
+      <Text color={UI.fg} bold>{"› "}</Text>
+      <Text color={UI.fg}>{input}</Text>
+      <Text color={UI.muted}>{"█"}</Text>
     </Box>
   );
 }
@@ -424,11 +552,41 @@ const HELP_TEXT = `
 
 // ─── Tool Event Parser ──────────────────────────────────────────────────────
 
-function parseToolEvent(raw: string): { name: string; type: "start" | "end" | "error"; args: string } | null {
+interface ToolEvent {
+  name: string;
+  type: "start" | "end" | "error";
+  args: string;
+  result?: string;
+}
+
+function parseToolEvent(raw: string): ToolEvent | null {
   const lines = raw.split("\n").filter(Boolean);
   for (const line of lines) {
     const trimmed = line.trim();
 
+    // Try new JSON protocol first
+    if (trimmed.startsWith("{")) {
+      try {
+        const obj = JSON.parse(trimmed);
+        if (obj.event === "tool_start") {
+          return {
+            name: obj.name,
+            type: "start",
+            args: typeof obj.args === "string" ? obj.args : JSON.stringify(obj.args ?? {}),
+          };
+        }
+        if (obj.event === "tool_end") {
+          return {
+            name: obj.name,
+            type: obj.error ? "error" : "end",
+            args: "",
+            result: obj.result ?? "",
+          };
+        }
+      } catch {}
+    }
+
+    // Fallback: legacy bracket protocol
     const doneMatch = trimmed.match(/^\[([\w_]+)\]\s+done$/);
     if (doneMatch) {
       return { name: doneMatch[1]!, type: "end", args: "" };
@@ -786,14 +944,14 @@ function App({
                 } else if (event.type === "end") {
                   toolCallsRef.current = toolCallsRef.current.map((t) =>
                     t.name === event.name && t.status === "running"
-                      ? { ...t, status: "done" }
+                      ? { ...t, status: "done", result: event.result }
                       : t
                   );
                   setActiveTools([...toolCallsRef.current]);
                 } else if (event.type === "error") {
                   toolCallsRef.current = toolCallsRef.current.map((t) =>
                     t.name === event.name && t.status === "running"
-                      ? { ...t, status: "error" }
+                      ? { ...t, status: "error", result: event.result }
                       : t
                   );
                   setActiveTools([...toolCallsRef.current]);

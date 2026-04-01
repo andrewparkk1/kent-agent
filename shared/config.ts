@@ -15,6 +15,9 @@ export interface Config {
     signal: boolean;
     granola: boolean;
     gmail: boolean;
+    gcal: boolean;
+    gtasks: boolean;
+    gdrive: boolean;
     github: boolean;
     chrome: boolean;
     apple_notes: boolean;
@@ -33,6 +36,7 @@ export const CONFIG_PATH = join(KENT_DIR, "config.json");
 export const PID_PATH = join(KENT_DIR, "daemon.pid");
 export const LOG_PATH = join(KENT_DIR, "daemon.log");
 export const DAEMON_STATE_PATH = join(KENT_DIR, "daemon-state.json");
+export const PROMPTS_DIR = join(KENT_DIR, "prompts");
 export const PLIST_PATH = join(
   homedir(),
   "Library",
@@ -53,6 +57,9 @@ export const DEFAULT_CONFIG: Config = {
     signal: false,
     granola: false,
     gmail: false,
+    gcal: false,
+    gtasks: false,
+    gdrive: false,
     github: false,
     chrome: false,
     apple_notes: false,

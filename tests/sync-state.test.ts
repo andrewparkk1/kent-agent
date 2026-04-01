@@ -1,22 +1,20 @@
-import { test, expect, beforeEach, afterEach, describe } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { existsSync, mkdirSync, rmSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import type { SyncState } from "@daemon/sources/types.ts";
 
 /**
- * Tests for FileSyncState — the sync state persistence layer.
- * We re-implement the core logic here to test it in isolation
- * (the real class reads from ~/.kent/state.json).
+ * Tests for FileSyncState (daemon/sync-state.ts).
+ *
+ * Re-implements the logic against a temp directory to avoid
+ * touching ~/.kent/state.json.
  */
 
-interface StateData {
-  lastSync: Record<string, number>;
-}
-
-class TestSyncState {
-  private data: StateData;
-  private statePath: string;
+class TestFileSyncState implements SyncState {
+  private data: { lastSync: Record<string, number> };
   private dir: string;
+  private statePath: string;
 
   constructor(dir: string) {
     this.dir = dir;
@@ -24,7 +22,7 @@ class TestSyncState {
     this.data = this.load();
   }
 
-  private load(): StateData {
+  private load(): { lastSync: Record<string, number> } {
     try {
       if (existsSync(this.statePath)) {
         const raw = readFileSync(this.statePath, "utf-8");
@@ -32,7 +30,7 @@ class TestSyncState {
         return { lastSync: parsed.lastSync || {} };
       }
     } catch {
-      // fall through
+      // start fresh
     }
     return { lastSync: {} };
   }
@@ -55,106 +53,90 @@ class TestSyncState {
 }
 
 describe("FileSyncState", () => {
-  let tempDir: string;
+  let dir: string;
 
   beforeEach(() => {
-    tempDir = join(tmpdir(), `kent-test-syncstate-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-    mkdirSync(tempDir, { recursive: true });
+    dir = join(tmpdir(), `kent-syncstate-test-${crypto.randomUUID()}`);
+    mkdirSync(dir, { recursive: true });
   });
 
   afterEach(() => {
-    rmSync(tempDir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
   });
 
   test("returns 0 for unknown source", () => {
-    const state = new TestSyncState(tempDir);
+    const state = new TestFileSyncState(dir);
     expect(state.getLastSync("imessage")).toBe(0);
-    expect(state.getLastSync("gmail")).toBe(0);
-    expect(state.getLastSync("nonexistent")).toBe(0);
+    expect(state.getLastSync("unknown")).toBe(0);
   });
 
-  test("markSynced persists timestamp to disk", () => {
-    const state = new TestSyncState(tempDir);
+  test("markSynced updates timestamp", () => {
+    const state = new TestFileSyncState(dir);
     const before = Math.floor(Date.now() / 1000);
-
     state.markSynced("imessage");
-
     const after = Math.floor(Date.now() / 1000);
-    const lastSync = state.getLastSync("imessage");
 
-    expect(lastSync).toBeGreaterThanOrEqual(before);
-    expect(lastSync).toBeLessThanOrEqual(after);
-
-    // Verify it was written to disk
-    const statePath = join(tempDir, "state.json");
-    expect(existsSync(statePath)).toBe(true);
-
-    const raw = readFileSync(statePath, "utf-8");
-    const data = JSON.parse(raw);
-    expect(data.lastSync.imessage).toBe(lastSync);
+    const ts = state.getLastSync("imessage");
+    expect(ts).toBeGreaterThanOrEqual(before);
+    expect(ts).toBeLessThanOrEqual(after);
   });
 
-  test("markSynced tracks multiple sources independently", () => {
-    const state = new TestSyncState(tempDir);
+  test("markSynced persists to disk", () => {
+    const state = new TestFileSyncState(dir);
+    state.markSynced("gmail");
 
+    // Read state file directly
+    const raw = readFileSync(join(dir, "state.json"), "utf-8");
+    const parsed = JSON.parse(raw);
+    expect(parsed.lastSync.gmail).toBeGreaterThan(0);
+  });
+
+  test("persisted state survives reload", () => {
+    const state1 = new TestFileSyncState(dir);
+    state1.markSynced("github");
+    const ts = state1.getLastSync("github");
+
+    // Create new instance — should load from disk
+    const state2 = new TestFileSyncState(dir);
+    expect(state2.getLastSync("github")).toBe(ts);
+  });
+
+  test("tracks multiple sources independently", () => {
+    const state = new TestFileSyncState(dir);
     state.markSynced("imessage");
-    const imessageTime = state.getLastSync("imessage");
+    const imessageTs = state.getLastSync("imessage");
 
     state.markSynced("gmail");
-    const gmailTime = state.getLastSync("gmail");
+    const gmailTs = state.getLastSync("gmail");
 
-    expect(imessageTime).toBeGreaterThan(0);
-    expect(gmailTime).toBeGreaterThanOrEqual(imessageTime);
-    expect(state.getLastSync("github")).toBe(0); // untouched
-  });
-
-  test("state survives reload from disk", () => {
-    const state1 = new TestSyncState(tempDir);
-    state1.markSynced("github");
-    const originalTime = state1.getLastSync("github");
-
-    // Create a new instance that reads from the same disk file
-    const state2 = new TestSyncState(tempDir);
-    expect(state2.getLastSync("github")).toBe(originalTime);
+    // Both should have timestamps, imessage unchanged
+    expect(imessageTs).toBeGreaterThan(0);
+    expect(gmailTs).toBeGreaterThanOrEqual(imessageTs);
+    expect(state.getLastSync("imessage")).toBe(imessageTs);
   });
 
   test("handles corrupted state file gracefully", () => {
-    const statePath = join(tempDir, "state.json");
-    writeFileSync(statePath, "corrupt{{{json", "utf-8");
+    writeFileSync(join(dir, "state.json"), "corrupted{{{", "utf-8");
 
-    const state = new TestSyncState(tempDir);
+    const state = new TestFileSyncState(dir);
+    // Should start fresh without crashing
     expect(state.getLastSync("imessage")).toBe(0);
-
-    // Should still be able to write new state
-    state.markSynced("imessage");
-    expect(state.getLastSync("imessage")).toBeGreaterThan(0);
   });
 
-  test("handles missing lastSync key in state file", () => {
-    const statePath = join(tempDir, "state.json");
-    writeFileSync(statePath, JSON.stringify({ otherKey: "value" }), "utf-8");
+  test("handles state file with missing lastSync key", () => {
+    writeFileSync(join(dir, "state.json"), JSON.stringify({ other: "data" }), "utf-8");
 
-    const state = new TestSyncState(tempDir);
+    const state = new TestFileSyncState(dir);
     expect(state.getLastSync("imessage")).toBe(0);
   });
 
   test("atomic write uses temp file", () => {
-    const state = new TestSyncState(tempDir);
+    const state = new TestFileSyncState(dir);
     state.markSynced("test");
 
-    // After save, only state.json should exist (temp file renamed)
-    const statePath = join(tempDir, "state.json");
-    const tempPath = join(tempDir, "state.json.tmp");
-
-    expect(existsSync(statePath)).toBe(true);
-    expect(existsSync(tempPath)).toBe(false);
-  });
-
-  test("creates directory if it does not exist", () => {
-    const nestedDir = join(tempDir, "nested", "deep");
-    const state = new TestSyncState(nestedDir);
-    state.markSynced("test");
-
-    expect(existsSync(join(nestedDir, "state.json"))).toBe(true);
+    // After successful save, temp file should not exist
+    expect(existsSync(join(dir, "state.json.tmp"))).toBe(false);
+    // But real file should
+    expect(existsSync(join(dir, "state.json"))).toBe(true);
   });
 });

@@ -81,11 +81,8 @@ const searchMemory: AgentTool<typeof SearchParams> = {
   parameters: SearchParams,
   execute: async (_id, params) => {
     try {
-      const results = searchItems(params.query, params.limit ?? 50);
-      const filtered = params.source
-        ? results.filter((r) => r.source === params.source)
-        : results;
-      return textResult(JSON.stringify(filtered, null, 2));
+      const results = searchItems(params.query, params.limit ?? 50, params.source);
+      return textResult(JSON.stringify(results, null, 2));
     } catch (e) {
       return errorResult(`search_memory failed: ${e}`);
     }

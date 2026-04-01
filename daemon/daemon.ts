@@ -6,7 +6,7 @@ import type { Source } from "./sources/types.ts";
 import { imessage } from "./sources/imessage.ts";
 import { signal } from "./sources/signal.ts";
 import { granola } from "./sources/granola.ts";
-import { gmail } from "./sources/gmail.ts";
+import { gmail, gcal, gtasks } from "./sources/gmail.ts";
 import { github } from "./sources/github.ts";
 import { chrome } from "./sources/chrome.ts";
 import { appleNotes } from "./sources/apple-notes.ts";
@@ -16,6 +16,8 @@ const sourceRegistry: Record<string, Source> = {
   signal,
   granola,
   gmail,
+  gcal,
+  gtasks,
   github,
   chrome,
   apple_notes: appleNotes,
@@ -42,8 +44,28 @@ interface DaemonState {
   nextSyncAt?: number;
   lastSyncAt?: number;
   lastSyncResults?: Record<string, number>;
+  lastSyncTitles?: Record<string, string[]>;
+  lastSyncErrors?: Record<string, string>;
   enabledSources: string[];
   intervalMinutes: number;
+}
+
+/** Extract a human-readable title from a synced item. */
+function itemTitle(item: { source: string; content: string; metadata: Record<string, any> }): string {
+  const m = item.metadata;
+  // Gmail emails
+  if (m.subject) return m.subject;
+  // Calendar events
+  if (m.summary) return m.summary;
+  // Tasks
+  if (m.type === "task" && m.title) return m.title;
+  // Chrome
+  if (m.type === "search" && m.term) return `Search: ${m.term}`;
+  if (m.type === "bookmark" && m.name) return m.name;
+  if (m.type === "download" && m.targetPath) return m.targetPath.split("/").pop() ?? m.targetPath;
+  if (m.title) return m.title;
+  // GitHub / fallback: first line of content
+  return item.content.split("\n")[0]?.slice(0, 120) ?? "(untitled)";
 }
 
 function writeDaemonState(state: DaemonState): void {
@@ -104,6 +126,11 @@ async function main(): Promise<void> {
   // Main loop
   while (true) {
     const syncResults: Record<string, number> = {};
+    const syncTitles: Record<string, string[]> = {};
+    const syncErrors: Record<string, string> = {};
+
+    // Resolve bun path once for error messages
+    const bunPath = process.execPath || "bun";
 
     for (const source of enabledSources) {
       writeDaemonState({
@@ -117,6 +144,7 @@ async function main(): Promise<void> {
       try {
         const items = await source.fetchNew(state);
         syncResults[source.name] = items.length;
+        syncTitles[source.name] = items.slice(0, 10).map(itemTitle);
         if (items.length > 0) {
           log(`${source.name}: ${items.length} new items — saving to db`);
           const dbItems = items.map((item) => ({
@@ -133,8 +161,16 @@ async function main(): Promise<void> {
         }
         state.markSynced(source.name);
       } catch (e) {
-        log(`${source.name}: ERROR — ${e}`);
+        const errMsg = String(e);
+        log(`${source.name}: ERROR — ${errMsg}`);
         syncResults[source.name] = -1;
+
+        // Detect permission errors and provide actionable fix
+        if (errMsg.includes("Permission denied") || errMsg.includes("operation not permitted") || errMsg.includes("EPERM")) {
+          syncErrors[source.name] = `Permission denied — grant Full Disk Access to: ${bunPath}\n  System Settings → Privacy & Security → Full Disk Access → add ${bunPath}`;
+        } else {
+          syncErrors[source.name] = errMsg.slice(0, 200);
+        }
       }
     }
 
@@ -149,6 +185,8 @@ async function main(): Promise<void> {
       nextSyncAt,
       lastSyncAt: Date.now(),
       lastSyncResults: syncResults,
+      lastSyncTitles: syncTitles,
+      lastSyncErrors: Object.keys(syncErrors).length > 0 ? syncErrors : undefined,
       enabledSources: sourceNames,
       intervalMinutes: config.daemon.sync_interval_minutes,
     });
