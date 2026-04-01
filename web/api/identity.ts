@@ -1,17 +1,13 @@
 /** GET/POST /api/identity — read/write agent prompt files. */
 import { PROMPTS_DIR } from "../../shared/config.ts";
-import { readFileSync, existsSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, writeFileSync, mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 export function handleIdentity() {
-  console.log("[identity] GET /api/identity — PROMPTS_DIR:", PROMPTS_DIR);
-  console.log("[identity] exists?", existsSync(PROMPTS_DIR));
   const files: Record<string, string> = {};
 
   if (existsSync(PROMPTS_DIR)) {
-    const entries = readdirSync(PROMPTS_DIR);
-    console.log("[identity] entries:", entries);
-    for (const name of entries) {
+    for (const name of readdirSync(PROMPTS_DIR)) {
       if (name.endsWith(".md")) {
         try {
           files[name] = readFileSync(join(PROMPTS_DIR, name), "utf-8");
@@ -19,14 +15,23 @@ export function handleIdentity() {
       }
     }
 
+    // Load skills from nested dirs (skills/<name>/SKILL.md) with flat fallback
     const skillsDir = join(PROMPTS_DIR, "skills");
     if (existsSync(skillsDir)) {
-      for (const name of readdirSync(skillsDir)) {
-        if (name.endsWith(".md")) {
-          try {
-            files[`skills/${name}`] = readFileSync(join(skillsDir, name), "utf-8");
-          } catch {}
-        }
+      for (const entry of readdirSync(skillsDir)) {
+        const entryPath = join(skillsDir, entry);
+        try {
+          if (statSync(entryPath).isDirectory()) {
+            // Nested: skills/<name>/SKILL.md
+            const skillFile = join(entryPath, "SKILL.md");
+            if (existsSync(skillFile)) {
+              files[`skills/${entry}/SKILL.md`] = readFileSync(skillFile, "utf-8");
+            }
+          } else if (entry.endsWith(".md")) {
+            // Legacy flat: skills/<name>.md
+            files[`skills/${entry}`] = readFileSync(entryPath, "utf-8");
+          }
+        } catch {}
       }
     }
   }

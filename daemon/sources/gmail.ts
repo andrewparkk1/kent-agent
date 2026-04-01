@@ -62,7 +62,7 @@ async function checkGws(): Promise<boolean> {
 function daysBackFromLastSync(lastSync: number): number {
   return lastSync > 0
     ? Math.max(1, Math.ceil((Date.now() / 1000 - lastSync) / 86400))
-    : 3;
+    : 90;
 }
 
 // ─── Gmail ──────────────────────────────────────────────────────────────────

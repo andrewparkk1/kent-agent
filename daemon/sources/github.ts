@@ -89,7 +89,7 @@ export const github: Source = {
       const lastSync = state.getLastSync("github");
       const sinceDate = lastSync > 0
         ? new Date(lastSync * 1000).toISOString()
-        : new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+        : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
 
       // Get repos the user has recently pushed to
       const repoRaw = await runGh([

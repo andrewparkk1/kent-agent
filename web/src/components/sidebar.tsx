@@ -50,11 +50,13 @@ function NavButton({ item, active, onClick, badge }: { item: { id: Page; icon: t
   );
 }
 
-export function Sidebar({ page, setPage, openChat, selectedThreadId }: {
+export function Sidebar({ page, setPage, openChat, selectedThreadId, workflowCount, runCount }: {
   page: Page;
   setPage: (p: Page) => void;
   openChat: (threadId?: string) => void;
   selectedThreadId: string | null;
+  workflowCount?: number;
+  runCount?: number;
 }) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [showAllThreads, setShowAllThreads] = useState(false);
@@ -183,6 +185,14 @@ export function Sidebar({ page, setPage, openChat, selectedThreadId }: {
           </div>
         </div>
       </nav>
+
+      {(workflowCount != null || runCount != null) && (
+        <div className="px-5 py-3 border-t border-border/40">
+          <span className="text-[10px] font-mono text-muted-foreground/30 tabular-nums">
+            {workflowCount ?? 0} workflow{workflowCount !== 1 ? "s" : ""} · {runCount ?? 0} run{runCount !== 1 ? "s" : ""}
+          </span>
+        </div>
+      )}
     </aside>
   );
 }

@@ -6,7 +6,7 @@
  * install bundled prompt files to ~/.kent/prompts/, start the daemon, and do an initial sync.
  */
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline";
@@ -177,10 +177,7 @@ ${BOLD}  _  __          _
 function installPrompts(): void {
   const bundledDir = join(dirname(import.meta.path), "..", "..", "agent", "prompts");
 
-  // Resolve to absolute in case of symlinks
-  const resolvedBundled = join(bundledDir);
-
-  if (!existsSync(resolvedBundled)) {
+  if (!existsSync(bundledDir)) {
     warn("Bundled prompts not found — skipping prompt install");
     return;
   }
@@ -191,23 +188,37 @@ function installPrompts(): void {
   let copied = 0;
 
   // Copy top-level prompt files
-  for (const name of readdirSync(resolvedBundled)) {
-    const srcPath = join(resolvedBundled, name);
-    const destPath = join(PROMPTS_DIR, name);
+  for (const name of readdirSync(bundledDir)) {
+    const srcPath = join(bundledDir, name);
 
     if (name === "skills") {
-      // Copy skills subdirectory
-      const skillsSrc = join(resolvedBundled, "skills");
-      for (const skillFile of readdirSync(skillsSrc)) {
-        if (!skillFile.endsWith(".md")) continue;
-        const skillSrc = join(skillsSrc, skillFile);
-        const skillDest = join(PROMPTS_DIR, "skills", skillFile);
-        if (!existsSync(skillDest)) {
-          writeFileSync(skillDest, readFileSync(skillSrc, "utf-8"), "utf-8");
-          copied++;
+      // Copy nested skill directories: skills/<name>/SKILL.md
+      const skillsSrc = join(bundledDir, "skills");
+      for (const skillName of readdirSync(skillsSrc)) {
+        const skillPath = join(skillsSrc, skillName);
+        if (statSync(skillPath).isDirectory()) {
+          // Nested: skills/<name>/SKILL.md (+ any supporting .md files)
+          const destDir = join(PROMPTS_DIR, "skills", skillName);
+          mkdirSync(destDir, { recursive: true });
+          for (const file of readdirSync(skillPath)) {
+            if (!file.endsWith(".md")) continue;
+            const dest = join(destDir, file);
+            if (!existsSync(dest)) {
+              writeFileSync(dest, readFileSync(join(skillPath, file), "utf-8"), "utf-8");
+              copied++;
+            }
+          }
+        } else if (skillName.endsWith(".md")) {
+          // Legacy flat: skills/<name>.md
+          const dest = join(PROMPTS_DIR, "skills", skillName);
+          if (!existsSync(dest)) {
+            writeFileSync(dest, readFileSync(skillPath, "utf-8"), "utf-8");
+            copied++;
+          }
         }
       }
     } else if (name.endsWith(".md")) {
+      const destPath = join(PROMPTS_DIR, name);
       if (!existsSync(destPath)) {
         writeFileSync(destPath, readFileSync(srcPath, "utf-8"), "utf-8");
         copied++;

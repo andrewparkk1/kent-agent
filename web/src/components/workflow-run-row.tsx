@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { motion } from "motion/react";
 import { Clock, CheckCircle2, Loader2, AlertCircle } from "lucide-react";
+import Markdown from "react-markdown";
 import { timeAgo } from "@/lib/types";
 
 export interface WorkflowRun {
@@ -60,12 +61,9 @@ export function WorkflowRunRow({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {duration !== null && (
-            <span className="text-[11px] text-muted-foreground/30 tabular-nums">{duration}s</span>
-          )}
-          <span className="text-[11px] font-mono text-muted-foreground/40 tabular-nums">{timeAgo(run.started_at)}</span>
-        </div>
+        <span className="text-[11px] font-mono text-muted-foreground/40 tabular-nums shrink-0">
+          {timeAgo(run.started_at)}{duration !== null ? ` · ${duration}s` : ""}
+        </span>
       </motion.div>
 
       {expandable && expanded && (
@@ -80,8 +78,8 @@ export function WorkflowRunRow({
             </div>
           )}
           {run.output ? (
-            <div className="bg-foreground/[0.03] border border-border/30 rounded-lg p-4 text-[13px] leading-relaxed text-muted-foreground whitespace-pre-wrap max-h-[400px] overflow-y-auto">
-              {run.output}
+            <div className="bg-foreground/[0.03] border border-border/30 rounded-lg p-5 prose prose-sm prose-neutral max-w-none max-h-[500px] overflow-y-auto prose-headings:text-foreground prose-headings:font-medium prose-headings:text-[14px] prose-headings:mt-4 prose-headings:mb-1 prose-p:text-[13px] prose-p:text-foreground/80 prose-p:leading-relaxed prose-p:my-1.5 prose-li:text-[13px] prose-li:text-foreground/80 prose-ul:my-2 prose-ol:my-2 prose-strong:text-foreground prose-code:text-[12px] prose-code:bg-foreground/5 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:font-mono">
+              <Markdown breaks>{run.output}</Markdown>
             </div>
           ) : (
             <div className="text-[12px] text-muted-foreground/30 py-2">No output captured.</div>

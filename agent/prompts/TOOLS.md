@@ -115,7 +115,7 @@ Execute a shell command on the user's Mac.
 
 # Skills Directory
 
-Skill files in `~/.kent/prompts/skills/` extend your capabilities:
-- `skills/github.md` — `gh` CLI for GitHub: issues, PRs, notifications, search
-- `skills/gmail.md` — `gws` CLI for Gmail: messages, drafts, labels, search
-- `skills/calendar.md` — `gws` CLI for Google Calendar: events, availability
+Skills in `~/.kent/prompts/skills/` extend your capabilities. Each skill is a directory with a `SKILL.md` entry point:
+- `skills/github/SKILL.md` — `gh` CLI for GitHub: issues, PRs, notifications, search
+- `skills/gmail/SKILL.md` — `gws` CLI for Gmail: messages, drafts, labels, search
+- `skills/calendar/SKILL.md` — `gws` CLI for Google Calendar: events, availability

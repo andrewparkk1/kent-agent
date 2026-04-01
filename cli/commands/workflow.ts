@@ -5,11 +5,12 @@ import {
   updateWorkflow,
   deleteWorkflow,
   getWorkflowRuns,
-  createWorkflowRun,
-  finishWorkflowRun,
+  getMessages,
+  createThread,
+  finishThread,
 } from "@shared/db.ts";
-import { loadConfig, KENT_DIR } from "@shared/config.ts";
-import { join, resolve } from "node:path";
+import { loadConfig } from "@shared/config.ts";
+import { resolve } from "node:path";
 
 const BOLD = "\x1b[1m";
 const GREEN = "\x1b[32m";
@@ -171,7 +172,7 @@ async function workflowRun(args: string[]): Promise<void> {
   console.log(`${CYAN}  Running "${wf.name}"...${NC}`);
 
   const config = loadConfig();
-  const runId = createWorkflowRun(wf.id);
+  const threadId = createThread(`workflow: ${wf.name}`, { type: "workflow", workflow_id: wf.id });
   updateWorkflow(wf.id, { last_run_at: Math.floor(Date.now() / 1000) });
 
   const projectRoot = resolve(import.meta.dir, "../..");
@@ -182,9 +183,8 @@ async function workflowRun(args: string[]): Promise<void> {
     ...process.env as Record<string, string>,
     ANTHROPIC_API_KEY: config.keys.anthropic || process.env.ANTHROPIC_API_KEY || "",
     RUNNER: "workflow",
-    RUN_ID: runId,
+    THREAD_ID: threadId,
     PROMPT: wf.prompt,
-    OUTPUT_DIR: join(KENT_DIR, "runs", runId, "outputs"),
     MODEL: config.agent.default_model,
     MAX_TURNS: String(config.agent.max_turns),
   };
@@ -199,12 +199,12 @@ async function workflowRun(args: string[]): Promise<void> {
   const stdout = await new Response(proc.stdout).text();
   await proc.exited;
 
+  finishThread(threadId, proc.exitCode === 0 ? "done" : "error");
+
   if (proc.exitCode === 0) {
-    finishWorkflowRun(runId, "done", stdout);
     console.log(`\n${stdout}`);
     console.log(`${GREEN}  ✓ Done${NC}`);
   } else {
-    finishWorkflowRun(runId, "error", stdout, `exit code ${proc.exitCode}`);
     console.log(`\n${stdout}`);
     console.error(`${RED}  ✗ Failed (exit ${proc.exitCode})${NC}`);
   }
@@ -271,24 +271,24 @@ function workflowHistory(args: string[]): void {
 
   console.log(`\n${BOLD}  Run history: ${wf.name}${NC}\n`);
   for (const run of runs) {
-    const date = new Date(run.started_at * 1000).toLocaleString();
+    const date = new Date((run.started_at ?? run.created_at) * 1000).toLocaleString();
     const statusIcon =
       run.status === "done" ? `${GREEN}✓${NC}` :
       run.status === "error" ? `${RED}✗${NC}` :
       run.status === "running" ? `${YELLOW}●${NC}` :
       `${DIM}○${NC}`;
 
-    const duration = run.finished_at
+    const duration = run.finished_at && run.started_at
       ? `${run.finished_at - run.started_at}s`
       : "...";
 
     console.log(`  ${statusIcon} ${date}  ${DIM}(${duration})${NC}`);
 
-    if (run.error) {
-      console.log(`    ${RED}${run.error.slice(0, 200)}${NC}`);
-    }
-    if (run.output) {
-      const preview = run.output.split("\n")[0]?.slice(0, 100) ?? "";
+    // Show preview from last assistant message
+    const msgs = getMessages(run.id, 200);
+    const lastAssistant = [...msgs].reverse().find((m) => m.role === "assistant");
+    if (lastAssistant) {
+      const preview = lastAssistant.content.split("\n")[0]?.slice(0, 100) ?? "";
       console.log(`    ${DIM}${preview}${NC}`);
     }
     console.log();

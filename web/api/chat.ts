@@ -12,55 +12,60 @@ export async function handleChat(req: Request) {
   }
 
   const threadId = existingThreadId || createThread(message.slice(0, 80));
+
+  // Store user message here (agent will skip it via SKIP_USER_MESSAGE)
   addMessage(threadId, "user", message);
+
+  // Build conversation context from history (includes the message we just added)
+  const history = getMessages(threadId, 50);
+  const fullPrompt = history
+    .filter((m) => m.role === "user" || m.role === "assistant")
+    .map((m) => `${m.role === "user" ? "Human" : "Assistant"}: ${m.content}`)
+    .join("\n\n");
 
   const config = loadConfig();
   const runner = new LocalRunner(config);
-
-  const history = getMessages(threadId, 50);
-  const conversationContext = history.length > 1
-    ? history.slice(0, -1).map((m) => `${m.role}: ${m.content}`).join("\n\n") + "\n\nuser: " + message
-    : message;
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
       controller.enqueue(encoder.encode(`data: ${JSON.stringify({ threadId })}\n\n`));
 
-      let fullResponse = "";
       let stderrOutput = "";
-      let toolBuffer = "";
+      let textBuffer = "";
+      let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+      const flushText = () => {
+        if (textBuffer) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ delta: textBuffer })}\n\n`));
+          textBuffer = "";
+        }
+        if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+      };
 
       try {
-        const result = await runner.run(conversationContext, undefined, (chunk: string, type: "text" | "tool") => {
+        const result = await runner.run(fullPrompt, undefined, (chunk: string, type: "text" | "tool") => {
           if (type === "text") {
-            // If there was a pending tool call, save it before the text
-            if (toolBuffer.trim()) {
-              addMessage(threadId, "system", toolBuffer.trim());
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ tool: toolBuffer.trim() })}\n\n`));
-              toolBuffer = "";
+            textBuffer += chunk;
+            // Batch small chunks, flush every 30ms or when buffer is large
+            if (textBuffer.length > 100) {
+              flushText();
+            } else if (!flushTimer) {
+              flushTimer = setTimeout(flushText, 30);
             }
-            fullResponse += chunk;
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ delta: chunk })}\n\n`));
           } else {
-            toolBuffer += chunk;
+            flushText(); // Flush text before tool events
             stderrOutput += chunk;
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ tool: chunk })}\n\n`));
           }
         }, { threadId });
+        flushText();
 
-        // Save any remaining tool output
-        if (toolBuffer.trim()) {
-          addMessage(threadId, "system", toolBuffer.trim());
-        }
-
-        if (fullResponse.trim()) {
-          addMessage(threadId, "assistant", fullResponse.trim());
-        } else {
+        // Check if agent produced any output
+        if (!result.output?.trim() && stderrOutput) {
           const errMsg = stderrOutput.includes("401") || stderrOutput.includes("auth")
-            ? "Agent authentication failed. Check your Anthropic API key in ~/.kent/config.json or set ANTHROPIC_API_KEY."
-            : stderrOutput.includes("error")
-              ? `Agent error: ${stderrOutput.slice(0, 300)}`
-              : "Agent returned no response. Check that your Anthropic API key is valid (run `kent init` to reconfigure).";
+            ? "Agent authentication failed. Check your Anthropic API key."
+            : `Agent error: ${stderrOutput.slice(0, 300)}`;
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ delta: errMsg })}\n\n`));
         }
 

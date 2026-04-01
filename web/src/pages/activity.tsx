@@ -23,7 +23,7 @@ export function ActivityPage() {
   }, []);
 
   return (
-    <div className="max-w-[680px] mx-auto px-8 py-10">
+    <div className="max-w-[900px] mx-auto px-8 py-10">
       <motion.h1
         className="text-[32px] font-display tracking-tight mb-7"
         initial={{ opacity: 0, y: 10 }}

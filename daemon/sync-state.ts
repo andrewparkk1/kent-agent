@@ -60,8 +60,15 @@ export class FileSyncState implements SyncState {
     return this.data.lastSync[source] || 0;
   }
 
-  markSynced(source: string): void {
-    this.data.lastSync[source] = Math.floor(Date.now() / 1000);
+  markSynced(source: string, highWaterMark?: number): void {
+    // Use the high water mark (max item timestamp) if provided,
+    // otherwise fall back to current time.
+    // This prevents gaps: if the API returned data up to T but we record "now" (T+5min),
+    // anything created between T and T+5min would be skipped forever.
+    const prev = this.data.lastSync[source] || 0;
+    const next = highWaterMark ?? Math.floor(Date.now() / 1000);
+    // Never go backwards
+    this.data.lastSync[source] = Math.max(prev, next);
     this.save();
   }
 }

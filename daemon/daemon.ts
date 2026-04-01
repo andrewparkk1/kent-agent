@@ -9,7 +9,7 @@ import { appendFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { loadConfig, ensureKentDir, KENT_DIR, PID_PATH, LOG_PATH, DAEMON_STATE_PATH } from "@shared/config.ts";
-import { upsertItems, getDueWorkflows, createWorkflowRun, finishWorkflowRun, updateWorkflow } from "@shared/db.ts";
+import { upsertItems, getDueWorkflows, updateWorkflow, createThread, finishThread } from "@shared/db.ts";
 import { matchesCron } from "./cron.ts";
 import { FileSyncState } from "./sync-state.ts";
 import type { Source } from "./sources/types.ts";
@@ -164,7 +164,7 @@ async function main(): Promise<void> {
       }
 
       log(`workflow: running "${wf.name}"`);
-      const runId = createWorkflowRun(wf.id);
+      const threadId = createThread(`workflow: ${wf.name}`, { type: "workflow", workflow_id: wf.id });
       updateWorkflow(wf.id, { last_run_at: nowEpoch });
 
       try {
@@ -172,9 +172,8 @@ async function main(): Promise<void> {
           ...process.env as Record<string, string>,
           ANTHROPIC_API_KEY: config.keys.anthropic || process.env.ANTHROPIC_API_KEY || "",
           RUNNER: "workflow",
-          RUN_ID: runId,
+          THREAD_ID: threadId,
           PROMPT: wf.prompt,
-          OUTPUT_DIR: join(KENT_DIR, "runs", runId, "outputs"),
           MODEL: config.agent.default_model,
           MAX_TURNS: String(config.agent.max_turns),
         };
@@ -186,19 +185,13 @@ async function main(): Promise<void> {
           cwd: projectRoot,
         });
 
-        const stdout = await new Response(proc.stdout).text();
+        await new Response(proc.stdout).text();
         await proc.exited;
 
-        if (proc.exitCode === 0) {
-          finishWorkflowRun(runId, "done", stdout);
-          log(`workflow: "${wf.name}" completed (${stdout.length} chars)`);
-        } else {
-          const stderr = await new Response(proc.stderr).text();
-          finishWorkflowRun(runId, "error", stdout, stderr);
-          log(`workflow: "${wf.name}" failed — ${stderr.slice(0, 200)}`);
-        }
+        finishThread(threadId, proc.exitCode === 0 ? "done" : "error");
+        log(`workflow: "${wf.name}" ${proc.exitCode === 0 ? "completed" : "failed"}`);
       } catch (e) {
-        finishWorkflowRun(runId, "error", undefined, String(e));
+        finishThread(threadId, "error");
         log(`workflow: "${wf.name}" error — ${e}`);
       }
     }
@@ -234,9 +227,10 @@ async function main(): Promise<void> {
           }));
           upsertItems(dbItems);
           log(`${source.name}: save complete`);
-          // Only advance the sync cursor when we actually got data —
-          // if a source returns [] it might be a silent failure or rate limit
-          syncState.markSynced(source.name);
+          // Advance sync cursor to the max item timestamp (high water mark),
+          // not "now" — prevents gaps if API data lags behind real time
+          const maxCreatedAt = Math.max(...items.map((i) => i.createdAt));
+          syncState.markSynced(source.name, maxCreatedAt);
         } else {
           log(`${source.name}: no new items`);
         }

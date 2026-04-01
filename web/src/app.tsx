@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
 import { Sidebar } from "@/components/sidebar";
-import { ChatPanel } from "@/components/chat-panel";
 import { PageTransition } from "@/components/stagger";
 import { HomePage } from "@/pages/home";
 import { WorkflowsPage } from "@/pages/workflows";
@@ -17,7 +16,7 @@ import type { Page, Item, Workflow, SourceInfo, DaemonInfo } from "@/lib/types";
 
 function PlaceholderPage({ title, description }: { title: string; description: string }) {
   return (
-    <div className="max-w-[680px] mx-auto px-8 py-10">
+    <div className="max-w-[900px] mx-auto px-8 py-10">
       <motion.h1
         className="text-[32px] font-display tracking-tight mb-2"
         initial={{ opacity: 0, y: 10 }}
@@ -47,7 +46,6 @@ export function App() {
   const [filter, setFilter] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
-  const [chatOpen, setChatOpen] = useState(false);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [workflowsLoading, setWorkflowsLoading] = useState(true);
   const [sources, setSources] = useState<SourceInfo[]>([]);
@@ -114,10 +112,17 @@ export function App() {
 
   return (
     <div className="flex min-h-screen bg-background">
-      <Sidebar page={page} setPage={setPage} openChat={openChat} selectedThreadId={selectedThreadId} />
+      <Sidebar
+        page={page}
+        setPage={setPage}
+        openChat={openChat}
+        selectedThreadId={selectedThreadId}
+        workflowCount={workflows.length}
+        runCount={workflows.reduce((sum, w) => sum + (w.runCount || 0), 0)}
+      />
 
-      <PageTransition pageKey={page === "chat" ? `chat-${selectedThreadId || "new"}` : page}>
-        {page === "home" && <HomePage counts={counts} workflows={workflows} />}
+      <PageTransition pageKey={page === "workflow-detail" ? `workflow-${selectedWorkflowId}` : page}>
+        {page === "home" && <HomePage />}
         {page === "workflows" && (
           <WorkflowsPage
             workflows={workflows}
@@ -129,19 +134,19 @@ export function App() {
           <WorkflowDetailPage
             workflowId={selectedWorkflowId}
             onBack={() => setPage("workflows")}
+            openChat={openChat}
           />
         )}
         {page === "activity" && <ActivityPage />}
         {page === "chat" && <ChatPage threadId={selectedThreadId} onThreadCreated={setSelectedThreadId} />}
         {page === "sources" && (
-          <SourcesPage items={items} loading={loading} filter={filter} setFilter={setFilter} query={query} setQuery={setQuery} counts={counts} sources={sources} daemon={daemon} />
+          <SourcesPage items={items} loading={loading} filter={filter} setFilter={setFilter} query={query} setQuery={setQuery} counts={counts} sources={sources} daemon={daemon} onRefresh={() => { fetchItems(); fetchCounts(); fetchSources(); }} />
         )}
         {page === "identity" && <IdentityPage />}
         {page === "memories" && <MemoriesPage />}
         {page === "settings" && <PlaceholderPage title="Settings" description="Configure Kent's behavior, sync intervals, and API keys." />}
       </PageTransition>
 
-      <ChatPanel open={chatOpen} onClose={() => setChatOpen(false)} />
     </div>
   );
 }

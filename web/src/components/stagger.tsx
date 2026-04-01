@@ -28,11 +28,12 @@ export function StaggerItem({ children, className }: { children: React.ReactNode
 }
 
 export function PageTransition({ children, pageKey }: { children: React.ReactNode; pageKey: string }) {
+  const isChat = pageKey.startsWith("chat");
   return (
     <AnimatePresence mode="wait">
       <motion.div
         key={pageKey}
-        className="flex-1 overflow-y-auto"
+        className={`flex-1 ${isChat ? "overflow-hidden flex flex-col" : "overflow-y-auto"}`}
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -4 }}

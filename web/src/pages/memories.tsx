@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
-import { Brain, User, FolderOpen, Hash, CalendarDays, Heart, MapPin } from "lucide-react";
+import { Brain, User, FolderOpen, Hash, CalendarDays, Heart, MapPin, Search } from "lucide-react";
 import { Stagger, StaggerItem } from "@/components/stagger";
 import { timeAgo } from "@/lib/types";
 
@@ -28,24 +28,29 @@ export function MemoriesPage() {
   const [memories, setMemories] = useState<Memory[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+
+  const fetchMemories = useCallback(async () => {
+    try {
+      const params = new URLSearchParams();
+      if (query) params.set("q", query);
+      if (filter) params.set("type", filter);
+      const res = await fetch(`/api/memories?${params}`);
+      const data = await res.json();
+      setMemories(data.memories);
+    } catch {}
+    setLoading(false);
+  }, [query, filter]);
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        const res = await fetch("/api/memories");
-        const data = await res.json();
-        setMemories(data.memories);
-      } catch {}
-      setLoading(false);
-    };
-    load();
-  }, []);
+    fetchMemories();
+  }, [fetchMemories]);
 
   const types = [...new Set(memories.map((m) => m.type))];
   const filtered = filter ? memories.filter((m) => m.type === filter) : memories;
 
   return (
-    <div className="max-w-[680px] mx-auto px-8 py-10">
+    <div className="max-w-[900px] mx-auto px-8 py-10">
       <motion.h1
         className="text-[32px] font-display tracking-tight mb-2"
         initial={{ opacity: 0, y: 10 }}
@@ -62,6 +67,21 @@ export function MemoriesPage() {
       >
         Knowledge base of people, projects, and topics Kent has learned.
       </motion.p>
+
+      <motion.div
+        className="relative mb-4"
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.08, duration: 0.3 }}
+      >
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/50" size={14} />
+        <input
+          className="w-full pl-9 pr-3 h-9 text-[13px] bg-foreground/[0.03] border border-border/50 rounded-lg outline-none placeholder:text-muted-foreground/40 focus:border-foreground/20 focus:bg-card transition-all duration-200"
+          placeholder="Search memories..."
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </motion.div>
 
       {loading ? (
         <div className="flex flex-col gap-2">

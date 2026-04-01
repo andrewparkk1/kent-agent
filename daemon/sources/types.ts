@@ -9,7 +9,7 @@ export interface Item {
 
 export interface SyncState {
   getLastSync(source: string): number;
-  markSynced(source: string): void;
+  markSynced(source: string, highWaterMark?: number): void;
 }
 
 export interface Source {

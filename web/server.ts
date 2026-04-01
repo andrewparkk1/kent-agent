@@ -1,11 +1,12 @@
 /** Kent API server — routes requests to handler modules. */
 import { handleCounts, handleItems } from "./api/items.ts";
-import { handleWorkflows, handleWorkflowDetail, handleActivity } from "./api/workflows.ts";
+import { handleWorkflows, handleWorkflowDetail, handleWorkflowRun, handleWorkflowToggle, handleWorkflowDelete, handleActivity, handleBrief } from "./api/workflows.ts";
 import { handleSources, handleDaemonState } from "./api/sources.ts";
 import { handleMemories } from "./api/memories.ts";
 import { handleIdentity, handleIdentitySave } from "./api/identity.ts";
 import { handleThreads, handleThreadMessages, handleDeleteThread } from "./api/threads.ts";
 import { handleChat } from "./api/chat.ts";
+import { handleSync } from "./api/sync.ts";
 
 Bun.serve({
   port: 3456,
@@ -15,6 +16,7 @@ Bun.serve({
     "/api/workflows":    handleWorkflows,
     "/api/workflow":     handleWorkflowDetail,
     "/api/activity":     handleActivity,
+    "/api/brief":        handleBrief,
     "/api/sources":      handleSources,
     "/api/memories":     handleMemories,
     "/api/threads":      handleThreads,
@@ -36,12 +38,28 @@ Bun.serve({
       return handleDeleteThread(req);
     }
 
+    if (url.pathname === "/api/workflow/run" && req.method === "POST") {
+      return handleWorkflowRun(req);
+    }
+
+    if (url.pathname === "/api/workflow/toggle" && req.method === "POST") {
+      return handleWorkflowToggle(req);
+    }
+
+    if (url.pathname === "/api/workflow/delete" && req.method === "POST") {
+      return handleWorkflowDelete(req);
+    }
+
     if (url.pathname === "/api/identity" && req.method === "POST") {
       return handleIdentitySave(req);
     }
 
     if (url.pathname === "/api/chat" && req.method === "POST") {
       return handleChat(req);
+    }
+
+    if (url.pathname === "/api/sync" && req.method === "POST") {
+      return handleSync(req);
     }
 
     return new Response("Not Found", { status: 404 });

@@ -1,34 +1,26 @@
-/** Agent entry point — assembles system prompt from prompt files and runs the AI agent with tools. */
 /**
- * Kent's AI brain. Loads prompt files (IDENTITY, SOUL, TOOLS, USER, skills/) from
- * ~/.kent/prompts, injects today's date + synced data context, then runs a multi-turn
- * agent loop that can call tools (search memory, read files, run commands).
- * Invoked as a subprocess by LocalRunner — reads PROMPT from env, writes output to OUTPUT_DIR.
+ * Kent's AI brain. Loads prompt files, runs a multi-turn agent loop with tools.
+ * Writes messages (user, assistant, tool) to the DB as they stream in.
+ * Invoked as a subprocess — reads PROMPT/THREAD_ID from env.
  */
 import { Agent } from "@mariozechner/pi-agent-core";
 import { streamSimple, getModel } from "@mariozechner/pi-ai";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { allTools } from "./tools.ts";
-import { getItemCount } from "@shared/db.ts";
+import { getItemCount, createThread, addMessage } from "@shared/db.ts";
 
-// ---------------------------------------------------------------------------
-// Environment
-// ---------------------------------------------------------------------------
+// ─── Environment ────────────────────────────────────────────────────────────
 
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? "";
-const RUN_ID = process.env.RUN_ID ?? "";
 const PROMPT = process.env.PROMPT ?? "";
-const OUTPUT_DIR = process.env.OUTPUT_DIR ?? "/outputs";
+const THREAD_ID = process.env.THREAD_ID ?? "";
+const SKIP_USER_MESSAGE = process.env.SKIP_USER_MESSAGE === "1"; // Caller already stored user msg
 const MAX_TURNS = parseInt(process.env.MAX_TURNS ?? "20", 10);
 const MODEL_NAME = process.env.MODEL ?? "claude-sonnet-4-20250514";
 
-// ---------------------------------------------------------------------------
-// Prompt assembly
-// ---------------------------------------------------------------------------
+// ─── Prompt assembly ────────────────────────────────────────────────────────
 
-// Read from ~/.kent/prompts/ first, fall back to bundled prompts
 const USER_PROMPTS_DIR = join(homedir(), ".kent", "prompts");
 const BUNDLED_PROMPTS_DIR = join(dirname(import.meta.path), "prompts");
 
@@ -50,11 +42,7 @@ function getContext(): string {
     if (Object.keys(counts).length === 0) {
       return "No synced data available yet. Run `kent sync` to populate.";
     }
-
-    const lines = Object.entries(counts).map(
-      ([source, count]) => `- ${source}: ${count} items`
-    );
-    return `## Available Data\n${lines.join("\n")}`;
+    return `## Available Data\n${Object.entries(counts).map(([s, c]) => `- ${s}: ${c} items`).join("\n")}`;
   } catch {
     return "Could not read local database.";
   }
@@ -66,53 +54,57 @@ function buildSystemPrompt(): string {
   const tools = readPromptFile("TOOLS.md");
   const userTemplate = readPromptFile("USER.md");
 
-  // Gather skill files (merge user + bundled, user takes precedence)
+  // Load skills from nested dirs (skills/<name>/SKILL.md) with flat file fallback
   const skillContents: string[] = [];
   const seenSkills = new Set<string>();
-  const skillsDirs = [
-    join(USER_PROMPTS_DIR, "skills"),
-    join(BUNDLED_PROMPTS_DIR, "skills"),
-  ];
-  for (const skillsDir of skillsDirs) {
+  for (const skillsDir of [join(USER_PROMPTS_DIR, "skills"), join(BUNDLED_PROMPTS_DIR, "skills")]) {
     try {
-      for (const name of readdirSync(skillsDir)) {
-        if (!name.endsWith(".md") || seenSkills.has(name)) continue;
-        seenSkills.add(name);
-        const content = readFileSync(join(skillsDir, name), "utf-8");
-        if (content) skillContents.push(`# Skill: ${name}\n\n${content}`);
+      for (const entry of readdirSync(skillsDir)) {
+        if (seenSkills.has(entry)) continue;
+        const entryPath = join(skillsDir, entry);
+        // Nested: skills/<name>/SKILL.md
+        if (statSync(entryPath).isDirectory()) {
+          const skillFile = join(entryPath, "SKILL.md");
+          if (existsSync(skillFile)) {
+            seenSkills.add(entry);
+            const content = readFileSync(skillFile, "utf-8");
+            if (content) skillContents.push(`# Skill: ${entry}\n\n${content}`);
+          }
+        // Legacy flat: skills/<name>.md
+        } else if (entry.endsWith(".md")) {
+          const name = entry.replace(/\.md$/, "");
+          seenSkills.add(name);
+          const content = readFileSync(entryPath, "utf-8");
+          if (content) skillContents.push(`# Skill: ${name}\n\n${content}`);
+        }
       }
-    } catch {
-      // Directory doesn't exist
-    }
+    } catch {}
   }
 
   const today = new Date().toLocaleDateString("en-US", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
+    weekday: "long", year: "numeric", month: "long", day: "numeric",
   });
 
-  const context = getContext();
-
-  const user = userTemplate
-    .replace(/\{\{DATE\}\}/g, today)
-    .replace(/\{\{CONTEXT\}\}/g, context);
-
+  const user = userTemplate.replace(/\{\{DATE\}\}/g, today).replace(/\{\{CONTEXT\}\}/g, getContext());
   const identityResolved = identity.replace(/\{\{DATE\}\}/g, today);
 
-  const parts = [identityResolved, soul, tools, ...skillContents, user].filter(Boolean);
-  return parts.join("\n\n---\n\n");
+  return [identityResolved, soul, tools, ...skillContents, user].filter(Boolean).join("\n\n---\n\n");
 }
 
-// ---------------------------------------------------------------------------
-// Main
-// ---------------------------------------------------------------------------
+// ─── Main ───────────────────────────────────────────────────────────────────
 
 async function run(): Promise<void> {
   if (!PROMPT) {
     console.error("No PROMPT provided");
     process.exit(1);
+  }
+
+  // Resolve or create thread
+  const threadId = THREAD_ID || createThread(PROMPT.slice(0, 80));
+
+  // Store the user message (unless caller already did it)
+  if (!SKIP_USER_MESSAGE) {
+    addMessage(threadId, "user", PROMPT);
   }
 
   const systemPrompt = buildSystemPrompt();
@@ -129,41 +121,68 @@ async function run(): Promise<void> {
   });
 
   let turnCount = 0;
+  let pendingText = ""; // Accumulated assistant text, flushed on tool start or agent end
+  let currentToolName = "";
+  let currentToolArgs: any = {};
+
+  function flushText() {
+    if (pendingText.trim()) {
+      addMessage(threadId, "assistant", pendingText.trim());
+      pendingText = "";
+    }
+  }
 
   const unsub = agent.subscribe((event) => {
     switch (event.type) {
       case "message_update": {
         const ame = event.assistantMessageEvent;
         if (ame.type === "text_delta") {
+          pendingText += ame.delta;
           process.stdout.write(ame.delta);
         }
         break;
       }
-      case "tool_execution_start":
-        console.error(
-          JSON.stringify({ event: "tool_start", name: event.toolName, args: event.args })
-        );
-        break;
-      case "tool_execution_end": {
-        // Extract text preview from result content
-        let preview = "";
-        try {
-          const contents = event.result?.content ?? [];
-          const texts = contents
-            .filter((c: any) => c.type === "text")
-            .map((c: any) => c.text);
-          preview = texts.join("\n").slice(0, 500);
-        } catch {}
-        console.error(
-          JSON.stringify({
-            event: "tool_end",
-            name: event.toolName,
-            error: event.isError,
-            result: preview,
-          })
-        );
+
+      case "tool_execution_start": {
+        // Flush any accumulated text before the tool call
+        flushText();
+        currentToolName = event.toolName;
+        currentToolArgs = event.args;
+        // Still write to stderr for the REPL/web stream
+        console.error(JSON.stringify({ event: "tool_start", name: event.toolName, args: event.args }));
         break;
       }
+
+      case "tool_execution_end": {
+        let resultPreview = "";
+        try {
+          const contents = event.result?.content ?? [];
+          resultPreview = contents
+            .filter((c: any) => c.type === "text")
+            .map((c: any) => c.text)
+            .join("\n")
+            .slice(0, 2000);
+        } catch {}
+
+        // Store tool call as a message
+        addMessage(threadId, "tool", resultPreview || "(no output)", {
+          name: currentToolName,
+          args: currentToolArgs,
+          error: event.isError || false,
+        });
+
+        console.error(JSON.stringify({
+          event: "tool_end",
+          name: event.toolName,
+          error: event.isError,
+          result: resultPreview.slice(0, 500),
+        }));
+
+        currentToolName = "";
+        currentToolArgs = {};
+        break;
+      }
+
       case "turn_end":
         turnCount++;
         if (turnCount >= MAX_TURNS) {
@@ -171,7 +190,10 @@ async function run(): Promise<void> {
           agent.abort();
         }
         break;
+
       case "agent_end":
+        // Flush any remaining text
+        flushText();
         process.stdout.write("\n");
         break;
     }
@@ -181,33 +203,8 @@ async function run(): Promise<void> {
     await agent.prompt(PROMPT);
   } finally {
     unsub();
-  }
-
-  // Write output file
-  const messages = agent.state.messages;
-  const lastAssistant = [...messages]
-    .reverse()
-    .find((m) => "role" in m && m.role === "assistant");
-
-  if (lastAssistant && "content" in lastAssistant) {
-    const textParts = (lastAssistant.content as any[])
-      .filter((c: any) => c.type === "text")
-      .map((c: any) => c.text);
-    const outputText = textParts.join("");
-
-    if (OUTPUT_DIR && RUN_ID) {
-      try {
-        const { mkdirSync, writeFileSync } = await import("node:fs");
-        mkdirSync(OUTPUT_DIR, { recursive: true });
-        writeFileSync(
-          join(OUTPUT_DIR, "output.md"),
-          outputText,
-          "utf-8"
-        );
-      } catch (e) {
-        console.error(`Failed to write output: ${e}`);
-      }
-    }
+    // Safety flush in case agent_end didn't fire
+    flushText();
   }
 }
 

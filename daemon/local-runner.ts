@@ -48,7 +48,7 @@ export class LocalRunner extends BaseRunner {
       MAX_TURNS: String(this.config.agent.max_turns),
       KENT_HOME: join(import.meta.dir, ".."),
       ...(workflowId ? { WORKFLOW_ID: workflowId } : {}),
-      ...(options?.threadId ? { THREAD_ID: options.threadId } : {}),
+      ...(options?.threadId ? { THREAD_ID: options.threadId, SKIP_USER_MESSAGE: "1" } : {}),
     };
 
     const proc = Bun.spawn(["bun", "run", agentPath], {

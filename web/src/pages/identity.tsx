@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
+import Markdown from "react-markdown";
 
 interface PromptFile {
   name: string;
@@ -119,32 +120,11 @@ export function IdentityPage() {
                 <span className="text-[13px] font-mono text-muted-foreground">
                   ~/.kent/prompts/{selected}
                 </span>
-                <div className="flex items-center gap-2">
-                  {dirty && (
-                    <span className="text-[11px] text-amber-500/70">unsaved</span>
-                  )}
-                  <button
-                    onClick={save}
-                    disabled={!dirty || saving}
-                    className={`px-3 py-1 rounded-md text-[12px] font-medium transition-colors ${
-                      dirty
-                        ? "bg-foreground text-background hover:bg-foreground/90 cursor-pointer"
-                        : "bg-foreground/10 text-muted-foreground/40 cursor-not-allowed"
-                    }`}
-                  >
-                    {saving ? "Saving..." : "Save"}
-                  </button>
-                </div>
+                <span className="text-[11px] text-muted-foreground/30">read-only</span>
               </div>
-              <textarea
-                value={editContent}
-                onChange={(e) => {
-                  setEditContent(e.target.value);
-                  setDirty(e.target.value !== selectedFile.content);
-                }}
-                spellCheck={false}
-                className="flex-1 bg-foreground/[0.03] border border-border/40 rounded-lg p-4 text-[13px] font-mono leading-relaxed text-foreground resize-none focus:outline-none focus:ring-1 focus:ring-foreground/20"
-              />
+              <div className="flex-1 overflow-y-auto bg-foreground/[0.02] border border-border/40 rounded-lg p-6 prose prose-sm prose-neutral max-w-none prose-headings:text-foreground prose-headings:font-medium prose-h1:text-[18px] prose-h1:mb-2 prose-h1:mt-6 first:prose-h1:mt-0 prose-h2:text-[15px] prose-h2:mb-1.5 prose-h2:mt-5 prose-h3:text-[14px] prose-h3:mb-1 prose-h3:mt-4 prose-p:text-[13px] prose-p:text-foreground/80 prose-p:leading-relaxed prose-p:my-1.5 prose-li:text-[13px] prose-li:text-foreground/80 prose-li:my-0.5 prose-ul:my-2 prose-ol:my-2 prose-strong:text-foreground prose-code:text-[12px] prose-code:bg-foreground/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:font-mono prose-code:before:content-none prose-code:after:content-none prose-pre:bg-foreground/[0.04] prose-pre:border prose-pre:border-border/40 prose-pre:rounded-lg prose-pre:text-[12px] prose-pre:leading-relaxed prose-hr:border-border/40 prose-hr:my-4">
+                <Markdown breaks>{editContent}</Markdown>
+              </div>
             </>
           )}
           {!selectedFile && files.length === 0 && (
