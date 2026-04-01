@@ -120,7 +120,7 @@ export function IdentityPage() {
                 <span className="text-[13px] font-mono text-muted-foreground">
                   ~/.kent/prompts/{selected}
                 </span>
-                <span className="text-[11px] text-muted-foreground/30">read-only</span>
+                <span className="text-[11px] text-muted-foreground/30">Ask Kent to update it for you!</span>
               </div>
               <div className="flex-1 overflow-y-auto bg-foreground/[0.02] border border-border/40 rounded-lg p-6 prose prose-sm prose-neutral max-w-none prose-headings:text-foreground prose-headings:font-medium prose-h1:text-[18px] prose-h1:mb-2 prose-h1:mt-6 first:prose-h1:mt-0 prose-h2:text-[15px] prose-h2:mb-1.5 prose-h2:mt-5 prose-h3:text-[14px] prose-h3:mb-1 prose-h3:mt-4 prose-p:text-[13px] prose-p:text-foreground/80 prose-p:leading-relaxed prose-p:my-1.5 prose-li:text-[13px] prose-li:text-foreground/80 prose-li:my-0.5 prose-ul:my-2 prose-ol:my-2 prose-strong:text-foreground prose-code:text-[12px] prose-code:bg-foreground/[0.06] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:font-mono prose-code:before:content-none prose-code:after:content-none prose-pre:bg-foreground/[0.04] prose-pre:border prose-pre:border-border/40 prose-pre:rounded-lg prose-pre:text-[12px] prose-pre:leading-relaxed prose-hr:border-border/40 prose-hr:my-4">
                 <Markdown breaks>{editContent}</Markdown>

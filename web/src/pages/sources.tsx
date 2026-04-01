@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Search, Globe, ChevronDown, RefreshCw, Calendar, Loader2 } from "lucide-react";
+import { Search, Globe, ChevronDown, RefreshCw, Calendar, Loader2, Settings2, X } from "lucide-react";
 import { toast } from "sonner";
 import Markdown from "react-markdown";
 import { Stagger, StaggerItem } from "@/components/stagger";
@@ -65,7 +65,7 @@ function SyncButton({ sourceId, onSynced }: { sourceId: string; onSynced: () => 
   };
 
   return (
-    <div className="relative flex items-center gap-0.5">
+    <div className="relative z-30 flex items-center gap-0.5">
       <button
         onClick={() => doSync()}
         disabled={syncing}
@@ -90,7 +90,7 @@ function SyncButton({ sourceId, onSynced }: { sourceId: string; onSynced: () => 
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -4, scale: 0.95 }}
             transition={{ duration: 0.15 }}
-            className="absolute right-0 top-full mt-1 z-20 bg-card border border-border/60 rounded-lg p-3 shadow-lg min-w-[200px]"
+            className="absolute right-0 top-full mt-1 z-50 bg-background border border-border rounded-lg p-3 shadow-xl ring-1 ring-black/5 min-w-[200px]"
           >
             <p className="text-[11px] text-muted-foreground/60 mb-2">Sync {label} from:</p>
             <input
@@ -121,6 +121,112 @@ function SyncButton({ sourceId, onSynced }: { sourceId: string; onSynced: () => 
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+function MetaField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex gap-2 text-[12px] leading-relaxed">
+      <span className="shrink-0 text-muted-foreground/40 w-16 text-right">{label}</span>
+      <span className="text-foreground/80 min-w-0">{value}</span>
+    </div>
+  );
+}
+
+function MetaChip({ children }: { children: React.ReactNode }) {
+  return <span className="text-[10px] px-1.5 py-[2px] rounded bg-foreground/[0.05] text-muted-foreground/60">{children}</span>;
+}
+
+function formatDateTime(raw: string): string {
+  try {
+    const d = new Date(raw);
+    return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" }) +
+      " at " + d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  } catch { return raw; }
+}
+
+/** Body text that isn't markdown — render \n as line breaks */
+function PlainBody({ text }: { text: string }) {
+  // Strip the structured prefix lines (Event:, When:, From:, etc.) since we show those as MetaFields
+  const lines = text.split("\n").filter((l) => !/^(Event|When|Where|From|To|Subject|Task|Due|Notes|Modified|Owner|Link|Type):/.test(l.trim()));
+  const body = lines.join("\n").trim();
+  if (!body) return null;
+  return (
+    <div className="text-[12px] text-foreground/70 leading-relaxed whitespace-pre-wrap">{body}</div>
+  );
+}
+
+function ItemDetail({ item }: { item: Item }) {
+  const m = item.metadata;
+
+  // Structured metadata fields
+  const fields: { label: string; value: string }[] = [];
+  if (m.when || m.start || m.dtstart) fields.push({ label: "When", value: formatDateTime(m.when || m.start || m.dtstart) });
+  if (m.due) fields.push({ label: "Due", value: formatDateTime(m.due) });
+  if (m.location) fields.push({ label: "Where", value: m.location });
+  if (m.from) fields.push({ label: "From", value: m.from.replace(/<.*>/, "").trim() });
+  if (m.to) fields.push({ label: "To", value: m.to.replace(/<.*>/, "").trim() });
+  if (m.repo) fields.push({ label: "Repo", value: m.repo });
+  if (m.folder && m.folder !== "Notes") fields.push({ label: "Folder", value: m.folder });
+
+  // Chips for tags/labels
+  const chips: string[] = [];
+  if (m.labels?.length > 0) chips.push(...m.labels);
+
+  // Description or body content
+  const description = m.description || m.notes;
+
+  // For content-heavy sources (notes, chrome, messages), show the full content
+  const isContentSource = ["apple-notes", "apple_notes", "chrome", "imessage", "signal", "granola"].includes(item.source);
+
+  return (
+    <div className="mx-3 mb-2 px-4 py-3 rounded-lg bg-foreground/[0.02] border border-border/30 space-y-3">
+      {/* Structured fields */}
+      {fields.length > 0 && (
+        <div className="space-y-1.5">
+          {fields.map((f) => <MetaField key={f.label} label={f.label} value={f.value} />)}
+        </div>
+      )}
+
+      {/* Chips */}
+      {chips.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {chips.map((c) => <MetaChip key={c}>{c}</MetaChip>)}
+        </div>
+      )}
+
+      {/* Description */}
+      {description && (
+        <div className="text-[12px] text-foreground/60 leading-relaxed whitespace-pre-wrap border-t border-border/20 pt-2.5">{description}</div>
+      )}
+
+      {/* Full content for content-heavy sources */}
+      {isContentSource && (
+        <div className="max-h-[400px] overflow-y-auto">
+          <div className="prose-chat text-[13px] leading-relaxed">
+            <Markdown>{item.content}</Markdown>
+          </div>
+        </div>
+      )}
+
+      {/* For non-content sources without description, show plain body */}
+      {!isContentSource && !description && (
+        <PlainBody text={item.content} />
+      )}
+
+      {/* URL link */}
+      {m.url && (
+        <a href={m.url} target="_blank" rel="noopener" className="inline-flex items-center gap-1 text-[11px] text-blue-500/70 hover:text-blue-500 transition-colors">
+          {(() => { try { return new URL(m.url).hostname; } catch { return "Open link"; } })()}
+          <span className="text-[9px]">↗</span>
+        </a>
+      )}
+
+      {/* Word count */}
+      {m.wordCount && (
+        <span className="block text-[10px] text-muted-foreground/30 font-mono">{m.wordCount} words</span>
+      )}
     </div>
   );
 }
@@ -163,38 +269,7 @@ function ItemRow({ item }: { item: Item }) {
             transition={{ duration: 0.2, ease: [0.25, 0.46, 0.45, 0.94] }}
             className="overflow-hidden"
           >
-            <div className="mx-3 mb-2 px-4 py-3 rounded-lg bg-foreground/[0.02] border border-border/30">
-              {/* Metadata chips */}
-              <div className="flex flex-wrap gap-1.5 mb-3">
-                {item.metadata.folder && (
-                  <span className="text-[10px] px-1.5 py-[2px] rounded bg-foreground/[0.05] text-muted-foreground/60">{item.metadata.folder}</span>
-                )}
-                {item.metadata.from && (
-                  <span className="text-[10px] px-1.5 py-[2px] rounded bg-foreground/[0.05] text-muted-foreground/60">{item.metadata.from.replace(/<.*>/, "").trim()}</span>
-                )}
-                {item.metadata.to && (
-                  <span className="text-[10px] px-1.5 py-[2px] rounded bg-foreground/[0.05] text-muted-foreground/60">To: {item.metadata.to.replace(/<.*>/, "").trim()}</span>
-                )}
-                {item.metadata.repo && (
-                  <span className="text-[10px] px-1.5 py-[2px] rounded bg-foreground/[0.05] text-muted-foreground/60">{item.metadata.repo}</span>
-                )}
-                {item.metadata.labels?.length > 0 && item.metadata.labels.map((l: string) => (
-                  <span key={l} className="text-[10px] px-1.5 py-[2px] rounded bg-foreground/[0.05] text-muted-foreground/60">{l}</span>
-                ))}
-                {item.metadata.url && (
-                  <a href={item.metadata.url} target="_blank" rel="noopener" className="text-[10px] px-1.5 py-[2px] rounded bg-foreground/[0.05] text-blue-500/70 hover:text-blue-500 truncate max-w-[300px]">
-                    {(() => { try { return new URL(item.metadata.url).hostname; } catch { return item.metadata.url; } })()}
-                  </a>
-                )}
-                {item.metadata.wordCount && (
-                  <span className="text-[10px] px-1.5 py-[2px] rounded bg-foreground/[0.05] text-muted-foreground/40">{item.metadata.wordCount} words</span>
-                )}
-              </div>
-              {/* Content */}
-              <div className="prose-chat text-[13px] leading-relaxed max-h-[400px] overflow-y-auto">
-                <Markdown>{item.content}</Markdown>
-              </div>
-            </div>
+            <ItemDetail item={item} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -210,55 +285,86 @@ export function SourcesPage({ items, loading, filter, setFilter, query, setQuery
   const sortedSources = Object.entries(counts).sort((a, b) => b[1] - a[1]);
   const now = useTick(1000);
 
+  const [syncPanelOpen, setSyncPanelOpen] = useState(false);
+  const enabledSources = sources.filter((s) => s.enabled);
+
   return (
     <div className="max-w-[900px] mx-auto px-8 py-10">
-      <motion.h1
-        className="text-[32px] font-display tracking-tight mb-2"
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
-      >
-        Sources
-      </motion.h1>
-      <motion.div
-        className="flex items-center gap-2 mb-7"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.1, duration: 0.3 }}
-      >
-        <span className={`inline-block w-2 h-2 rounded-full ${daemon.status === "syncing" ? "bg-emerald-500 animate-pulse-dot" : daemon.status === "stopped" ? "bg-muted-foreground/30" : "bg-emerald-500"}`} />
-        <span className="text-[13px] text-muted-foreground/60 tabular-nums">
-          {daemonStatusText(daemon, now)}
-        </span>
-      </motion.div>
+      <div className="flex items-center justify-between mb-7">
+        <div>
+          <motion.h1
+            className="text-[32px] font-display tracking-tight mb-1"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
+          >
+            Sources
+          </motion.h1>
+          <motion.div
+            className="flex items-center gap-2"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.1, duration: 0.3 }}
+          >
+            <span className={`inline-block w-2 h-2 rounded-full ${daemon.status === "syncing" ? "bg-emerald-500 animate-pulse-dot" : daemon.status === "stopped" ? "bg-muted-foreground/30" : "bg-emerald-500"}`} />
+            <span className="text-[13px] text-muted-foreground/60 tabular-nums">
+              {daemonStatusText(daemon, now)}
+            </span>
+          </motion.div>
+        </div>
 
-      {/* Source cards with sync buttons */}
-      <motion.div
-        className="grid grid-cols-2 gap-2 mb-6"
-        initial={{ opacity: 0, y: 6 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.06, duration: 0.3 }}
-      >
-        {sources.filter((s) => s.enabled).map((s) => {
-          const meta = SOURCE_META[s.id] || { icon: Globe, label: s.id, color: "text-neutral-400", bg: "bg-neutral-500/8" };
-          const Icon = meta.icon;
-          return (
-            <div
-              key={s.id}
-              className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-border/40 bg-card/50"
-            >
-              <div className={`shrink-0 w-7 h-7 rounded-md ${meta.bg} flex items-center justify-center`}>
-                <Icon size={14} className={meta.color} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <span className="text-[12px] font-medium text-foreground block">{meta.label}</span>
-                <span className="text-[11px] text-muted-foreground/50 font-mono">{s.itemCount} items</span>
-              </div>
-              <SyncButton sourceId={s.id} onSynced={onRefresh} />
-            </div>
-          );
-        })}
-      </motion.div>
+        {/* Sync panel trigger */}
+        <motion.div
+          className="relative"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.1, duration: 0.3 }}
+        >
+          <button
+            onClick={() => setSyncPanelOpen(!syncPanelOpen)}
+            className="p-2 rounded-lg hover:bg-foreground/[0.05] text-muted-foreground/40 hover:text-muted-foreground transition-colors cursor-pointer"
+            title="Manage sources"
+          >
+            <Settings2 size={16} />
+          </button>
+
+          <AnimatePresence>
+            {syncPanelOpen && (
+              <>
+                <div className="fixed inset-0 z-[998]" onClick={() => setSyncPanelOpen(false)} />
+                <motion.div
+                  initial={{ opacity: 0, y: -4, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                  transition={{ duration: 0.15 }}
+                  className="fixed right-8 top-16 z-[999] bg-background border border-border rounded-xl shadow-2xl ring-1 ring-black/5 p-2 w-[280px]"
+                >
+                  <div className="flex items-center justify-between px-2 py-1.5 mb-1">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/50">Sources</span>
+                    <button onClick={() => setSyncPanelOpen(false)} className="p-0.5 rounded hover:bg-foreground/[0.05] text-muted-foreground/30 hover:text-muted-foreground cursor-pointer">
+                      <X size={12} />
+                    </button>
+                  </div>
+                  {enabledSources.map((s) => {
+                    const meta = SOURCE_META[s.id] || { icon: Globe, label: s.id, color: "text-neutral-400", bg: "bg-neutral-500/8" };
+                    const Icon = meta.icon;
+                    return (
+                      <div key={s.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-foreground/[0.02]">
+                        <div className={`shrink-0 w-5 h-5 rounded ${meta.bg} flex items-center justify-center`}>
+                          <Icon size={11} className={meta.color} />
+                        </div>
+                        <span className="text-[12px] text-foreground flex-1">{meta.label}</span>
+                        <span className="text-[10px] text-muted-foreground/40 font-mono mr-1">{s.itemCount}</span>
+                        <SyncButton sourceId={s.id} onSynced={onRefresh} />
+                      </div>
+                    );
+                  })}
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
+        </motion.div>
+      </div>
 
       <motion.div
         className="relative mb-4"

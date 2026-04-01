@@ -10,6 +10,7 @@ import { ChatPage } from "@/pages/chat";
 import { IdentityPage } from "@/pages/identity";
 import { MemoriesPage } from "@/pages/memories";
 import { WorkflowDetailPage } from "@/pages/workflow-detail";
+import { SettingsPage } from "@/pages/settings";
 import type { Page, Item, Workflow, SourceInfo, DaemonInfo } from "@/lib/types";
 
 // ─── Placeholder ────────────────────────────────────────────────────────────
@@ -128,6 +129,7 @@ export function App() {
             workflows={workflows}
             loading={workflowsLoading}
             onSelect={(id) => { setSelectedWorkflowId(id); setPage("workflow-detail"); }}
+            onRefresh={fetchWorkflows}
           />
         )}
         {page === "workflow-detail" && selectedWorkflowId && (
@@ -144,7 +146,7 @@ export function App() {
         )}
         {page === "identity" && <IdentityPage />}
         {page === "memories" && <MemoriesPage />}
-        {page === "settings" && <PlaceholderPage title="Settings" description="Configure Kent's behavior, sync intervals, and API keys." />}
+        {page === "settings" && <SettingsPage />}
       </PageTransition>
 
     </div>

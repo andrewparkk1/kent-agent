@@ -20,7 +20,10 @@ export interface Workflow {
   description: string;
   prompt: string;
   cron_schedule: string | null;
+  type: string;
+  source: "default" | "user" | "suggested";
   enabled: boolean;
+  is_archived: number;
   last_run_at: number | null;
   next_run_at: number | null;
   created_at: number;
@@ -78,6 +81,17 @@ export function getTitle(item: Item): string {
 
 export function getSubtitle(item: Item): string | null {
   const m = item.metadata;
+  // Calendar/tasks — show formatted date
+  if (m.when || m.start || m.dtstart || m.due) {
+    const raw = m.when || m.start || m.dtstart || m.due;
+    try {
+      const d = new Date(raw);
+      const parts = [d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })];
+      if (!/T00:00/.test(raw) && raw.includes("T")) parts.push("·", d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }));
+      if (m.location) parts.push("·", m.location);
+      return parts.join(" ");
+    } catch {}
+  }
   if (m.from) return m.from.replace(/<.*>/, "").trim();
   if (m.location) return m.location;
   if (m.repo) return m.repo;

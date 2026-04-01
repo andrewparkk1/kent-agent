@@ -1,10 +1,16 @@
 import { useState } from "react";
 import { motion } from "motion/react";
-import { Zap, Play, ChevronRight, Clock } from "lucide-react";
+import { Zap, Play, ChevronRight, Clock, Sparkles, Archive, Plus } from "lucide-react";
 import { Stagger, StaggerItem } from "@/components/stagger";
 import { type Workflow, cronToHuman, timeAgo } from "@/lib/types";
 
-export function WorkflowCard({ workflow, onClick }: { workflow: Workflow; onClick?: () => void }) {
+type Tab = "active" | "suggested" | "archived";
+
+function WorkflowCard({ workflow, onClick, actions }: {
+  workflow: Workflow;
+  onClick?: () => void;
+  actions?: React.ReactNode;
+}) {
   const [hovered, setHovered] = useState(false);
 
   return (
@@ -30,8 +36,18 @@ export function WorkflowCard({ workflow, onClick }: { workflow: Workflow; onClic
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2.5">
               <span className="text-[14px] font-medium text-foreground leading-snug">{workflow.name}</span>
-              {workflow.enabled && <span className="inline-block w-[7px] h-[7px] rounded-full bg-emerald-500 shrink-0 animate-pulse-dot" />}
-              {!workflow.enabled && <span className="inline-block w-[7px] h-[7px] rounded-full bg-muted-foreground/30 shrink-0" />}
+              {workflow.source === "suggested" && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/10 text-amber-500">
+                  <Sparkles size={9} />
+                  suggested
+                </span>
+              )}
+              {workflow.source !== "suggested" && workflow.enabled && (
+                <span className="inline-block w-[7px] h-[7px] rounded-full bg-emerald-500 shrink-0 animate-pulse-dot" />
+              )}
+              {workflow.source !== "suggested" && !workflow.enabled && (
+                <span className="inline-block w-[7px] h-[7px] rounded-full bg-muted-foreground/30 shrink-0" />
+              )}
             </div>
             <p className="text-[13px] text-muted-foreground mt-1 leading-relaxed">
               {workflow.description || workflow.prompt.slice(0, 100)}
@@ -56,9 +72,7 @@ export function WorkflowCard({ workflow, onClick }: { workflow: Workflow; onClic
             animate={{ opacity: hovered ? 1 : 0, x: hovered ? 0 : 4 }}
             transition={{ duration: 0.15 }}
           >
-            <button className="p-1.5 rounded-md hover:bg-foreground/5 text-muted-foreground/50 hover:text-foreground transition-colors">
-              <Play size={13} />
-            </button>
+            {actions}
             <button className="p-1.5 rounded-md hover:bg-foreground/5 text-muted-foreground/50 hover:text-foreground transition-colors">
               <ChevronRight size={13} />
             </button>
@@ -69,11 +83,63 @@ export function WorkflowCard({ workflow, onClick }: { workflow: Workflow; onClic
   );
 }
 
-export function WorkflowsPage({ workflows, loading, onSelect }: { workflows: Workflow[]; loading: boolean; onSelect?: (id: string) => void }) {
+function SuggestedCard({ workflow, onClick, onEnable }: {
+  workflow: Workflow;
+  onClick?: () => void;
+  onEnable?: () => void;
+}) {
+  return (
+    <WorkflowCard
+      workflow={workflow}
+      onClick={onClick}
+      actions={
+        <button
+          onClick={(e) => { e.stopPropagation(); onEnable?.(); }}
+          className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-foreground text-background text-[11px] font-medium hover:bg-foreground/90 transition-colors"
+        >
+          <Plus size={11} />
+          Enable
+        </button>
+      }
+    />
+  );
+}
+
+export function WorkflowsPage({ workflows, loading, onSelect, onRefresh }: {
+  workflows: Workflow[];
+  loading: boolean;
+  onSelect?: (id: string) => void;
+  onRefresh?: () => void;
+}) {
+  const [tab, setTab] = useState<Tab>("active");
+
+  const active = workflows.filter((w) => !w.is_archived && w.source !== "suggested");
+  const suggested = workflows.filter((w) => !w.is_archived && w.source === "suggested");
+  const archived = workflows.filter((w) => w.is_archived);
+
+  const tabs: { id: Tab; label: string; count: number }[] = [
+    { id: "active", label: "My Workflows", count: active.length },
+    { id: "suggested", label: "Suggested", count: suggested.length },
+    { id: "archived", label: "Archived", count: archived.length },
+  ];
+
+  const enableWorkflow = async (id: string) => {
+    try {
+      await fetch("/api/workflow/toggle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      onRefresh?.();
+    } catch {}
+  };
+
+  const current = tab === "active" ? active : tab === "suggested" ? suggested : archived;
+
   return (
     <div className="max-w-[900px] mx-auto px-8 py-10">
       <motion.h1
-        className="text-[32px] font-display tracking-tight mb-7 text-foreground"
+        className="text-[32px] font-display tracking-tight mb-5 text-foreground"
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
@@ -81,26 +147,85 @@ export function WorkflowsPage({ workflows, loading, onSelect }: { workflows: Wor
         Workflows
       </motion.h1>
 
+      {/* Tabs */}
+      <div className="flex items-center gap-1 mb-6 border-b border-border/40 pb-px">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`relative px-3 py-2 text-[13px] font-medium transition-colors cursor-pointer ${
+              tab === t.id
+                ? "text-foreground"
+                : "text-muted-foreground/50 hover:text-muted-foreground"
+            }`}
+          >
+            {t.label}
+            {t.count > 0 && tab !== t.id && (
+              <span className="ml-1.5 text-[10px] text-muted-foreground/30">{t.count}</span>
+            )}
+            {tab === t.id && (
+              <motion.div
+                layoutId="workflow-tab"
+                className="absolute bottom-0 left-0 right-0 h-[2px] bg-foreground rounded-full"
+                transition={{ type: "spring", stiffness: 400, damping: 30 }}
+              />
+            )}
+          </button>
+        ))}
+      </div>
+
       {loading ? (
         <div className="flex flex-col gap-2">
           {[...Array(3)].map((_, i) => <div key={i} className="h-20 rounded-xl animate-shimmer" />)}
         </div>
-      ) : workflows.length === 0 ? (
+      ) : current.length === 0 ? (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           className="py-16 text-center"
         >
-          <Zap size={24} className="mx-auto mb-4 text-muted-foreground/20" />
-          <p className="text-[14px] text-muted-foreground mb-1">No workflows yet</p>
-          <p className="text-[12px] text-muted-foreground/50">Create a workflow to automate recurring agent tasks</p>
+          {tab === "active" && (
+            <>
+              <Zap size={24} className="mx-auto mb-4 text-muted-foreground/20" />
+              <p className="text-[14px] text-muted-foreground mb-1">No workflows yet</p>
+              <p className="text-[12px] text-muted-foreground/50">Create a workflow to automate recurring agent tasks</p>
+            </>
+          )}
+          {tab === "suggested" && (
+            <>
+              <Sparkles size={24} className="mx-auto mb-4 text-muted-foreground/20" />
+              <p className="text-[14px] text-muted-foreground mb-1">No suggestions yet</p>
+              <p className="text-[12px] text-muted-foreground/50">The workflow suggestor will analyze your data and propose automations</p>
+            </>
+          )}
+          {tab === "archived" && (
+            <>
+              <Archive size={24} className="mx-auto mb-4 text-muted-foreground/20" />
+              <p className="text-[14px] text-muted-foreground mb-1">No archived workflows</p>
+              <p className="text-[12px] text-muted-foreground/50">Archived workflows appear here</p>
+            </>
+          )}
         </motion.div>
       ) : (
-        <Stagger className="flex flex-col gap-2">
-          {workflows.map((w) => <WorkflowCard key={w.id} workflow={w} onClick={() => onSelect?.(w.id)} />)}
+        <Stagger className="flex flex-col gap-2" key={tab}>
+          {current.map((w) =>
+            tab === "suggested" ? (
+              <SuggestedCard
+                key={w.id}
+                workflow={w}
+                onClick={() => onSelect?.(w.id)}
+                onEnable={() => enableWorkflow(w.id)}
+              />
+            ) : (
+              <WorkflowCard
+                key={w.id}
+                workflow={w}
+                onClick={() => onSelect?.(w.id)}
+              />
+            )
+          )}
         </Stagger>
       )}
-
     </div>
   );
 }

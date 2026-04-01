@@ -30,8 +30,8 @@ Thumbs.db
 **/CLAUDE.md
 !CLAUDE.md
 AGENTS.md
-skills/
-skills-lock.json
+/skills/
+/skills-lock.json
 *.swp
 *.swo
 *~

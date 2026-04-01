@@ -10,6 +10,7 @@ export interface DbWorkflow {
   type: "cron" | "manual" | "event";
   source: "default" | "user" | "suggested";
   enabled: number;
+  is_archived: number;
   last_run_at: number | null;
   next_run_at: number | null;
   created_at: number;
@@ -84,11 +85,29 @@ export function deleteWorkflow(idOrName: string): boolean {
   return true;
 }
 
+export function archiveWorkflow(idOrName: string): boolean {
+  const wf = getWorkflow(idOrName);
+  if (!wf) return false;
+  getDb()
+    .prepare("UPDATE workflows SET is_archived = 1, enabled = 0, updated_at = unixepoch() WHERE id = $id")
+    .run({ $id: wf.id });
+  return true;
+}
+
+export function unarchiveWorkflow(idOrName: string): boolean {
+  const wf = getWorkflow(idOrName);
+  if (!wf) return false;
+  getDb()
+    .prepare("UPDATE workflows SET is_archived = 0, updated_at = unixepoch() WHERE id = $id")
+    .run({ $id: wf.id });
+  return true;
+}
+
 export function getDueWorkflows(now: number): DbWorkflow[] {
   return getDb()
     .prepare(`
       SELECT * FROM workflows
-      WHERE enabled = 1 AND cron_schedule IS NOT NULL
+      WHERE enabled = 1 AND is_archived = 0 AND cron_schedule IS NOT NULL
     `)
     .all() as DbWorkflow[];
 }

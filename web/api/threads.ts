@@ -12,20 +12,17 @@ export function handleThreads() {
 }
 
 export function handleThreadMessages(req: Request) {
-  // Bun route params are on req.params when using "/api/threads/:id/messages"
-  const threadId = (req as any).params?.id;
+  const threadId = (req as any).params?.id || new URL(req.url).pathname.split("/")[3];
   if (!threadId) {
-    // Fallback: parse from URL
-    const parts = new URL(req.url).pathname.split("/");
-    const fallbackId = parts[3];
-    if (!fallbackId) {
-      return Response.json({ error: "Thread ID required" }, { status: 400 });
-    }
-    const messages = getMessages(fallbackId, 100);
-    return Response.json({ messages });
+    return Response.json({ error: "Thread ID required" }, { status: 400 });
   }
-  const messages = getMessages(threadId, 100);
-  return Response.json({ messages });
+  const db = getDb();
+  const thread = db.prepare("SELECT type, status FROM threads WHERE id = ?").get(threadId) as any;
+  const messages = getMessages(threadId, 200);
+  return Response.json({
+    messages,
+    thread: thread ? { type: thread.type, status: thread.status } : null,
+  });
 }
 
 function extractThreadId(req: Request): string | null {

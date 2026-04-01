@@ -1,12 +1,13 @@
 /** Kent API server — routes requests to handler modules. */
 import { handleCounts, handleItems } from "./api/items.ts";
-import { handleWorkflows, handleWorkflowDetail, handleWorkflowRun, handleWorkflowToggle, handleWorkflowDelete, handleActivity, handleBrief } from "./api/workflows.ts";
+import { handleWorkflows, handleWorkflowDetail, handleWorkflowRun, handleWorkflowToggle, handleWorkflowArchive, handleWorkflowUnarchive, handleWorkflowDelete, handleActivity, handleBrief } from "./api/workflows.ts";
 import { handleSources, handleDaemonState } from "./api/sources.ts";
 import { handleMemories } from "./api/memories.ts";
 import { handleIdentity, handleIdentitySave } from "./api/identity.ts";
 import { handleThreads, handleThreadMessages, handleDeleteThread } from "./api/threads.ts";
 import { handleChat } from "./api/chat.ts";
 import { handleSync } from "./api/sync.ts";
+import { handleSettings, handleSettingsSave } from "./api/settings.ts";
 
 Bun.serve({
   port: 3456,
@@ -23,6 +24,7 @@ Bun.serve({
     "/api/threads/:id/messages": handleThreadMessages,
     "/api/identity":     handleIdentity,
     "/api/daemon-state": handleDaemonState,
+    "/api/settings":     handleSettings,
   },
 
   async fetch(req) {
@@ -50,12 +52,24 @@ Bun.serve({
       return handleWorkflowDelete(req);
     }
 
+    if (url.pathname === "/api/workflow/archive" && req.method === "POST") {
+      return handleWorkflowArchive(req);
+    }
+
+    if (url.pathname === "/api/workflow/unarchive" && req.method === "POST") {
+      return handleWorkflowUnarchive(req);
+    }
+
     if (url.pathname === "/api/identity" && req.method === "POST") {
       return handleIdentitySave(req);
     }
 
     if (url.pathname === "/api/chat" && req.method === "POST") {
       return handleChat(req);
+    }
+
+    if (url.pathname === "/api/settings" && req.method === "POST") {
+      return handleSettingsSave(req);
     }
 
     if (url.pathname === "/api/sync" && req.method === "POST") {

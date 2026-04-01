@@ -8,7 +8,7 @@ import { streamSimple, getModel } from "@mariozechner/pi-ai";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
-import { allTools } from "./tools.ts";
+import { allTools } from "./tools/index.ts";
 import { getItemCount, createThread, addMessage } from "@shared/db.ts";
 
 // ─── Environment ────────────────────────────────────────────────────────────

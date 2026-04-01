@@ -17,6 +17,7 @@ export function getDb(): Database {
   _db = new Database(DB_PATH);
   _db.exec("PRAGMA journal_mode = WAL");
   _db.exec("PRAGMA foreign_keys = ON");
+  _db.exec("PRAGMA busy_timeout = 5000");
 
   initSchema(_db);
   runMigrations(_db);
@@ -44,6 +45,9 @@ function runMigrations(db: Database): void {
   }
   if (wfCols.length > 0 && !wfColNames.includes("source")) {
     db.exec("ALTER TABLE workflows ADD COLUMN source TEXT NOT NULL DEFAULT 'user'");
+  }
+  if (wfCols.length > 0 && !wfColNames.includes("is_archived")) {
+    db.exec("ALTER TABLE workflows ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0");
   }
 
   // Threads: add type, workflow_id, status, started_at, finished_at
@@ -155,6 +159,7 @@ function initSchema(db: Database): void {
       type TEXT NOT NULL DEFAULT 'cron' CHECK(type IN ('cron', 'manual', 'event')),
       source TEXT NOT NULL DEFAULT 'user' CHECK(source IN ('default', 'user', 'suggested')),
       enabled INTEGER NOT NULL DEFAULT 1,
+      is_archived INTEGER NOT NULL DEFAULT 0,
       last_run_at INTEGER,
       next_run_at INTEGER,
       created_at INTEGER NOT NULL DEFAULT (unixepoch()),

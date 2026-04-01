@@ -1,7 +1,7 @@
 /** GET /api/workflows — list workflows with run stats. */
 /** GET /api/activity — recent workflow runs. */
 /** POST /api/workflow/run — trigger a workflow run with streaming output. */
-import { getDb, updateWorkflow, deleteWorkflow, createThread, finishThread } from "../../shared/db.ts";
+import { getDb, updateWorkflow, deleteWorkflow, archiveWorkflow, unarchiveWorkflow, createThread, finishThread } from "../../shared/db.ts";
 import { loadConfig, KENT_DIR } from "../../shared/config.ts";
 import { resolve } from "node:path";
 
@@ -45,9 +45,16 @@ export function handleWorkflowDetail(req: Request) {
     .prepare("SELECT * FROM threads WHERE type = 'workflow' AND workflow_id = ? ORDER BY started_at DESC LIMIT 50")
     .all(workflow.id) as any[];
 
+  const enriched = runs.map((r: any) => {
+    const lastMsg = db
+      .prepare("SELECT content FROM messages WHERE thread_id = ? AND role = 'assistant' ORDER BY created_at DESC LIMIT 1")
+      .get(r.id) as any;
+    return { ...r, output: lastMsg?.content || null };
+  });
+
   return Response.json({
     workflow: { ...workflow, enabled: !!workflow.enabled },
-    runs,
+    runs: enriched,
   });
 }
 
@@ -164,6 +171,24 @@ export async function handleWorkflowToggle(req: Request) {
   return Response.json({ enabled: newEnabled });
 }
 
+export async function handleWorkflowArchive(req: Request) {
+  const body = await req.json();
+  const { id } = body as { id: string };
+  if (!id) return Response.json({ error: "id required" }, { status: 400 });
+  const ok = archiveWorkflow(id);
+  if (!ok) return Response.json({ error: "not found" }, { status: 404 });
+  return Response.json({ ok: true });
+}
+
+export async function handleWorkflowUnarchive(req: Request) {
+  const body = await req.json();
+  const { id } = body as { id: string };
+  if (!id) return Response.json({ error: "id required" }, { status: 400 });
+  const ok = unarchiveWorkflow(id);
+  if (!ok) return Response.json({ error: "not found" }, { status: 404 });
+  return Response.json({ ok: true });
+}
+
 export async function handleWorkflowDelete(req: Request) {
   const body = await req.json();
   const { id } = body as { id: string };
@@ -174,33 +199,104 @@ export async function handleWorkflowDelete(req: Request) {
   return Response.json({ ok: true });
 }
 
-export function handleBrief() {
+export function handleBrief(req: Request) {
+  const url = new URL(req.url);
+  const dateParam = url.searchParams.get("date"); // YYYY-MM-DD
   const db = getDb();
-  // Get the latest completed workflow thread for morning-briefing or evening-recap
-  const thread = db
+
+  // Calculate day boundaries (local timezone)
+  let dayStart: number;
+  let dayEnd: number;
+  if (dateParam) {
+    const d = new Date(dateParam + "T00:00:00");
+    dayStart = Math.floor(d.getTime() / 1000);
+    dayEnd = dayStart + 86400;
+  } else {
+    // Default: today
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    dayStart = Math.floor(todayStart.getTime() / 1000);
+    dayEnd = dayStart + 86400;
+  }
+
+  // Get all briefs for this day
+  // Match by workflow JOIN or by thread title (handles orphaned threads from re-init)
+  const threads = db
     .prepare(
-      `SELECT t.*, w.name as workflow_name, w.description as workflow_description
+      `SELECT t.*,
+              COALESCE(w.name, REPLACE(t.title, 'workflow: ', '')) as workflow_name,
+              COALESCE(w.description, '') as workflow_description
        FROM threads t
-       JOIN workflows w ON w.id = t.workflow_id
-       WHERE w.name IN ('morning-briefing', 'evening-recap')
+       LEFT JOIN workflows w ON w.id = t.workflow_id
+       WHERE t.type = 'workflow'
          AND t.status = 'done'
-       ORDER BY t.started_at DESC
-       LIMIT 1`
+         AND t.started_at >= ? AND t.started_at < ?
+         AND (
+           w.name IN ('morning-briefing', 'evening-recap')
+           OR t.title IN ('workflow: morning-briefing', 'workflow: evening-recap')
+         )
+       ORDER BY t.started_at DESC`
     )
-    .get() as any;
+    .all(dayStart, dayEnd) as any[];
 
-  if (!thread) return Response.json({ run: null });
+  // Get output for each brief
+  const briefs = threads.map((thread: any) => {
+    const lastMsg = db
+      .prepare("SELECT content FROM messages WHERE thread_id = ? AND role = 'assistant' ORDER BY created_at DESC LIMIT 1")
+      .get(thread.id) as any;
+    return { ...thread, output: lastMsg?.content || null };
+  }).filter((b: any) => b.output);
 
-  // Get the last assistant message as the output
-  const lastMsg = db
-    .prepare("SELECT content FROM messages WHERE thread_id = ? AND role = 'assistant' ORDER BY created_at DESC LIMIT 1")
-    .get(thread.id) as any;
+  // If no briefs for requested day and no date specified, find the most recent brief
+  if (briefs.length === 0 && !dateParam) {
+    const latest = db
+      .prepare(
+        `SELECT t.*,
+                COALESCE(w.name, REPLACE(t.title, 'workflow: ', '')) as workflow_name,
+                COALESCE(w.description, '') as workflow_description
+         FROM threads t
+         LEFT JOIN workflows w ON w.id = t.workflow_id
+         WHERE t.type = 'workflow'
+           AND t.status = 'done'
+           AND (
+             w.name IN ('morning-briefing', 'evening-recap')
+             OR t.title IN ('workflow: morning-briefing', 'workflow: evening-recap')
+           )
+         ORDER BY t.started_at DESC
+         LIMIT 1`
+      )
+      .get() as any;
+
+    if (latest) {
+      const lastMsg = db
+        .prepare("SELECT content FROM messages WHERE thread_id = ? AND role = 'assistant' ORDER BY created_at DESC LIMIT 1")
+        .get(latest.id) as any;
+      if (lastMsg?.content) {
+        briefs.push({ ...latest, output: lastMsg.content });
+      }
+    }
+  }
+
+  // Get all dates that have briefs (for navigation)
+  const dates = db
+    .prepare(
+      `SELECT DISTINCT date(t.started_at, 'unixepoch', 'localtime') as date
+       FROM threads t
+       LEFT JOIN workflows w ON w.id = t.workflow_id
+       WHERE t.type = 'workflow'
+         AND t.status = 'done'
+         AND (
+           w.name IN ('morning-briefing', 'evening-recap')
+           OR t.title IN ('workflow: morning-briefing', 'workflow: evening-recap')
+         )
+       ORDER BY date DESC
+       LIMIT 90`
+    )
+    .all() as Array<{ date: string }>;
 
   return Response.json({
-    run: {
-      ...thread,
-      output: lastMsg?.content || null,
-    },
+    briefs,
+    dates: dates.map((d) => d.date),
   });
 }
 
@@ -217,5 +313,13 @@ export function handleActivity() {
     )
     .all() as any[];
 
-  return Response.json({ runs });
+  // Attach last assistant message as output preview
+  const enriched = runs.map((r: any) => {
+    const lastMsg = db
+      .prepare("SELECT content FROM messages WHERE thread_id = ? AND role = 'assistant' ORDER BY created_at DESC LIMIT 1")
+      .get(r.id) as any;
+    return { ...r, output: lastMsg?.content || null };
+  });
+
+  return Response.json({ runs: enriched });
 }

@@ -9,6 +9,10 @@ import kentIcon from "@/assets/icon.png";
 function ToolCallBlock({ content, metadata }: { content: string; metadata?: any }) {
   const [open, setOpen] = useState(false);
 
+  const isRunning = content.startsWith("Calling ");
+  const isError = metadata?.error === true;
+  const isDone = !isRunning && !isError;
+
   let label = "Tool call";
   if (metadata?.name) {
     const argsPreview = metadata.args
@@ -19,6 +23,12 @@ function ToolCallBlock({ content, metadata }: { content: string; metadata?: any 
     label = content.split("\n")[0]?.slice(0, 80) || "Tool call";
   }
 
+  const statusIcon = isRunning
+    ? <Loader2 size={12} className="text-amber-400 animate-spin" />
+    : isError
+      ? <span className="text-red-400 text-[11px]">✗</span>
+      : <span className="text-emerald-500 text-[11px]">✓</span>;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 4 }}
@@ -28,14 +38,18 @@ function ToolCallBlock({ content, metadata }: { content: string; metadata?: any 
     >
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 text-[12px] text-muted-foreground/50 hover:text-muted-foreground/70 transition-colors cursor-pointer py-1"
+        className={`flex items-center gap-2 text-[12px] transition-colors cursor-pointer py-1 ${
+          isError ? "text-red-400/70 hover:text-red-400" : "text-muted-foreground/50 hover:text-muted-foreground/70"
+        }`}
       >
-        <Terminal size={12} />
+        {statusIcon}
         <span className="font-mono truncate max-w-[400px]">{label}</span>
-        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        {!isRunning && (open ? <ChevronDown size={12} /> : <ChevronRight size={12} />)}
       </button>
-      {open && (
-        <pre className="text-[11px] text-muted-foreground/40 font-mono whitespace-pre-wrap leading-relaxed mt-1 pl-5 border-l-2 border-border/30 max-h-48 overflow-y-auto">
+      {open && !isRunning && (
+        <pre className={`text-[11px] font-mono whitespace-pre-wrap leading-relaxed mt-1 pl-5 border-l-2 max-h-48 overflow-y-auto ${
+          isError ? "text-red-400/50 border-red-500/20" : "text-muted-foreground/40 border-border/30"
+        }`}>
           {content}
         </pre>
       )}
@@ -77,10 +91,10 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
   useEffect(() => { scrollToBottom(); }, [messages, scrollToBottom]);
 
   // Load existing thread messages — but skip if we're actively streaming
-  // (the thread ID changes mid-stream when a new thread is created)
+  const [threadStatus, setThreadStatus] = useState<string | null>(null);
+
   useEffect(() => {
     if (streaming) {
-      // Just update the thread ID without reloading
       if (initialThreadId) setThreadId(initialThreadId);
       return;
     }
@@ -89,13 +103,36 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
       setLoadingHistory(true);
       fetch(`/api/threads/${initialThreadId}/messages`)
         .then((r) => r.json())
-        .then((data) => setMessages(data.messages || []))
+        .then((data) => {
+          setMessages(data.messages || []);
+          setThreadStatus(data.thread?.status ?? null);
+        })
         .catch(() => {})
         .finally(() => setLoadingHistory(false));
     } else {
       setMessages([]);
+      setThreadStatus(null);
     }
   }, [initialThreadId, streaming]);
+
+  // Poll for new messages when viewing a running workflow thread
+  useEffect(() => {
+    if (!threadId || streaming || threadStatus !== "running") return;
+
+    const poll = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/threads/${threadId}/messages`);
+        const data = await res.json();
+        setMessages(data.messages || []);
+        if (data.thread?.status !== "running") {
+          setThreadStatus(data.thread?.status ?? null);
+          clearInterval(poll);
+        }
+      } catch {}
+    }, 1000);
+
+    return () => clearInterval(poll);
+  }, [threadId, streaming, threadStatus]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -250,6 +287,7 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
     }
   };
 
+  const busy = streaming || threadStatus === "running";
   const isEmpty = messages.length === 0 && !loadingHistory;
 
   // ─── Render ─────────────────────────────────────────────────────────
@@ -262,7 +300,7 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
             <Loader2 size={20} className="text-muted-foreground/30 animate-spin" />
           </div>
         ) : isEmpty ? (
-          <div className="flex flex-col items-center justify-center h-full px-6">
+          <div className="flex flex-col items-center justify-end pb-8 h-full px-6">
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
@@ -325,12 +363,10 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
                             <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 animate-pulse" style={{ animationDelay: "150ms" }} />
                             <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 animate-pulse" style={{ animationDelay: "300ms" }} />
                           </div>
-                        ) : msg.role === "assistant" ? (
+                        ) : (
                           <div className="prose-chat">
                             <Markdown>{msg.content}</Markdown>
                           </div>
-                        ) : (
-                          <p className="text-[14px] leading-[1.7] text-foreground/90 whitespace-pre-wrap">{msg.content}</p>
                         )}
                       </div>
                     </div>
@@ -352,31 +388,35 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
             <textarea
               ref={inputRef}
               className="w-full bg-transparent text-[14px] outline-none! ring-0! border-none! shadow-none! placeholder:text-muted-foreground/30 resize-none leading-relaxed max-h-[160px] px-5 pt-4 pb-12 focus:outline-none! focus-visible:outline-none! focus-visible:ring-0!"
-              placeholder="Message Kent..."
+              placeholder={busy ? "Kent is working..." : "Message Kent..."}
               rows={1}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              disabled={streaming}
+              disabled={busy}
             />
 
             <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between px-3 pb-3 pt-1">
               <div />
-              <motion.button
-                whileHover={{ scale: 1.08 }}
-                whileTap={{ scale: 0.92 }}
-                onClick={sendMessage}
-                disabled={!input.trim() && !streaming}
-                className={`h-8 w-8 flex items-center justify-center rounded-lg shrink-0 transition-all duration-200 cursor-pointer ${
-                  streaming
-                    ? "bg-foreground text-background"
-                    : input.trim()
+              {busy ? (
+                <div className="h-8 w-8 flex items-center justify-center">
+                  <Loader2 size={14} className="text-muted-foreground/40 animate-spin" />
+                </div>
+              ) : (
+                <motion.button
+                  whileHover={{ scale: 1.08 }}
+                  whileTap={{ scale: 0.92 }}
+                  onClick={sendMessage}
+                  disabled={!input.trim()}
+                  className={`h-8 w-8 flex items-center justify-center rounded-lg shrink-0 transition-all duration-200 cursor-pointer ${
+                    input.trim()
                       ? "bg-foreground text-background shadow-sm"
                       : "bg-foreground/[0.06] text-muted-foreground/30"
-                }`}
-              >
-                {streaming ? <StopCircle size={14} /> : <ArrowUp size={14} strokeWidth={2.5} />}
-              </motion.button>
+                  }`}
+                >
+                  <ArrowUp size={14} strokeWidth={2.5} />
+                </motion.button>
+              )}
             </div>
           </div>
 

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
 import { ArrowLeft, Clock, Play, Loader2, Trash2 } from "lucide-react";
+import Markdown from "react-markdown";
 import { type Workflow, cronToHuman, timeAgo } from "@/lib/types";
 import { WorkflowRunRow, type WorkflowRun } from "@/components/workflow-run-row";
 
@@ -191,7 +192,9 @@ export function WorkflowDetailPage({
         {/* Prompt */}
         <div className="mb-8">
           <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/40 mb-2">Prompt</h2>
-          <pre className="bg-foreground/[0.03] border border-border/40 rounded-lg p-5 text-[13px] text-foreground/80 leading-relaxed whitespace-pre-wrap font-sans">{wf.prompt}</pre>
+          <div className="bg-foreground/[0.03] border border-border/40 rounded-lg p-5 prose-brief">
+            <Markdown>{wf.prompt}</Markdown>
+          </div>
         </div>
       </motion.div>
 
