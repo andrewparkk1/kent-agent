@@ -22,6 +22,7 @@ export function getDb(): Database {
   _db.exec("PRAGMA foreign_keys = ON");
 
   initSchema(_db);
+  runMigrations(_db);
   rebuildFtsIndex(_db);
   return _db;
 }
@@ -35,6 +36,17 @@ function rebuildFtsIndex(db: Database): void {
   if (ftsCount > 0) return;
 
   db.exec("INSERT INTO items_fts(rowid, content, source, external_id) SELECT id, content, source, external_id FROM items");
+}
+
+function runMigrations(db: Database): void {
+  const cols = db.prepare("PRAGMA table_info(workflows)").all() as any[];
+  const colNames = cols.map((c: any) => c.name);
+  if (cols.length > 0 && !colNames.includes("type")) {
+    db.exec("ALTER TABLE workflows ADD COLUMN type TEXT NOT NULL DEFAULT 'cron'");
+  }
+  if (cols.length > 0 && !colNames.includes("source")) {
+    db.exec("ALTER TABLE workflows ADD COLUMN source TEXT NOT NULL DEFAULT 'user'");
+  }
 }
 
 function initSchema(db: Database): void {
@@ -104,6 +116,8 @@ function initSchema(db: Database): void {
       description TEXT NOT NULL DEFAULT '',
       prompt TEXT NOT NULL,
       cron_schedule TEXT,
+      type TEXT NOT NULL DEFAULT 'cron' CHECK(type IN ('cron', 'manual', 'event')),
+      source TEXT NOT NULL DEFAULT 'user' CHECK(source IN ('default', 'user', 'suggested')),
       enabled INTEGER NOT NULL DEFAULT 1,
       last_run_at INTEGER,
       next_run_at INTEGER,
@@ -122,6 +136,21 @@ function initSchema(db: Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow ON workflow_runs(workflow_id, started_at);
+
+    CREATE TABLE IF NOT EXISTS memories (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL CHECK(type IN ('person', 'project', 'topic', 'event', 'preference', 'place')),
+      title TEXT NOT NULL,
+      body TEXT NOT NULL DEFAULT '',
+      sources TEXT NOT NULL DEFAULT '[]',
+      aliases TEXT NOT NULL DEFAULT '[]',
+      is_archived INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(type);
+    CREATE INDEX IF NOT EXISTS idx_memories_archived ON memories(is_archived);
   `);
 }
 
@@ -141,7 +170,11 @@ const _upsertItem = () => getDb().prepare(`
   ON CONFLICT(source, external_id) DO UPDATE SET
     content = excluded.content,
     metadata = excluded.metadata,
-    synced_at = unixepoch()
+    synced_at = CASE
+      WHEN items.content != excluded.content OR items.metadata != excluded.metadata
+      THEN unixepoch()
+      ELSE items.synced_at
+    END
 `);
 
 let upsertStmt: ReturnType<typeof _upsertItem> | null = null;
@@ -295,6 +328,8 @@ export interface DbWorkflow {
   description: string;
   prompt: string;
   cron_schedule: string | null;
+  type: "cron" | "manual" | "event";
+  source: "default" | "user" | "suggested";
   enabled: number;
   last_run_at: number | null;
   next_run_at: number | null;
@@ -317,12 +352,15 @@ export function createWorkflow(opts: {
   prompt: string;
   description?: string;
   cron_schedule?: string;
+  type?: "cron" | "manual" | "event";
+  source?: "default" | "user" | "suggested";
 }): string {
   const id = crypto.randomUUID();
+  const type = opts.type ?? (opts.cron_schedule ? "cron" : "manual");
   getDb()
     .prepare(`
-      INSERT INTO workflows (id, name, description, prompt, cron_schedule)
-      VALUES ($id, $name, $description, $prompt, $cron_schedule)
+      INSERT INTO workflows (id, name, description, prompt, cron_schedule, type, source)
+      VALUES ($id, $name, $description, $prompt, $cron_schedule, $type, $source)
     `)
     .run({
       $id: id,
@@ -330,6 +368,8 @@ export function createWorkflow(opts: {
       $description: opts.description ?? "",
       $prompt: opts.prompt,
       $cron_schedule: opts.cron_schedule ?? null,
+      $type: type,
+      $source: opts.source ?? "user",
     });
   return id;
 }
@@ -420,4 +460,118 @@ export function getWorkflowRuns(workflowId: string, limit = 20): DbWorkflowRun[]
       LIMIT $limit
     `)
     .all({ $wid: workflowId, $limit: limit }) as DbWorkflowRun[];
+}
+
+// ─── Memories ───────────────────────────────────────────────────────────────
+
+export type MemoryType = "person" | "project" | "topic" | "event" | "preference" | "place";
+
+export interface DbMemory {
+  id: string;
+  type: MemoryType;
+  title: string;
+  body: string;
+  sources: string; // JSON array of source names
+  aliases: string; // JSON array of alternative names
+  is_archived: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export function createMemory(opts: {
+  type: MemoryType;
+  title: string;
+  body: string;
+  sources?: string[];
+  aliases?: string[];
+}): string {
+  const id = crypto.randomUUID();
+  getDb()
+    .prepare(`
+      INSERT INTO memories (id, type, title, body, sources, aliases)
+      VALUES ($id, $type, $title, $body, $sources, $aliases)
+    `)
+    .run({
+      $id: id,
+      $type: opts.type,
+      $title: opts.title,
+      $body: opts.body,
+      $sources: JSON.stringify(opts.sources ?? []),
+      $aliases: JSON.stringify(opts.aliases ?? []),
+    });
+  return id;
+}
+
+export function updateMemory(
+  id: string,
+  fields: Partial<Pick<DbMemory, "title" | "body" | "type" | "is_archived"> & { sources: string[]; aliases: string[] }>,
+): void {
+  const sets: string[] = [];
+  const params: Record<string, any> = { $id: id };
+
+  for (const [key, value] of Object.entries(fields)) {
+    if (key === "sources" || key === "aliases") {
+      sets.push(`${key} = $${key}`);
+      params[`$${key}`] = JSON.stringify(value);
+    } else {
+      sets.push(`${key} = $${key}`);
+      params[`$${key}`] = value;
+    }
+  }
+  sets.push("updated_at = unixepoch()");
+
+  if (sets.length === 1) return;
+
+  getDb()
+    .prepare(`UPDATE memories SET ${sets.join(", ")} WHERE id = $id`)
+    .run(params);
+}
+
+export function archiveMemory(id: string): void {
+  getDb()
+    .prepare("UPDATE memories SET is_archived = 1, updated_at = unixepoch() WHERE id = $id")
+    .run({ $id: id });
+}
+
+export function getMemory(id: string): DbMemory | null {
+  return getDb()
+    .prepare("SELECT * FROM memories WHERE id = $id")
+    .get({ $id: id }) as DbMemory | null;
+}
+
+export function listMemories(opts?: { type?: MemoryType; includeArchived?: boolean }): DbMemory[] {
+  const conditions: string[] = [];
+  const params: Record<string, any> = {};
+
+  if (!opts?.includeArchived) {
+    conditions.push("is_archived = 0");
+  }
+  if (opts?.type) {
+    conditions.push("type = $type");
+    params.$type = opts.type;
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  return getDb()
+    .prepare(`SELECT * FROM memories ${where} ORDER BY updated_at DESC`)
+    .all(params) as DbMemory[];
+}
+
+export function searchMemories(query: string): DbMemory[] {
+  const pattern = `%${query}%`;
+  return getDb()
+    .prepare(`
+      SELECT * FROM memories
+      WHERE is_archived = 0 AND (title LIKE $q OR body LIKE $q OR aliases LIKE $q)
+      ORDER BY updated_at DESC
+      LIMIT 50
+    `)
+    .all({ $q: pattern }) as DbMemory[];
+}
+
+export function deleteMemory(id: string): boolean {
+  const result = getDb()
+    .prepare("DELETE FROM memories WHERE id = $id")
+    .run({ $id: id });
+  return result.changes > 0;
 }

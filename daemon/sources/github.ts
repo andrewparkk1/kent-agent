@@ -85,31 +85,33 @@ export const github: Source = {
         }
       }
 
-      // Fetch recent commits (primary: gh search commits)
+      // Fetch recent commits from repos the user has pushed to
       const lastSync = state.getLastSync("github");
-      const daysBack = lastSync > 0
-        ? Math.max(1, Math.ceil((Date.now() - lastSync) / 86400000))
-        : 3;
+      const sinceDate = lastSync > 0
+        ? new Date(lastSync * 1000).toISOString()
+        : new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
 
-      const searched = await runGhJson([
-        "search", "commits",
-        "--author", account,
-        "--limit", "40",
-        "--sort", "committer-date",
-        "--order", "desc",
-        "--json", "sha,repository,commit,url",
+      // Get repos the user has recently pushed to
+      const repoRaw = await runGh([
+        "api", "user/repos",
+        "--jq", ".[].full_name",
+        "-q", "sort=pushed", "-q", "per_page=15", "-q", "type=owner",
       ]);
+      const repoNames = repoRaw ? repoRaw.split("\n").filter(Boolean) : [];
 
-      const cutoff = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000);
-      if (Array.isArray(searched)) {
-        for (const c of searched) {
+      for (const repo of repoNames.slice(0, 10)) {
+        const commits = await runGhJson([
+          "api", `repos/${repo}/commits?since=${sinceDate}&per_page=30&author=${account}`,
+        ]);
+        if (!Array.isArray(commits)) continue;
+
+        for (const c of commits) {
           const commitDate = c?.commit?.committer?.date ?? c?.commit?.author?.date ?? "";
           const when = new Date(commitDate);
-          if (!commitDate || Number.isNaN(when.getTime()) || when < cutoff) continue;
-          const repo = c?.repository?.fullName ?? c?.repository?.full_name ?? c?.repository?.name ?? "";
+          if (!commitDate || Number.isNaN(when.getTime())) continue;
           const message = (c?.commit?.message ?? "").split("\n")[0];
           const sha = (c?.sha ?? "").slice(0, 7);
-          if (!repo || !sha || !message) continue;
+          if (!sha || !message) continue;
           items.push({
             source: "github",
             externalId: `github-commit-${c.sha}`,

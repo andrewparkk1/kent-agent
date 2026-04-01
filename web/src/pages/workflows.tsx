@@ -4,12 +4,13 @@ import { Zap, Play, ChevronRight, Clock } from "lucide-react";
 import { Stagger, StaggerItem } from "@/components/stagger";
 import { type Workflow, cronToHuman, timeAgo } from "@/lib/types";
 
-export function WorkflowCard({ workflow }: { workflow: Workflow }) {
+export function WorkflowCard({ workflow, onClick }: { workflow: Workflow; onClick?: () => void }) {
   const [hovered, setHovered] = useState(false);
 
   return (
     <StaggerItem>
       <motion.div
+        onClick={onClick}
         onHoverStart={() => setHovered(true)}
         onHoverEnd={() => setHovered(false)}
         whileHover={{ scale: 1.005 }}
@@ -68,7 +69,7 @@ export function WorkflowCard({ workflow }: { workflow: Workflow }) {
   );
 }
 
-export function WorkflowsPage({ workflows, loading }: { workflows: Workflow[]; loading: boolean }) {
+export function WorkflowsPage({ workflows, loading, onSelect }: { workflows: Workflow[]; loading: boolean; onSelect?: (id: string) => void }) {
   return (
     <div className="max-w-[680px] mx-auto px-8 py-10">
       <motion.h1
@@ -96,20 +97,10 @@ export function WorkflowsPage({ workflows, loading }: { workflows: Workflow[]; l
         </motion.div>
       ) : (
         <Stagger className="flex flex-col gap-2">
-          {workflows.map((w) => <WorkflowCard key={w.id} workflow={w} />)}
+          {workflows.map((w) => <WorkflowCard key={w.id} workflow={w} onClick={() => onSelect?.(w.id)} />)}
         </Stagger>
       )}
 
-      {workflows.length > 0 && (
-        <motion.p
-          className="text-[11px] text-muted-foreground/40 mt-8 font-mono"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.4 }}
-        >
-          {workflows.length} workflow{workflows.length !== 1 ? "s" : ""}
-        </motion.p>
-      )}
     </div>
   );
 }

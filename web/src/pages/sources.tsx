@@ -3,6 +3,23 @@ import { Search, Globe } from "lucide-react";
 import { Stagger, StaggerItem } from "@/components/stagger";
 import { SOURCE_META, type Item, type SourceInfo, type DaemonInfo, getTitle, getSubtitle, timeAgo } from "@/lib/types";
 
+function daemonStatusText(daemon: DaemonInfo): string {
+  if (daemon.status === "stopped") return "Daemon stopped";
+  if (daemon.status === "syncing") {
+    const label = daemon.currentSource ? SOURCE_META[daemon.currentSource]?.label || daemon.currentSource : null;
+    return label ? `Syncing ${label}...` : "Syncing...";
+  }
+  // running/waiting — show time until next sync
+  if (daemon.nextSyncAt) {
+    const remaining = daemon.nextSyncAt - Date.now();
+    if (remaining <= 0) return "Syncing soon...";
+    const sec = Math.ceil(remaining / 1000);
+    if (sec < 60) return `Next sync in ${sec}s`;
+    return `Next sync in ${Math.ceil(sec / 60)}m`;
+  }
+  return `Running · every ${daemon.intervalMinutes}m`;
+}
+
 export function SourcesPage({ items, loading, filter, setFilter, query, setQuery, counts, sources, daemon }: {
   items: Item[]; loading: boolean; filter: string | null; setFilter: (f: string | null) => void;
   query: string; setQuery: (q: string) => void; counts: Record<string, number>;
@@ -26,11 +43,9 @@ export function SourcesPage({ items, loading, filter, setFilter, query, setQuery
         animate={{ opacity: 1 }}
         transition={{ delay: 0.1, duration: 0.3 }}
       >
-        <span className={`inline-block w-2 h-2 rounded-full ${daemon.status === "syncing" ? "bg-emerald-500 animate-pulse-dot" : daemon.status === "waiting" ? "bg-amber-400" : "bg-muted-foreground/30"}`} />
+        <span className={`inline-block w-2 h-2 rounded-full ${daemon.status === "syncing" ? "bg-emerald-500 animate-pulse-dot" : daemon.status === "stopped" ? "bg-muted-foreground/30" : "bg-emerald-500"}`} />
         <span className="text-[13px] text-muted-foreground/60">
-          Daemon {daemon.status}
-          {daemon.currentSource && ` · syncing ${SOURCE_META[daemon.currentSource]?.label || daemon.currentSource}`}
-          {daemon.intervalMinutes && ` · every ${daemon.intervalMinutes < 1 ? `${daemon.intervalMinutes * 60}s` : `${daemon.intervalMinutes}m`}`}
+          {daemonStatusText(daemon)}
         </span>
       </motion.div>
 

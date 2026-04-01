@@ -229,53 +229,142 @@ function installPrompts(): void {
 const DEFAULT_WORKFLOWS = [
   {
     name: "morning-briefing",
-    description: "Daily morning summary of what's ahead",
-    cron_schedule: "0 8 * * 1-5",
-    prompt: `Give me a concise morning briefing. Include:
-1. Today's calendar events and meetings
-2. Priority messages that need my attention (urgent or from important contacts)
-3. Outstanding tasks or follow-ups from yesterday
-4. Any notable GitHub activity (PRs needing review, mentions)
+    description: "Daily morning briefing — calendar, emails, to-dos",
+    cron_schedule: "0 8 * * *",
+    source: "default" as const,
+    prompt: `Daily briefing. Use EXACTLY these markdown headings. Each section is 1-2 sentences max — warm, direct, like a friend catching you up.
 
-Keep it scannable — use bullet points and bold for key items.
-Start with "Good morning" and today's date.`,
+CRITICAL — Temporal awareness:
+- You receive 7 days of source data, but this brief is about TODAY and the near future.
+- Past run summaries show what was already reported. Do NOT repeat items from past briefs unless there is NEW information.
+- For to-dos: only include tasks where there is fresh evidence they are still open (new email, upcoming deadline, unresolved thread). If a task appeared in a past brief and there is no new signal, DROP IT — assume it was handled.
+- If something looks completed based on the data (confirmation email, reservation made, form submitted), do not list it as a to-do.
+
+## Today
+One sentence on what's happening today. Meetings, events, or "clear day." If meetings have prereads, docs, or links attached — mention them.
+
+## Prep
+If today has meetings with agendas, prereads, or shared docs — list them briefly so I can prepare. If nothing needs prep, skip this section entirely.
+
+## Upcoming week
+2-3 sentences max on the most important things coming up this week. Mention names, times, conflicts.
+
+## Emails
+The most important 1-2 emails that need attention. Include anything time-sensitive (bills, invoices, deadlines, renewals, payments due).
+
+## People
+One sentence about who you should follow up with or who reached out recently. Names only.
+
+## Rewind
+1-2 sentences looking back at your past week — what happened, key meetings, decisions made, themes.
+
+## To-do
+3-5 actionable items as bullets. Include:
+- Follow-ups from meetings or messages
+- Bills, payments, or deadlines approaching (from emails or calendar)
+- Anything that'll slip through the cracks if not done today
+Format: - **Task title** — brief context
+
+Warm, short, direct.`,
   },
   {
     name: "evening-recap",
-    description: "End-of-day summary of what happened",
-    cron_schedule: "0 18 * * 1-5",
-    prompt: `Give me an end-of-day recap. Include:
-1. Summary of messages received today and any that still need a response
-2. Meetings that happened and any action items from them
-3. GitHub activity — PRs merged, issues closed, new issues
-4. Anything that came in today that I should address tomorrow
+    description: "End-of-day recap — what happened, what's tomorrow",
+    cron_schedule: "0 19 * * *",
+    source: "default" as const,
+    prompt: `Evening recap. Use EXACTLY these markdown headings. Each section 1-2 sentences max — warm, direct.
 
-Be concise. Flag anything time-sensitive. End with a suggested priority for tomorrow morning.`,
+CRITICAL — Temporal awareness:
+- You receive 7 days of source data, but this brief is about TODAY only.
+- "Today" means the current calendar date. Only report meetings, emails, and events that actually happened or arrived today.
+- Past run summaries show what was already reported on previous days. Do NOT repeat items from past briefs unless there is NEW activity today.
+- For to-dos: only include tasks where there is fresh evidence TODAY that they are still open (new email, upcoming deadline, unresolved thread). If a task appeared in a past brief and there is no new signal today, DROP IT — assume it was handled.
+- If something looks completed based on the data (confirmation email sent, reservation made, form submitted), do not list it as a to-do.
+
+## Today
+What happened today in 2-3 sentences. Key meetings, decisions, accomplishments. Names and outcomes.
+
+## Highlights
+1-2 standout moments or wins from today. Could be a good conversation, a breakthrough, or something notable.
+
+## Emails
+Any emails that came in today that still need attention or were important. Include bills, invoices, or deadlines spotted. One sentence. If none, skip this section entirely.
+
+## Tomorrow
+Quick preview of tomorrow — meetings, prereads to review tonight, deadlines landing. If tomorrow is clear, say so.
+
+## To-do
+Follow-ups from today + prep for tomorrow as bullets. Format: - **Task title** — brief context.
+
+IMPORTANT — Deduplicate and filter tasks:
+- If two items refer to the same assignment, class, or task (even with different wording, abbreviations, or course codes), merge them into ONE bullet
+- Prefer the version with the most specific deadline info
+- Never list the same underlying task twice
+- Do NOT carry forward stale to-dos from past briefs — only include items with fresh evidence they are still pending
+
+Short, warm, direct.`,
   },
   {
     name: "memory-curator",
-    description: "Organize and surface patterns in synced data",
-    cron_schedule: "0 12 * * 0",
-    prompt: `Review the past week of synced data and surface insights:
-1. Recurring topics or threads across messages and emails
-2. People I've been communicating with most frequently
-3. Any forgotten follow-ups — messages I received but never responded to
-4. Patterns in my GitHub activity (what repos am I most active in?)
-5. Any calendar gaps or scheduling patterns worth noting
+    description: "Maintain a living knowledge base of useful context",
+    cron_schedule: "0 10 * * *",
+    source: "default" as const,
+    prompt: `You are the memory curator. Your job is to maintain a living knowledge base of things that are genuinely useful — the kind of context a great assistant would want to remember to help you better.
 
-Present this as a brief "weekly digest" with actionable observations.`,
+Review the data sources provided (emails, messages, meetings, calendar, notes). Focus on things that would actually help in future conversations.
+
+Look for and surface:
+- **People**: who they are to you, what you're working on together, how you interact
+- **Projects**: what you're building or working on, current state, what's next, key decisions
+- **Plans**: upcoming trips, deadlines, commitments, events worth remembering
+- **Preferences**: how you like things done, tools you use, patterns in how you work
+- **Topics**: things you're actively thinking about, learning, or exploring
+
+Guidelines:
+- Keep each observation to 2-5 sentences — concise, factual, useful
+- The test for a good memory: "Would this help me assist you better next time?" If not, don't save it.
+- Update existing observations rather than creating duplicates
+- Flag anything that seems stale (30+ days with no new activity)
+
+DO NOT save:
+- Security observations or warnings about what's in your files/notes
+- Browsing patterns, screen time analysis, or attention tracking
+- Judgmental observations about habits or behavior
+- Anything that reads like a report ABOUT you rather than notes FOR you
+- Obvious things that can be found by reading your calendar or inbox directly`,
   },
   {
     name: "workflow-suggestor",
-    description: "Analyze patterns and suggest new automations",
-    cron_schedule: "0 10 * * 1",
-    prompt: `Analyze my recent activity across all sources and suggest useful workflows I could automate. Consider:
-1. Repetitive tasks I seem to do manually
-2. Communication patterns that could use automated summaries
-3. GitHub workflows that could be streamlined
-4. Time-sensitive items that would benefit from proactive alerts
+    description: "Suggest new automations based on actual patterns",
+    cron_schedule: "30 9 * * *",
+    source: "default" as const,
+    prompt: `You have access to this person's digital life — their emails, calendar, messages, and more. Suggest 1-3 new automated workflows that would save them real time and effort.
 
-For each suggestion, explain what it would do, how often it should run, and why it would be useful. Keep it to 3-5 concrete suggestions.`,
+Don't suggest passive summaries or information digests. Suggest workflows that ACTUALLY DO THINGS:
+- Draft follow-up emails after meetings
+- Create calendar events when someone suggests a time in a message
+- File and organize emails automatically
+- Send birthday messages to contacts
+- Draft responses to common email patterns
+- Set reminders, update docs
+
+Think: "What would a world-class executive assistant do automatically without being asked?"
+
+Look at their actual data. What are they spending time on that could be automated? What falls through the cracks? What's repetitive?
+
+For each suggestion, provide:
+- **Name**: short, descriptive
+- **Schedule**: cron expression or "event-triggered"
+- **What it does**: 1-2 sentences
+- **Why**: reference actual patterns you see in their data (names, times, frequencies)
+- **Prompt**: the full detailed instructions the agent would receive when the workflow runs
+
+Rules:
+- Only suggest things that would actually help based on the data you see
+- Don't suggest workflows that already exist
+- Be specific — reference actual patterns (names, times, frequencies)
+- Each suggested prompt should instruct the agent to DO something concrete, not just summarize
+- Keep it to 1-3 high-quality suggestions, not a laundry list`,
   },
 ];
 

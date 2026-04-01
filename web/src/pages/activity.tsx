@@ -1,28 +1,8 @@
 import { useState, useEffect } from "react";
 import { motion } from "motion/react";
-import { Activity, Clock, CheckCircle2, Loader2, AlertCircle } from "lucide-react";
+import { Activity } from "lucide-react";
 import { Stagger, StaggerItem } from "@/components/stagger";
-import { timeAgo } from "@/lib/types";
-
-interface WorkflowRun {
-  id: string;
-  workflow_id: string;
-  workflow_name: string;
-  status: "pending" | "running" | "done" | "error";
-  output: string | null;
-  error: string | null;
-  started_at: number;
-  finished_at: number | null;
-}
-
-function statusIcon(s: WorkflowRun["status"]) {
-  switch (s) {
-    case "running": return <Loader2 size={14} className="text-amber-400 animate-spin" />;
-    case "done": return <CheckCircle2 size={14} className="text-emerald-500/70" />;
-    case "error": return <AlertCircle size={14} className="text-red-400" />;
-    default: return <Clock size={14} className="text-muted-foreground/40" />;
-  }
-}
+import { WorkflowRunRow, type WorkflowRun } from "@/components/workflow-run-row";
 
 export function ActivityPage() {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
@@ -72,19 +52,7 @@ export function ActivityPage() {
         <Stagger className="flex flex-col gap-1">
           {runs.map((run) => (
             <StaggerItem key={run.id}>
-              <motion.div
-                whileHover={{ x: 2 }}
-                transition={{ duration: 0.15 }}
-                className="flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-foreground/[0.03] transition-colors cursor-pointer"
-              >
-                {statusIcon(run.status)}
-                <div className="flex-1 min-w-0">
-                  <span className="text-[13px] text-foreground truncate block">{run.workflow_name}</span>
-                  {run.error && <span className="text-[11px] text-red-400/70 truncate block mt-0.5">{run.error}</span>}
-                  {run.output && !run.error && <span className="text-[11px] text-muted-foreground/50 truncate block mt-0.5">{run.output.slice(0, 120)}</span>}
-                </div>
-                <span className="text-[11px] font-mono text-muted-foreground/40 tabular-nums shrink-0">{timeAgo(run.started_at)}</span>
-              </motion.div>
+              <WorkflowRunRow run={run} showName expandable />
             </StaggerItem>
           ))}
         </Stagger>

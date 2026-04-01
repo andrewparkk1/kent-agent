@@ -1,0 +1,31 @@
+/** GET /api/items — list/search synced items across all sources. */
+import { getItemCount, searchItems, getItemsBySource, getDb } from "../../shared/db.ts";
+
+export function handleCounts() {
+  return Response.json(getItemCount());
+}
+
+export function handleItems(req: Request) {
+  const url = new URL(req.url);
+  const source = url.searchParams.get("source");
+  const q = url.searchParams.get("q");
+  const limit = Math.min(Number(url.searchParams.get("limit") || 200), 500);
+
+  let items;
+  if (q) {
+    items = searchItems(q, limit, source ?? undefined);
+  } else if (source) {
+    items = getItemsBySource(source, limit);
+  } else {
+    const rows = getDb()
+      .prepare(`
+        SELECT id, source, external_id, content, metadata, created_at
+        FROM items ORDER BY created_at DESC LIMIT ?
+      `)
+      .all(limit) as any[];
+
+    items = rows.map((r: any) => ({ ...r, metadata: JSON.parse(r.metadata) }));
+  }
+
+  return Response.json({ items });
+}

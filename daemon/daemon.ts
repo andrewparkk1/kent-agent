@@ -234,10 +234,12 @@ async function main(): Promise<void> {
           }));
           upsertItems(dbItems);
           log(`${source.name}: save complete`);
+          // Only advance the sync cursor when we actually got data —
+          // if a source returns [] it might be a silent failure or rate limit
+          syncState.markSynced(source.name);
         } else {
           log(`${source.name}: no new items`);
         }
-        syncState.markSynced(source.name);
       } catch (e) {
         const errMsg = String(e);
         log(`${source.name}: ERROR — ${errMsg}`);

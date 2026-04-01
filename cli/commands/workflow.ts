@@ -74,12 +74,13 @@ function workflowList(): void {
   console.log(`\n${BOLD}  Workflows${NC}\n`);
   for (const wf of workflows) {
     const status = wf.enabled ? `${GREEN}enabled${NC}` : `${RED}disabled${NC}`;
-    const schedule = wf.cron_schedule ? `${DIM}${wf.cron_schedule}${NC}` : `${DIM}manual${NC}`;
+    const schedule = wf.cron_schedule ? `${DIM}${wf.cron_schedule}${NC}` : `${DIM}${wf.type}${NC}`;
+    const sourceTag = wf.source !== "user" ? ` ${DIM}[${wf.source}]${NC}` : "";
     const lastRun = wf.last_run_at
       ? `${DIM}last: ${new Date(wf.last_run_at * 1000).toLocaleString()}${NC}`
       : `${DIM}never run${NC}`;
 
-    console.log(`  ${BOLD}${wf.name}${NC}  ${status}  ${schedule}`);
+    console.log(`  ${BOLD}${wf.name}${NC}  ${status}  ${schedule}${sourceTag}`);
     if (wf.description) {
       console.log(`    ${DIM}${wf.description}${NC}`);
     }

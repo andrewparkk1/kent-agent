@@ -7,6 +7,10 @@ import { HomePage } from "@/pages/home";
 import { WorkflowsPage } from "@/pages/workflows";
 import { ActivityPage } from "@/pages/activity";
 import { SourcesPage } from "@/pages/sources";
+import { ChatPage } from "@/pages/chat";
+import { IdentityPage } from "@/pages/identity";
+import { MemoriesPage } from "@/pages/memories";
+import { WorkflowDetailPage } from "@/pages/workflow-detail";
 import type { Page, Item, Workflow, SourceInfo, DaemonInfo } from "@/lib/types";
 
 // ─── Placeholder ────────────────────────────────────────────────────────────
@@ -47,7 +51,14 @@ export function App() {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [workflowsLoading, setWorkflowsLoading] = useState(true);
   const [sources, setSources] = useState<SourceInfo[]>([]);
-  const [daemon, setDaemon] = useState<DaemonInfo>({ status: "stopped", currentSource: null, intervalMinutes: 5 });
+  const [daemon, setDaemon] = useState<DaemonInfo>({ status: "stopped", currentSource: null, intervalMinutes: 5, lastSyncAt: null, nextSyncAt: null });
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
+
+  const openChat = useCallback((threadId?: string) => {
+    setSelectedThreadId(threadId ?? null);
+    setPage("chat");
+  }, []);
 
   const fetchItems = useCallback(async () => {
     const params = new URLSearchParams();
@@ -103,17 +114,30 @@ export function App() {
 
   return (
     <div className="flex min-h-screen bg-background">
-      <Sidebar page={page} setPage={setPage} activityCount={total} />
+      <Sidebar page={page} setPage={setPage} openChat={openChat} selectedThreadId={selectedThreadId} />
 
-      <PageTransition pageKey={page}>
+      <PageTransition pageKey={page === "chat" ? `chat-${selectedThreadId || "new"}` : page}>
         {page === "home" && <HomePage counts={counts} workflows={workflows} />}
-        {page === "workflows" && <WorkflowsPage workflows={workflows} loading={workflowsLoading} />}
+        {page === "workflows" && (
+          <WorkflowsPage
+            workflows={workflows}
+            loading={workflowsLoading}
+            onSelect={(id) => { setSelectedWorkflowId(id); setPage("workflow-detail"); }}
+          />
+        )}
+        {page === "workflow-detail" && selectedWorkflowId && (
+          <WorkflowDetailPage
+            workflowId={selectedWorkflowId}
+            onBack={() => setPage("workflows")}
+          />
+        )}
         {page === "activity" && <ActivityPage />}
+        {page === "chat" && <ChatPage threadId={selectedThreadId} onThreadCreated={setSelectedThreadId} />}
         {page === "sources" && (
           <SourcesPage items={items} loading={loading} filter={filter} setFilter={setFilter} query={query} setQuery={setQuery} counts={counts} sources={sources} daemon={daemon} />
         )}
-        {page === "identity" && <PlaceholderPage title="Identity" description="Your profile, preferences, and context that Kent uses to personalize responses." />}
-        {page === "memories" && <PlaceholderPage title="Memories" description="Knowledge base of people, projects, and topics Kent has learned." />}
+        {page === "identity" && <IdentityPage />}
+        {page === "memories" && <MemoriesPage />}
         {page === "settings" && <PlaceholderPage title="Settings" description="Configure Kent's behavior, sync intervals, and API keys." />}
       </PageTransition>
 

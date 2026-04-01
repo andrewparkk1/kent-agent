@@ -1,7 +1,8 @@
+import { Globe } from "lucide-react";
 import {
-  Mail, Calendar, ListTodo, GitBranch, Globe, StickyNote,
-  MessageCircle, Signal, Mic, HardDrive,
-} from "lucide-react";
+  GmailIcon, ChromeIcon, GitHubIcon, SignalIcon, IMessageIcon,
+  AppleNotesIcon, GranolaIcon, CalendarIcon, TasksIcon, DriveIcon,
+} from "./icons";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -39,24 +40,26 @@ export interface DaemonInfo {
   status: string;
   currentSource: string | null;
   intervalMinutes: number;
+  lastSyncAt: number | null;
+  nextSyncAt: number | null;
 }
 
-export type Page = "home" | "workflows" | "activity" | "identity" | "sources" | "memories" | "settings";
+export type Page = "home" | "workflows" | "workflow-detail" | "activity" | "chat" | "identity" | "sources" | "memories" | "settings";
 
 // ─── Source metadata ────────────────────────────────────────────────────────
 
-export const SOURCE_META: Record<string, { icon: typeof Mail; label: string; color: string; bg: string }> = {
-  gmail:         { icon: Mail,          label: "Gmail",       color: "text-red-500/80",     bg: "bg-red-500/8" },
-  gcal:          { icon: Calendar,      label: "Calendar",    color: "text-blue-500/80",    bg: "bg-blue-500/8" },
-  gtasks:        { icon: ListTodo,      label: "Tasks",       color: "text-violet-500/80",  bg: "bg-violet-500/8" },
-  gdrive:        { icon: HardDrive,     label: "Drive",       color: "text-amber-500/80",   bg: "bg-amber-500/8" },
-  github:        { icon: GitBranch,     label: "GitHub",      color: "text-neutral-500/80", bg: "bg-neutral-500/8" },
-  chrome:        { icon: Globe,         label: "Chrome",      color: "text-amber-600/80",   bg: "bg-amber-600/8" },
-  "apple-notes": { icon: StickyNote,    label: "Notes",       color: "text-orange-500/80",  bg: "bg-orange-500/8" },
-  apple_notes:   { icon: StickyNote,    label: "Notes",       color: "text-orange-500/80",  bg: "bg-orange-500/8" },
-  imessage:      { icon: MessageCircle, label: "iMessage",    color: "text-emerald-500/80", bg: "bg-emerald-500/8" },
-  signal:        { icon: Signal,        label: "Signal",      color: "text-blue-500/80",    bg: "bg-blue-500/8" },
-  granola:       { icon: Mic,           label: "Granola",     color: "text-purple-500/80",  bg: "bg-purple-500/8" },
+export const SOURCE_META: Record<string, { icon: any; label: string; color: string; bg: string }> = {
+  gmail:         { icon: GmailIcon,      label: "Gmail",       color: "text-red-500/80",     bg: "bg-red-500/8" },
+  gcal:          { icon: CalendarIcon,   label: "Calendar",    color: "text-blue-500/80",    bg: "bg-blue-500/8" },
+  gtasks:        { icon: TasksIcon,      label: "Tasks",       color: "text-violet-500/80",  bg: "bg-violet-500/8" },
+  gdrive:        { icon: DriveIcon,      label: "Drive",       color: "text-amber-500/80",   bg: "bg-amber-500/8" },
+  github:        { icon: GitHubIcon,     label: "GitHub",      color: "text-neutral-500/80", bg: "bg-neutral-500/8" },
+  chrome:        { icon: ChromeIcon,     label: "Chrome",      color: "text-amber-600/80",   bg: "bg-amber-600/8" },
+  "apple-notes": { icon: AppleNotesIcon, label: "Notes",       color: "text-yellow-600/80",  bg: "bg-yellow-500/8" },
+  apple_notes:   { icon: AppleNotesIcon, label: "Notes",       color: "text-yellow-600/80",  bg: "bg-yellow-500/8" },
+  imessage:      { icon: IMessageIcon,   label: "iMessage",    color: "text-emerald-500/80", bg: "bg-emerald-500/8" },
+  signal:        { icon: SignalIcon,     label: "Signal",      color: "text-blue-500/80",    bg: "bg-blue-500/8" },
+  granola:       { icon: GranolaIcon,    label: "Granola",     color: "text-purple-500/80",  bg: "bg-purple-500/8" },
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

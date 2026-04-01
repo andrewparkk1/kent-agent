@@ -117,11 +117,16 @@ export const gmail: Source = {
       const subject = getHeader("Subject") || "(no subject)";
       const from = getHeader("From");
       const to = getHeader("To");
-      const date = getHeader("Date") || (detail.internalDate
-        ? new Date(Number(detail.internalDate)).toISOString()
-        : "");
+      const date = getHeader("Date") || "";
       const snippet = detail.snippet ?? "";
       const labels: string[] = detail.labelIds ?? [];
+
+      // Use internalDate (Gmail's server-side receive time in ms) as the authoritative
+      // timestamp — the Date header can be forged, future-dated, or malformed
+      const internalMs = Number(detail.internalDate);
+      const createdAt = internalMs > 0
+        ? Math.floor(internalMs / 1000)
+        : Math.floor(Date.now() / 1000);
 
       items.push({
         source: "gmail",
@@ -146,9 +151,7 @@ export const gmail: Source = {
             (p: any) => p.filename && p.filename.length > 0
           )),
         },
-        createdAt: date
-          ? Math.floor(new Date(date).getTime() / 1000)
-          : Math.floor(Date.now() / 1000),
+        createdAt,
       });
     }
 
@@ -174,24 +177,37 @@ export const gcal: Source = {
     const from = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000);
     const to = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
+    // Use updatedMin to only get events modified since last sync
+    const params: Record<string, any> = {
+      calendarId: "primary",
+      maxResults: 50,
+      timeMin: from.toISOString(),
+      timeMax: to.toISOString(),
+      singleEvents: true,
+      orderBy: "startTime",
+    };
+    if (lastSync > 0) {
+      params.updatedMin = new Date(lastSync * 1000).toISOString();
+    }
+
     const data = await runGws([
       "calendar", "events", "list",
-      "--params", JSON.stringify({
-        calendarId: "primary",
-        maxResults: 50,
-        timeMin: from.toISOString(),
-        timeMax: to.toISOString(),
-        singleEvents: true,
-        orderBy: "startTime",
-      }),
+      "--params", JSON.stringify(params),
     ]);
 
     if (!data?.items || !Array.isArray(data.items)) return [];
 
-    const items = data.items
+    return data.items
       .filter((e: any) => e.status !== "cancelled")
       .map((e: any) => {
         const start = e.start?.dateTime ?? e.start?.date ?? "";
+        // Use the event's updated timestamp for createdAt (when it was last modified),
+        // NOT the event start time — otherwise future events always appear "new"
+        const updated = e.updated ?? e.created ?? "";
+        const createdAt = updated
+          ? Math.floor(new Date(updated).getTime() / 1000)
+          : Math.floor(Date.now() / 1000);
+
         return {
           source: "gcal",
           externalId: `gcal-${e.id}`,
@@ -212,16 +228,9 @@ export const gcal: Source = {
               ?.filter((a: any) => !a.self)
               .map((a: any) => a.email) ?? [],
           },
-          createdAt: start
-            ? Math.floor(new Date(start).getTime() / 1000)
-            : Math.floor(Date.now() / 1000),
+          createdAt,
         };
       });
-
-    if (lastSync > 0) {
-      return items.filter((item: Item) => item.createdAt > lastSync);
-    }
-    return items;
   },
 };
 
@@ -233,6 +242,8 @@ export const gtasks: Source = {
   async fetchNew(state: SyncState): Promise<Item[]> {
     if (!(await checkGws())) return [];
 
+    const lastSync = state.getLastSync("gtasks");
+
     const listsData = await runGws([
       "tasks", "tasklists", "list",
       "--params", "{}",
@@ -240,12 +251,17 @@ export const gtasks: Source = {
 
     if (!listsData?.items || !Array.isArray(listsData.items)) return [];
 
-    // Fetch all task lists concurrently
+    // Fetch task lists — only get tasks updated since last sync
+    const listParams: Record<string, any> = {};
+    if (lastSync > 0) {
+      listParams.updatedMin = new Date(lastSync * 1000).toISOString();
+    }
+
     const listResults = await Promise.all(
       listsData.items.map(async (list: any) => {
         const tasksData = await runGws([
           "tasks", "tasks", "list",
-          "--params", JSON.stringify({ tasklist: list.id }),
+          "--params", JSON.stringify({ tasklist: list.id, ...listParams }),
         ]);
         if (!tasksData?.items) return [];
         return (tasksData.items as any[])
@@ -259,6 +275,12 @@ export const gtasks: Source = {
 
     const items: Item[] = [];
     for (const task of listResults.flat()) {
+      // Use task's updated timestamp, not due date
+      const updated = task.updated ?? "";
+      const createdAt = updated
+        ? Math.floor(new Date(updated).getTime() / 1000)
+        : Math.floor(Date.now() / 1000);
+
       items.push({
         source: "gtasks",
         externalId: `gtask-${task.id}`,
@@ -275,9 +297,7 @@ export const gtasks: Source = {
           due: task.due,
           listName: task.listName,
         },
-        createdAt: task.due
-          ? Math.floor(new Date(task.due).getTime() / 1000)
-          : Math.floor(Date.now() / 1000),
+        createdAt,
       });
     }
 
