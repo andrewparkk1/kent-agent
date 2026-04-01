@@ -160,10 +160,10 @@ function extractFromAttributedBody(buf: Buffer | Uint8Array): string | null {
     while (pos < b.length && b[pos] !== 0x2b) pos++;
     if (pos < b.length - 1 && b[pos] === 0x2b) {
       pos++; // skip '+'
-      const len = b[pos]; // string length
+      const len = b[pos]!; // string length
       pos++;
       if (len > 0 && pos + len <= b.length) {
-        return b.slice(pos, pos + len).toString("utf-8");
+        return b.slice(pos, pos + (len as number)).toString("utf-8");
       }
     }
   } catch {
@@ -309,7 +309,7 @@ export const imessage: Source = {
             createdAt,
           };
         })
-        .filter((item): item is Item => item !== null);
+        .filter((item): item is NonNullable<typeof item> => item !== null) as Item[];
     } catch (e) {
       console.warn(`[imessage] Failed to read messages: ${e}`);
       return [];

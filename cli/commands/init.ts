@@ -19,6 +19,7 @@ import {
   saveConfig,
   ensureKentDir,
 } from "@shared/config.ts";
+import { createWorkflow, listWorkflows } from "@shared/db.ts";
 import { daemonStart } from "./daemon.ts";
 
 // ---------------------------------------------------------------------------
@@ -218,6 +219,88 @@ function installPrompts(): void {
     success(`Installed ${copied} prompt files to ~/.kent/prompts/`);
   } else {
     info("  Prompts already installed (skipped existing files)");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Seed default workflows into SQLite
+// ---------------------------------------------------------------------------
+
+const DEFAULT_WORKFLOWS = [
+  {
+    name: "morning-briefing",
+    description: "Daily morning summary of what's ahead",
+    cron_schedule: "0 8 * * 1-5",
+    prompt: `Give me a concise morning briefing. Include:
+1. Today's calendar events and meetings
+2. Priority messages that need my attention (urgent or from important contacts)
+3. Outstanding tasks or follow-ups from yesterday
+4. Any notable GitHub activity (PRs needing review, mentions)
+
+Keep it scannable — use bullet points and bold for key items.
+Start with "Good morning" and today's date.`,
+  },
+  {
+    name: "evening-recap",
+    description: "End-of-day summary of what happened",
+    cron_schedule: "0 18 * * 1-5",
+    prompt: `Give me an end-of-day recap. Include:
+1. Summary of messages received today and any that still need a response
+2. Meetings that happened and any action items from them
+3. GitHub activity — PRs merged, issues closed, new issues
+4. Anything that came in today that I should address tomorrow
+
+Be concise. Flag anything time-sensitive. End with a suggested priority for tomorrow morning.`,
+  },
+  {
+    name: "memory-curator",
+    description: "Organize and surface patterns in synced data",
+    cron_schedule: "0 12 * * 0",
+    prompt: `Review the past week of synced data and surface insights:
+1. Recurring topics or threads across messages and emails
+2. People I've been communicating with most frequently
+3. Any forgotten follow-ups — messages I received but never responded to
+4. Patterns in my GitHub activity (what repos am I most active in?)
+5. Any calendar gaps or scheduling patterns worth noting
+
+Present this as a brief "weekly digest" with actionable observations.`,
+  },
+  {
+    name: "workflow-suggestor",
+    description: "Analyze patterns and suggest new automations",
+    cron_schedule: "0 10 * * 1",
+    prompt: `Analyze my recent activity across all sources and suggest useful workflows I could automate. Consider:
+1. Repetitive tasks I seem to do manually
+2. Communication patterns that could use automated summaries
+3. GitHub workflows that could be streamlined
+4. Time-sensitive items that would benefit from proactive alerts
+
+For each suggestion, explain what it would do, how often it should run, and why it would be useful. Keep it to 3-5 concrete suggestions.`,
+  },
+];
+
+function seedDefaultWorkflows(): void {
+  const existing = listWorkflows();
+  if (existing.length > 0) {
+    info("  Workflows already exist (skipping seed)");
+    return;
+  }
+
+  let count = 0;
+  for (const wf of DEFAULT_WORKFLOWS) {
+    try {
+      createWorkflow(wf);
+      count++;
+    } catch {
+      // Duplicate name — skip
+    }
+  }
+
+  if (count > 0) {
+    success(`Created ${count} default workflows`);
+    for (const wf of DEFAULT_WORKFLOWS) {
+      info(`    ${CYAN}${wf.name}${NC} — ${wf.description} ${DIM}(${wf.cron_schedule})${NC}`);
+    }
   }
 }
 
@@ -539,6 +622,9 @@ export async function handleInit(): Promise<void> {
   saveConfig(config);
   success(`Config saved to ${CONFIG_PATH}`);
 
+  // Seed default workflows
+  seedDefaultWorkflows();
+
   // Install and start launchd daemon
   try {
     await daemonStart();
@@ -577,9 +663,11 @@ ${GREEN}${BOLD}  Setup complete!${NC}
     kent                    ${DIM}# interactive REPL${NC}
     kent sync               ${DIM}# manual sync${NC}
     kent daemon status      ${DIM}# check daemon${NC}
+    kent workflow list       ${DIM}# see scheduled workflows${NC}
 
-  ${DIM}Config: ~/.kent/config.json${NC}
-  ${DIM}Data: ~/.kent/kent.db${NC}
-  ${DIM}Logs: ~/.kent/daemon.log${NC}
+  ${DIM}Config:  ~/.kent/config.json${NC}
+  ${DIM}Data:    ~/.kent/kent.db${NC}
+  ${DIM}Prompts: ~/.kent/prompts/${NC}
+  ${DIM}Logs:    ~/.kent/daemon.log${NC}
 `);
 }

@@ -1,50 +1,51 @@
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300..700;1,9..40,300..700&family=DM+Mono:wght@300;400;500&display=swap');
 @import "tailwindcss";
 
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: 0 0% 100%;
-  --foreground: 0 0% 3.9%;
-  --card: 0 0% 100%;
-  --card-foreground: 0 0% 3.9%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 0 0% 3.9%;
-  --primary: 0 0% 9%;
-  --primary-foreground: 0 0% 98%;
-  --secondary: 0 0% 96.1%;
-  --secondary-foreground: 0 0% 9%;
-  --muted: 0 0% 96.1%;
-  --muted-foreground: 0 0% 45.1%;
-  --accent: 0 0% 96.1%;
-  --accent-foreground: 0 0% 9%;
-  --destructive: 0 84.2% 60.2%;
+  --background: 40 24% 97%;
+  --foreground: 30 10% 12%;
+  --card: 40 30% 99%;
+  --card-foreground: 30 10% 12%;
+  --popover: 40 30% 99%;
+  --popover-foreground: 30 10% 12%;
+  --primary: 30 10% 12%;
+  --primary-foreground: 40 24% 97%;
+  --secondary: 38 16% 92%;
+  --secondary-foreground: 30 10% 12%;
+  --muted: 38 14% 93%;
+  --muted-foreground: 30 6% 50%;
+  --accent: 160 50% 42%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 72% 55%;
   --destructive-foreground: 0 0% 98%;
-  --border: 0 0% 89.8%;
-  --input: 0 0% 89.8%;
-  --ring: 0 0% 3.9%;
-  --radius: 0.5rem;
+  --border: 36 14% 88%;
+  --input: 36 14% 88%;
+  --ring: 30 10% 12%;
+  --radius: 0.625rem;
 }
 
 .dark {
-  --background: 0 0% 3.9%;
-  --foreground: 0 0% 98%;
-  --card: 0 0% 5.5%;
-  --card-foreground: 0 0% 98%;
-  --popover: 0 0% 5.5%;
-  --popover-foreground: 0 0% 98%;
-  --primary: 0 0% 98%;
-  --primary-foreground: 0 0% 9%;
-  --secondary: 0 0% 14.9%;
-  --secondary-foreground: 0 0% 98%;
-  --muted: 0 0% 14.9%;
-  --muted-foreground: 0 0% 63.9%;
-  --accent: 0 0% 14.9%;
-  --accent-foreground: 0 0% 98%;
+  --background: 220 14% 6%;
+  --foreground: 40 10% 92%;
+  --card: 220 14% 8%;
+  --card-foreground: 40 10% 92%;
+  --popover: 220 14% 8%;
+  --popover-foreground: 40 10% 92%;
+  --primary: 40 10% 92%;
+  --primary-foreground: 220 14% 6%;
+  --secondary: 220 10% 14%;
+  --secondary-foreground: 40 10% 92%;
+  --muted: 220 10% 14%;
+  --muted-foreground: 220 6% 52%;
+  --accent: 160 50% 42%;
+  --accent-foreground: 0 0% 100%;
   --destructive: 0 62.8% 30.6%;
   --destructive-foreground: 0 0% 98%;
-  --border: 0 0% 14.9%;
-  --input: 0 0% 14.9%;
-  --ring: 0 0% 83.1%;
+  --border: 220 10% 16%;
+  --input: 220 10% 16%;
+  --ring: 40 10% 80%;
 }
 
 * {
@@ -54,10 +55,66 @@
 body {
   background: hsl(var(--background));
   color: hsl(var(--foreground));
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: "DM Sans", system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.01em;
 }
 
-/* Hide scrollbars */
+/* Editorial serif for headings */
+.font-display {
+  font-family: "Instrument Serif", Georgia, serif;
+  letter-spacing: -0.02em;
+}
+
+/* Mono for data */
+.font-mono {
+  font-family: "DM Mono", "SF Mono", monospace;
+}
+
+/* Hide main scrollbars, show thin ones in panels */
 html, body { scrollbar-width: none; }
 html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; }
+
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+*::-webkit-scrollbar { width: 4px; height: 4px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 2px; }
+
+/* Smooth focus rings */
+:focus-visible {
+  outline: 2px solid hsl(var(--ring) / 0.3);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+
+/* Status dot pulse */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.3); }
+}
+.animate-pulse-dot {
+  animation: pulse-dot 2.5s ease-in-out infinite;
+}
+
+/* Subtle shimmer for loading */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.animate-shimmer {
+  background: linear-gradient(90deg, hsl(var(--muted)) 25%, hsl(var(--muted-foreground) / 0.06) 50%, hsl(var(--muted)) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+/* Chat input glow */
+@keyframes input-glow {
+  0%, 100% { box-shadow: 0 0 0 0 hsl(var(--accent) / 0); }
+  50% { box-shadow: 0 0 0 3px hsl(var(--accent) / 0.08); }
+}
+.input-focus-glow:focus {
+  animation: input-glow 2s ease-in-out infinite;
+}

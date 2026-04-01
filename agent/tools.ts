@@ -10,7 +10,10 @@
  */
 import { Type } from "@sinclair/typebox";
 import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
-import { searchItems, getItemsBySource, getItemCount } from "@shared/db.ts";
+import {
+  searchItems, getItemsBySource, getItemCount,
+  createWorkflow, listWorkflows, deleteWorkflow,
+} from "@shared/db.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -267,6 +270,92 @@ const runCommand: AgentTool<typeof RunCommandParams> = {
 };
 
 // ---------------------------------------------------------------------------
+// Workflow Tools
+// ---------------------------------------------------------------------------
+
+const CreateWorkflowParams = Type.Object({
+  name: Type.String({ description: "Short name for the workflow (e.g. 'daily-brief')" }),
+  description: Type.Optional(Type.String({ description: "What this workflow does" })),
+  prompt: Type.String({ description: "The prompt the agent will execute when the workflow runs" }),
+  cron_schedule: Type.Optional(
+    Type.String({ description: "Cron expression for scheduling (e.g. '0 9 * * 1-5' for 9am weekdays). Omit for manual-only." })
+  ),
+});
+
+const WorkflowNameParams = Type.Object({
+  name: Type.String({ description: "Name of the workflow" }),
+});
+
+const createWorkflowTool: AgentTool<typeof CreateWorkflowParams> = {
+  name: "create_workflow",
+  label: "Creating workflow...",
+  description:
+    "Create a scheduled workflow that runs automatically on a cron schedule, or manually. The workflow will execute the given prompt as an agent task. Use cron expressions like '0 9 * * 1-5' (9am weekdays), '0 18 * * *' (6pm daily), '0 */2 * * *' (every 2 hours).",
+  parameters: CreateWorkflowParams,
+  execute: async (_id, params) => {
+    try {
+      const id = createWorkflow({
+        name: params.name,
+        prompt: params.prompt,
+        description: params.description,
+        cron_schedule: params.cron_schedule,
+      });
+      const scheduleInfo = params.cron_schedule
+        ? `Scheduled: ${params.cron_schedule}`
+        : "Manual trigger only";
+      return textResult(`Workflow "${params.name}" created (id: ${id}). ${scheduleInfo}`);
+    } catch (e) {
+      return errorResult(`Failed to create workflow: ${e}`);
+    }
+  },
+};
+
+const listWorkflowsTool: AgentTool<typeof EmptyParams> = {
+  name: "list_workflows",
+  label: "Listing workflows...",
+  description: "List all configured workflows with their schedules and status.",
+  parameters: EmptyParams,
+  execute: async () => {
+    try {
+      const workflows = listWorkflows();
+      if (workflows.length === 0) {
+        return textResult("No workflows configured yet.");
+      }
+      const summary = workflows.map((wf) => ({
+        name: wf.name,
+        description: wf.description,
+        cron: wf.cron_schedule ?? "manual",
+        enabled: !!wf.enabled,
+        lastRun: wf.last_run_at
+          ? new Date(wf.last_run_at * 1000).toISOString()
+          : "never",
+      }));
+      return textResult(JSON.stringify(summary, null, 2));
+    } catch (e) {
+      return errorResult(`Failed to list workflows: ${e}`);
+    }
+  },
+};
+
+const deleteWorkflowTool: AgentTool<typeof WorkflowNameParams> = {
+  name: "delete_workflow",
+  label: "Deleting workflow...",
+  description: "Delete a workflow by name.",
+  parameters: WorkflowNameParams,
+  execute: async (_id, params) => {
+    try {
+      const deleted = deleteWorkflow(params.name);
+      if (deleted) {
+        return textResult(`Workflow "${params.name}" deleted.`);
+      }
+      return errorResult(`Workflow "${params.name}" not found.`);
+    } catch (e) {
+      return errorResult(`Failed to delete workflow: ${e}`);
+    }
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Export all tools
 // ---------------------------------------------------------------------------
 
@@ -284,4 +373,10 @@ export const filesystemTools = [
   runCommand,
 ] as unknown as AgentTool[];
 
-export const allTools = [...memoryTools, ...filesystemTools];
+export const workflowTools = [
+  createWorkflowTool,
+  listWorkflowsTool,
+  deleteWorkflowTool,
+] as unknown as AgentTool[];
+
+export const allTools = [...memoryTools, ...filesystemTools, ...workflowTools];

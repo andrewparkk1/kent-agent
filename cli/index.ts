@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { handleDaemon } from "./commands/daemon.ts";
 import { handleInit } from "./commands/init.ts";
 import { handleSync } from "./commands/sync.ts";
+import { handleWorkflow } from "./commands/workflow.ts";
 
 function getVersion(): string {
   try {
@@ -29,6 +30,7 @@ Usage:
   kent init                     Setup wizard
   kent daemon <start|stop|status>  Manage background daemon
   kent sync [--source <name>]   Sync data sources
+  kent workflow <sub>           Manage scheduled workflows
   kent web                      Open web dashboard
 
 Flags:
@@ -70,6 +72,9 @@ async function main(): Promise<void> {
       break;
     case "sync":
       await handleSync(subArgs);
+      break;
+    case "workflow":
+      await handleWorkflow(subArgs);
       break;
     case "web": {
       const { handleWeb } = await import("./commands/web.ts");

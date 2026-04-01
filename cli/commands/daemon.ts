@@ -103,7 +103,7 @@ async function daemonStop(): Promise<void> {
 
   // Unload from launchctl if a plist exists (clean up legacy installs)
   if (existsSync(PLIST_PATH)) {
-    try { execFileSync("launchctl", ["bootout", `gui/${process.getuid()}`, PLIST_PATH], { stdio: "pipe", timeout: 3000 }); } catch {}
+    try { execFileSync("launchctl", ["bootout", `gui/${process.getuid!()}`, PLIST_PATH], { stdio: "pipe", timeout: 3000 }); } catch {}
     try { execFileSync("launchctl", ["unload", PLIST_PATH], { stdio: "pipe", timeout: 3000 }); } catch {}
     try { unlinkSync(PLIST_PATH); } catch {}
   }

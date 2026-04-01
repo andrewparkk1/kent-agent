@@ -1,12 +1,16 @@
 /**
- * Background sync loop — runs as a long-lived process managed by launchd.
- * On each tick: iterates through enabled sources, fetches new items, upserts into SQLite,
- * writes daemon-state.json (so `kent daemon status` can report progress), then sleeps
- * for the configured interval. Logs to ~/.kent/daemon.log.
+ * Background daemon — single process, single loop.
+ * Each 60s tick:
+ *   1. Check if any workflows are due (cron match) → spawn agent
+ *   2. Check if sync is due (elapsed time) → fetch sources
+ * Writes daemon-state.json for `kent daemon status`. Logs to ~/.kent/daemon.log.
  */
 import { appendFileSync, writeFileSync } from "node:fs";
-import { loadConfig, ensureKentDir, PID_PATH, LOG_PATH, DAEMON_STATE_PATH } from "@shared/config.ts";
-import { upsertItems } from "@shared/db.ts";
+import { join, resolve } from "node:path";
+import { execFileSync } from "node:child_process";
+import { loadConfig, ensureKentDir, KENT_DIR, PID_PATH, LOG_PATH, DAEMON_STATE_PATH } from "@shared/config.ts";
+import { upsertItems, getDueWorkflows, createWorkflowRun, finishWorkflowRun, updateWorkflow } from "@shared/db.ts";
+import { matchesCron } from "./cron.ts";
 import { FileSyncState } from "./sync-state.ts";
 import type { Source } from "./sources/types.ts";
 import { imessage } from "./sources/imessage.ts";
@@ -127,16 +131,84 @@ async function main(): Promise<void> {
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
 
-  const state = new FileSyncState();
+  const syncState = new FileSyncState();
+  let lastSyncAt = 0;
 
-  // Main loop
-  while (true) {
+  // Resolve paths for spawning the agent
+  const projectRoot = resolve(import.meta.dir, "..");
+  const agentPath = resolve(projectRoot, "agent", "agent.ts");
+  const bunPath = process.execPath || "bun";
+
+  // ── Workflow executor ──────────────────────────────────────────────
+  async function runDueWorkflows(): Promise<void> {
+    const now = new Date();
+    const nowEpoch = Math.floor(now.getTime() / 1000);
+    const workflows = getDueWorkflows(nowEpoch);
+
+    for (const wf of workflows) {
+      if (!wf.cron_schedule) continue;
+      if (!matchesCron(wf.cron_schedule, now)) continue;
+
+      // Don't re-run if already ran this minute
+      if (wf.last_run_at) {
+        const lastRunDate = new Date(wf.last_run_at * 1000);
+        if (
+          lastRunDate.getFullYear() === now.getFullYear() &&
+          lastRunDate.getMonth() === now.getMonth() &&
+          lastRunDate.getDate() === now.getDate() &&
+          lastRunDate.getHours() === now.getHours() &&
+          lastRunDate.getMinutes() === now.getMinutes()
+        ) {
+          continue; // Already ran this minute window
+        }
+      }
+
+      log(`workflow: running "${wf.name}"`);
+      const runId = createWorkflowRun(wf.id);
+      updateWorkflow(wf.id, { last_run_at: nowEpoch });
+
+      try {
+        const env: Record<string, string> = {
+          ...process.env as Record<string, string>,
+          ANTHROPIC_API_KEY: config.keys.anthropic || process.env.ANTHROPIC_API_KEY || "",
+          RUNNER: "workflow",
+          RUN_ID: runId,
+          PROMPT: wf.prompt,
+          OUTPUT_DIR: join(KENT_DIR, "runs", runId, "outputs"),
+          MODEL: config.agent.default_model,
+          MAX_TURNS: String(config.agent.max_turns),
+        };
+
+        const proc = Bun.spawn([bunPath, "run", agentPath], {
+          env,
+          stdout: "pipe",
+          stderr: "pipe",
+          cwd: projectRoot,
+        });
+
+        const stdout = await new Response(proc.stdout).text();
+        await proc.exited;
+
+        if (proc.exitCode === 0) {
+          finishWorkflowRun(runId, "done", stdout);
+          log(`workflow: "${wf.name}" completed (${stdout.length} chars)`);
+        } else {
+          const stderr = await new Response(proc.stderr).text();
+          finishWorkflowRun(runId, "error", stdout, stderr);
+          log(`workflow: "${wf.name}" failed — ${stderr.slice(0, 200)}`);
+        }
+      } catch (e) {
+        finishWorkflowRun(runId, "error", undefined, String(e));
+        log(`workflow: "${wf.name}" error — ${e}`);
+      }
+    }
+  }
+
+  // ── Source sync ────────────────────────────────────────────────────
+  async function syncSources(): Promise<void> {
     const syncResults: Record<string, number> = {};
     const syncTitles: Record<string, string[]> = {};
     const syncErrors: Record<string, string> = {};
-
-    // Resolve bun path once for error messages
-    const bunPath = process.execPath || "bun";
 
     for (const source of enabledSources) {
       writeDaemonState({
@@ -148,7 +220,7 @@ async function main(): Promise<void> {
       });
 
       try {
-        const items = await source.fetchNew(state);
+        const items = await source.fetchNew(syncState);
         syncResults[source.name] = items.length;
         syncTitles[source.name] = items.slice(0, 10).map(itemTitle);
         if (items.length > 0) {
@@ -165,13 +237,12 @@ async function main(): Promise<void> {
         } else {
           log(`${source.name}: no new items`);
         }
-        state.markSynced(source.name);
+        syncState.markSynced(source.name);
       } catch (e) {
         const errMsg = String(e);
         log(`${source.name}: ERROR — ${errMsg}`);
         syncResults[source.name] = -1;
 
-        // Detect permission errors and provide actionable fix
         if (errMsg.includes("Permission denied") || errMsg.includes("operation not permitted") || errMsg.includes("EPERM")) {
           syncErrors[source.name] = `Permission denied — grant Full Disk Access to: ${bunPath}\n  System Settings → Privacy & Security → Full Disk Access → add ${bunPath}`;
         } else {
@@ -180,24 +251,43 @@ async function main(): Promise<void> {
       }
     }
 
-    if (enabledSources.length === 0) {
-      log("tick (idle — no sources enabled)");
-    }
-
-    const nextSyncAt = Date.now() + intervalMs;
+    lastSyncAt = Date.now();
     writeDaemonState({
       pid: process.pid,
       status: "waiting",
-      nextSyncAt,
-      lastSyncAt: Date.now(),
+      nextSyncAt: lastSyncAt + intervalMs,
+      lastSyncAt,
       lastSyncResults: syncResults,
       lastSyncTitles: syncTitles,
       lastSyncErrors: Object.keys(syncErrors).length > 0 ? syncErrors : undefined,
       enabledSources: sourceNames,
       intervalMinutes: config.daemon.sync_interval_minutes,
     });
+  }
 
-    await sleep(intervalMs);
+  // ── Main loop (60s tick) ───────────────────────────────────────────
+  const TICK_MS = 60_000;
+
+  while (true) {
+    // 1. Check for due workflows
+    try {
+      await runDueWorkflows();
+    } catch (e) {
+      log(`workflow tick error: ${e}`);
+    }
+
+    // 2. Sync sources if enough time has passed
+    const timeSinceSync = Date.now() - lastSyncAt;
+    if (timeSinceSync >= intervalMs) {
+      if (enabledSources.length > 0) {
+        await syncSources();
+      } else {
+        log("tick (idle — no sources enabled)");
+        lastSyncAt = Date.now();
+      }
+    }
+
+    await sleep(TICK_MS);
   }
 }
 

@@ -1,7 +1,7 @@
 /**
  * Minimal cron expression matcher.
  * Supports: minute hour day-of-month month day-of-week
- * Values: number, *, */n (step), comma-separated, ranges (1-5)
+ * Values: number, *, star/n (step), comma-separated, ranges (1-5)
  */
 
 function matchField(field: string, value: number, max: number): boolean {

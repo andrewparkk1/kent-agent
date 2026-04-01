@@ -30,7 +30,7 @@ function getGranolaCachePath(): string | null {
         const vb = parseInt(b.match(/\d+/)?.[0] ?? "0", 10);
         return vb - va; // highest version first
       });
-    if (cacheFiles.length > 0) return join(GRANOLA_DIR, cacheFiles[0]);
+    if (cacheFiles.length > 0) return join(GRANOLA_DIR, cacheFiles[0]!);
   } catch {
     // readdirSync may fail in sandboxed environments — fall through to probes
   }

@@ -133,7 +133,7 @@ export const chrome: Source = {
 
       // Process each profile
       for (let pi = 0; pi < historyPaths.length; pi++) {
-        const profilePath = historyPaths[pi];
+        const profilePath = historyPaths[pi]!;
 
         // --- History ---
         const historyTemp = copyToTemp(profilePath, `History-${pi}`);
@@ -289,7 +289,7 @@ export const chrome: Source = {
 
       // --- Downloads (from first profile) ---
       if (historyPaths.length > 0) {
-        const downloadsTemp = copyToTemp(historyPaths[0], "History-downloads");
+        const downloadsTemp = copyToTemp(historyPaths[0]!, "History-downloads");
         if (downloadsTemp) {
           try {
             const db = new Database(downloadsTemp, { readonly: true });
