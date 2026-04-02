@@ -173,8 +173,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
   let hasOutput = false;
   let agentError: string | null = null;
   let pendingText = "";
-  let currentToolName = "";
-  let currentToolArgs: any = {};
+  const toolCallMap = new Map<string, { name: string; args: any }>();
 
   async function flushText() {
     const text = pendingText.trim();
@@ -204,8 +203,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
 
       case "tool_execution_start": {
         void flushText();
-        currentToolName = event.toolName;
-        currentToolArgs = event.args;
+        toolCallMap.set(event.toolCallId, { name: event.toolName, args: event.args });
         callbacks.onToolStart?.(event.toolName, event.args);
         break;
       }
@@ -221,15 +219,15 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
             .slice(0, 2000);
         } catch {}
 
+        const tracked = toolCallMap.get(event.toolCallId);
         void addMessage(threadId, "tool", resultPreview || "(no output)", {
-          name: currentToolName,
-          args: currentToolArgs,
+          name: event.toolName || tracked?.name || "",
+          args: tracked?.args ?? {},
           error: event.isError || false,
         });
 
         callbacks.onToolEnd?.(event.toolName, resultPreview.slice(0, 500), event.isError || false);
-        currentToolName = "";
-        currentToolArgs = {};
+        toolCallMap.delete(event.toolCallId);
         break;
       }
 
