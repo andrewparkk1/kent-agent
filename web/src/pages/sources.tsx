@@ -20,7 +20,7 @@ function daemonStatusText(daemon: DaemonInfo, now: number): string {
     if (sec < 60) return `Next sync in ${sec}s`;
     return `Next sync in ${Math.ceil(sec / 60)}m`;
   }
-  return `Running · every ${daemon.intervalMinutes}m`;
+  return `Running · every ${daemon.intervalSeconds}s`;
 }
 
 function useTick(intervalMs: number): number {

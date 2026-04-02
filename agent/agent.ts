@@ -5,7 +5,7 @@
  */
 import { Agent } from "@mariozechner/pi-agent-core";
 import { streamSimple, getModel } from "@mariozechner/pi-ai";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { allTools } from "./tools/index.ts";
@@ -69,7 +69,32 @@ async function buildSystemPrompt(): Promise<string> {
     .replace(/\{\{TIME\}\}/g, now)
     .replace(/\{\{TIMEZONE\}\}/g, tz);
 
-  const parts = [identityResolved, soul, tools, user].filter(Boolean);
+  // Load skills inline so the agent doesn't waste turns fetching them
+  const skillContents: string[] = [];
+  const seenSkills = new Set<string>();
+  for (const skillsDir of [join(USER_PROMPTS_DIR, "skills"), join(BUNDLED_PROMPTS_DIR, "skills")]) {
+    try {
+      for (const entry of readdirSync(skillsDir)) {
+        if (seenSkills.has(entry)) continue;
+        const entryPath = join(skillsDir, entry);
+        if (statSync(entryPath).isDirectory()) {
+          const skillFile = join(entryPath, "SKILL.md");
+          if (existsSync(skillFile)) {
+            seenSkills.add(entry);
+            const content = readFileSync(skillFile, "utf-8");
+            if (content) skillContents.push(`# Skill: ${entry}\n\n${content}`);
+          }
+        } else if (entry.endsWith(".md")) {
+          const name = entry.replace(/\.md$/, "");
+          seenSkills.add(name);
+          const content = readFileSync(entryPath, "utf-8");
+          if (content) skillContents.push(`# Skill: ${name}\n\n${content}`);
+        }
+      }
+    } catch {}
+  }
+
+  const parts = [identityResolved, soul, tools, ...skillContents, user].filter(Boolean);
 
   // Inject prior conversation history so the agent has multi-turn context
   if (CONVERSATION_HISTORY) {

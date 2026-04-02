@@ -30,10 +30,16 @@ export async function createThread(title?: string, opts?: {
   return id;
 }
 
-export async function finishThread(id: string, status: "done" | "error"): Promise<void> {
+export async function finishThread(id: string, status: "done" | "error" | "running"): Promise<void> {
+  const updates: Record<string, any> = { status };
+  if (status === "running") {
+    updates.started_at = sql`unixepoch()`;
+  } else {
+    updates.finished_at = sql`unixepoch()`;
+  }
   await getDb()
     .updateTable("threads")
-    .set({ status, finished_at: sql`unixepoch()` })
+    .set(updates)
     .where("id", "=", id)
     .execute();
 }

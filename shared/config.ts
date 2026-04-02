@@ -31,7 +31,7 @@ export interface Config {
     apple_notes: boolean;
   };
   daemon: {
-    sync_interval_minutes: number;
+    sync_interval_seconds: number;
   };
   agent: {
     default_model: string;
@@ -73,10 +73,10 @@ export const DEFAULT_CONFIG: Config = {
     apple_notes: false,
   },
   daemon: {
-    sync_interval_minutes: 5,
+    sync_interval_seconds: 300,
   },
   agent: {
-    default_model: "claude-sonnet-4-20250514",
+    default_model: "claude-sonnet-4-6",
   },
 };
 

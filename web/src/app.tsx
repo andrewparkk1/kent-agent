@@ -51,7 +51,7 @@ export function App() {
   const [totalRuns, setTotalRuns] = useState(0);
   const [workflowsLoading, setWorkflowsLoading] = useState(true);
   const [sources, setSources] = useState<SourceInfo[]>([]);
-  const [daemon, setDaemon] = useState<DaemonInfo>({ status: "stopped", currentSource: null, intervalMinutes: 5, lastSyncAt: null, nextSyncAt: null });
+  const [daemon, setDaemon] = useState<DaemonInfo>({ status: "stopped", currentSource: null, intervalSeconds: 300, lastSyncAt: null, nextSyncAt: null });
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
 
@@ -124,7 +124,7 @@ export function App() {
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex h-screen bg-background overflow-hidden">
       <Sidebar
         page={page}
         setPage={setPage}
@@ -133,6 +133,9 @@ export function App() {
         workflowCount={workflows.length}
         runCount={totalRuns}
       />
+
+      {/* Spacer for fixed sidebar */}
+      <div className="w-[220px] shrink-0" />
 
       <PageTransition pageKey={page === "workflow-detail" ? `workflow-${selectedWorkflowId}` : page}>
         {page === "home" && <HomePage />}

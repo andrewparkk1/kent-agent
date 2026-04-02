@@ -42,7 +42,7 @@ export interface SourceInfo {
 export interface DaemonInfo {
   status: string;
   currentSource: string | null;
-  intervalMinutes: number;
+  intervalSeconds: number;
   lastSyncAt: number | null;
   nextSyncAt: number | null;
 }

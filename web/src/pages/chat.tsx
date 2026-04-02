@@ -1,176 +1,13 @@
-import { useState, useRef, useEffect, useCallback, memo } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { ArrowUp, User, Loader2, StopCircle, Terminal, ChevronDown, ChevronRight, Settings2 } from "lucide-react";
-import Markdown from "react-markdown";
+import { ArrowUp, Loader2, StopCircle } from "lucide-react";
 import kentIcon from "@/assets/icon.png";
-
-// ─── System Prompt Block ───────────────────────────────────────────────────
-
-function SystemPromptBlock({ content }: { content: string }) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <div className="mb-4">
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 text-[11px] text-muted-foreground/40 hover:text-muted-foreground/60 transition-colors cursor-pointer py-1.5 px-3 rounded-lg bg-foreground/[0.02] border border-border/30 hover:border-border/50 w-full"
-      >
-        <Settings2 size={12} />
-        <span className="font-medium">System Prompt</span>
-        <span className="ml-auto">{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
-      </button>
-      {open && (
-        <div className="mt-2 text-[11px] text-muted-foreground/50 leading-relaxed px-3 py-3 bg-foreground/[0.02] border border-border/20 rounded-lg max-h-[400px] overflow-y-auto prose-chat prose-sm">
-          <Markdown>{content}</Markdown>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Tool Call Block ────────────────────────────────────────────────────────
-
-function ToolCallBlock({ content, metadata }: { content: string; metadata?: any }) {
-  const [open, setOpen] = useState(false);
-
-  const isRunning = content.startsWith("Calling ");
-  const isError = metadata?.error === true;
-  const isDone = !isRunning && !isError;
-
-  let label = "Tool call";
-  if (metadata?.name) {
-    const argsPreview = metadata.args
-      ? Object.entries(metadata.args).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ").slice(0, 60)
-      : "";
-    label = `${metadata.name}${argsPreview ? `(${argsPreview})` : ""}`;
-  } else {
-    label = content.split("\n")[0]?.slice(0, 80) || "Tool call";
-  }
-
-  const statusIcon = isRunning
-    ? <Loader2 size={12} className="text-amber-400 animate-spin" />
-    : isError
-      ? <span className="text-red-400 text-[11px]">✗</span>
-      : <span className="text-emerald-500 text-[11px]">✓</span>;
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2 }}
-      className="my-1.5 ml-9"
-    >
-      <button
-        onClick={() => setOpen(!open)}
-        className={`flex items-center gap-2 text-[12px] transition-colors cursor-pointer py-1 ${
-          isError ? "text-red-400/70 hover:text-red-400" : "text-muted-foreground/50 hover:text-muted-foreground/70"
-        }`}
-      >
-        {statusIcon}
-        <span className="font-mono truncate max-w-[400px]">{label}</span>
-        {!isRunning && (open ? <ChevronDown size={12} /> : <ChevronRight size={12} />)}
-      </button>
-      {open && !isRunning && (
-        <pre className={`text-[11px] font-mono whitespace-pre-wrap leading-relaxed mt-1 pl-5 border-l-2 max-h-48 overflow-y-auto ${
-          isError ? "text-red-400/50 border-red-500/20" : "text-muted-foreground/40 border-border/30"
-        }`}>
-          {content}
-        </pre>
-      )}
-    </motion.div>
-  );
-}
-
-// ─── Streaming Markdown — throttles re-parsing to every 150ms ──────────────
-
-function StreamingMarkdown({ content }: { content: string }) {
-  const [rendered, setRendered] = useState(content);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const latestRef = useRef(content);
-  latestRef.current = content;
-
-  useEffect(() => {
-    // If no timer is pending, update immediately and start a cooldown
-    if (!timerRef.current) {
-      setRendered(content);
-      timerRef.current = setTimeout(() => {
-        timerRef.current = null;
-        // Flush any content that arrived during the cooldown
-        setRendered(latestRef.current);
-      }, 150);
-    }
-    // Cleanup on unmount
-    return () => {
-      if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
-    };
-  }, [content]);
-
-  // On stream end (content stabilizes), ensure final flush
-  useEffect(() => {
-    return () => { setRendered(latestRef.current); };
-  }, []);
-
-  return <Markdown>{rendered}</Markdown>;
-}
-
-// ─── Message Bubble (memoized to avoid re-parsing Markdown on every delta) ──
-
-const MessageBubble = memo(function MessageBubble({ msg, streaming }: { msg: Message; streaming: boolean }) {
-  const isStreamingThis = streaming && msg.role === "assistant";
-
-  return (
-    <motion.div
-      key={msg.id}
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.25, ease: [0.25, 0.46, 0.45, 0.94] }}
-      className="flex gap-3 py-3"
-    >
-      <div className="shrink-0 mt-0.5">
-        {msg.role === "assistant" ? (
-          <img src={kentIcon} alt="Kent" className="w-6 h-6 rounded-md" />
-        ) : (
-          <div className="w-6 h-6 rounded-md bg-foreground/[0.08] flex items-center justify-center">
-            <User size={12} className="text-muted-foreground/60" />
-          </div>
-        )}
-      </div>
-
-      <div className="flex-1 min-w-0">
-        <span className="text-[11px] font-medium text-muted-foreground/40 uppercase tracking-wider">
-          {msg.role === "assistant" ? "Kent" : "You"}
-        </span>
-        <div className="mt-1">
-          {msg.role === "assistant" && !msg.content && streaming ? (
-            <div className="flex items-center gap-1.5 py-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 animate-pulse" style={{ animationDelay: "0ms" }} />
-              <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 animate-pulse" style={{ animationDelay: "150ms" }} />
-              <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 animate-pulse" style={{ animationDelay: "300ms" }} />
-            </div>
-          ) : (
-            <div className="prose-chat">
-              {isStreamingThis ? (
-                <StreamingMarkdown content={msg.content} />
-              ) : (
-                <Markdown>{msg.content}</Markdown>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    </motion.div>
-  );
-});
-
-// ─── Types ──────────────────────────────────────────────────────────────────
-
-interface Message {
-  id: number;
-  role: "user" | "assistant" | "system" | "tool";
-  content: string;
-  metadata?: string | null;
-  created_at: number;
-}
+import {
+  SystemPromptBlock,
+  AssistantGroup,
+  MessageBubble,
+  type Message,
+} from "@/components/chat";
 
 // ─── Chat Page ──────────────────────────────────────────────────────────────
 
@@ -236,11 +73,8 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
   const [threadStatus, setThreadStatus] = useState<string | null>(null);
 
   useEffect(() => {
-    // Skip if we're actively streaming on this exact thread (e.g. new thread
-    // was just created by the current stream — don't abort ourselves)
     if (streaming && initialThreadId && initialThreadId === threadId) return;
 
-    // User navigated to a different thread — abort current stream
     stopStreaming();
     setThreadId(initialThreadId);
     if (initialThreadId) {
@@ -248,7 +82,6 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
       fetch(`/api/threads/${initialThreadId}/messages`)
         .then((r) => r.json())
         .then((data) => {
-          // Deduplicate consecutive messages with same role+content (agent can double-save)
           const msgs: Message[] = (data.messages || []).filter((m: Message, i: number, arr: Message[]) => {
             if (i === 0) return true;
             const prev = arr[i - 1];
@@ -263,7 +96,6 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
       setMessages([]);
       setThreadStatus(null);
     }
-    // Focus input whenever thread changes (new chat or switching threads)
     setTimeout(() => inputRef.current?.focus(), 50);
   }, [initialThreadId]);
 
@@ -296,6 +128,8 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
+  // ─── Send message + streaming ───────────────────────────────────────
+
   const sendMessage = async () => {
     const text = input.trim();
     if (!text || streaming) return;
@@ -303,15 +137,12 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
     setInput("");
     setStreaming(true);
 
-    // Add user message immediately
     const userMsg: Message = { id: genId(), role: "user", content: text, created_at: Math.floor(Date.now() / 1000) };
     setMessages((prev) => [...prev, userMsg]);
 
-    // Track the current assistant message ID so we can split on tool calls
     let currentAssistantId = genId();
     let currentText = "";
 
-    // Add initial empty assistant message
     setMessages((prev) => [...prev, { id: currentAssistantId, role: "assistant", content: "", created_at: Math.floor(Date.now() / 1000) }]);
 
     const abort = new AbortController();
@@ -354,7 +185,6 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
             }
 
             if (parsed.error) {
-              // Error event from server
               currentText += `\n\n**Error:** ${parsed.error}`;
               const textNow = currentText;
               const idNow = currentAssistantId;
@@ -362,22 +192,18 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
             }
 
             if (parsed.tool) {
-              // Tool event from stderr — parse it
               try {
                 const toolEvent = JSON.parse(parsed.tool);
                 if (toolEvent.event === "tool_start") {
-                  // Finalize current assistant text (if any) and start fresh after tool
                   if (currentText.trim()) {
                     const finalText = currentText;
                     const finalId = currentAssistantId;
                     setMessages((prev) => prev.map((m) => m.id === finalId ? { ...m, content: finalText } : m));
                   } else {
-                    // Remove empty assistant message
                     const emptyId = currentAssistantId;
                     setMessages((prev) => prev.filter((m) => m.id !== emptyId));
                   }
 
-                  // Insert tool call message
                   const toolMsg: Message = {
                     id: genId(),
                     role: "tool",
@@ -387,15 +213,12 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
                   };
                   setMessages((prev) => [...prev, toolMsg]);
 
-                  // Start new assistant message for post-tool text
                   currentText = "";
                   currentAssistantId = genId();
                   setMessages((prev) => [...prev, { id: currentAssistantId, role: "assistant", content: "", created_at: Math.floor(Date.now() / 1000) }]);
                 } else if (toolEvent.event === "tool_end") {
-                  // Update the tool message with result
                   setMessages((prev) => {
                     const updated = [...prev];
-                    // Find the most recent tool message
                     for (let i = updated.length - 1; i >= 0; i--) {
                       if (updated[i]!.role === "tool" && updated[i]!.content.startsWith("Calling ")) {
                         const meta = updated[i]!.metadata ? JSON.parse(updated[i]!.metadata!) : {};
@@ -411,7 +234,6 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
                   });
                 }
               } catch {
-                // Non-JSON stderr — likely an agent crash/error message
                 const raw = parsed.tool.trim();
                 if (raw && (raw.includes("error") || raw.includes("Error") || raw.includes("fatal") || raw.includes("401") || raw.includes("403"))) {
                   currentText += `\n\n**Error:** ${raw.slice(0, 500)}`;
@@ -432,7 +254,7 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
         }
       }
 
-      // Flush any pending RAF update before final cleanup
+      // Flush any pending RAF update
       if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
       if (pendingUpdateRef.current) { setMessages(pendingUpdateRef.current); pendingUpdateRef.current = null; }
 
@@ -443,7 +265,6 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
       }
     } catch (err: any) {
       if (err?.name === "AbortError") {
-        // User cancelled — clean up empty trailing assistant message
         if (!currentText.trim()) {
           const emptyId = currentAssistantId;
           setMessages((prev) => prev.filter((m) => m.id !== emptyId));
@@ -565,22 +386,37 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
           </div>
         ) : (
           <div className="max-w-[900px] mx-auto px-6 py-8 space-y-1">
-            {/* System prompts always render first */}
             {messages.filter((m) => m.role === "system").map((msg) => (
               <SystemPromptBlock key={msg.id} content={msg.content} />
             ))}
             <AnimatePresence initial={false}>
-              {messages.filter((m) => m.role !== "system").map((msg) => {
-                if (msg.role === "tool") {
-                  let meta: any = null;
-                  if (msg.metadata) {
-                    try { meta = JSON.parse(msg.metadata); } catch {}
+              {(() => {
+                const nonSystem = messages.filter((m) => m.role !== "system");
+                const elements: React.ReactNode[] = [];
+                let i = 0;
+                while (i < nonSystem.length) {
+                  const msg = nonSystem[i]!;
+                  if (msg.role === "user") {
+                    elements.push(<MessageBubble key={msg.id} msg={msg} />);
+                    i++;
+                  } else if (msg.role === "assistant" || msg.role === "tool") {
+                    // Gather consecutive assistant + tool messages into one Kent group
+                    const groupItems: Message[] = [msg];
+                    let j = i + 1;
+                    while (j < nonSystem.length && (nonSystem[j]!.role === "tool" || nonSystem[j]!.role === "assistant")) {
+                      groupItems.push(nonSystem[j]!);
+                      j++;
+                    }
+                    elements.push(
+                      <AssistantGroup key={msg.id} items={groupItems} streaming={streaming && j >= nonSystem.length} />
+                    );
+                    i = j;
+                  } else {
+                    i++;
                   }
-                  return <ToolCallBlock key={msg.id} content={msg.content} metadata={meta} />;
                 }
-
-                return <MessageBubble key={msg.id} msg={msg} streaming={streaming} />;
-              })}
+                return elements;
+              })()}
             </AnimatePresence>
             <div ref={messagesEndRef} />
           </div>

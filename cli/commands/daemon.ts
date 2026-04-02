@@ -148,7 +148,7 @@ interface DaemonState {
   lastSyncTitles?: Record<string, string[]>;
   lastSyncErrors?: Record<string, string>;
   enabledSources: string[];
-  intervalMinutes: number;
+  intervalSeconds: number;
 }
 
 function readDaemonState(): DaemonState | null {
@@ -216,7 +216,7 @@ function renderDashboard(): void {
         console.log(`  Next sync: ${CYAN}${countdown}${NC}`);
       }
 
-      console.log(`  Interval: ${state.intervalMinutes}m`);
+      console.log(`  Interval: ${state.intervalSeconds}s`);
       console.log(`  Sources:  ${state.enabledSources.join(", ")}`);
 
       // Last sync results

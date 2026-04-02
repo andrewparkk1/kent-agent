@@ -57,7 +57,7 @@ interface DaemonState {
   lastSyncTitles?: Record<string, string[]>;
   lastSyncErrors?: Record<string, string>;
   enabledSources: string[];
-  intervalMinutes: number;
+  intervalSeconds: number;
 }
 
 /** Extract a human-readable title from a synced item. */
@@ -94,7 +94,7 @@ async function main(): Promise<void> {
   log(`Daemon started (PID ${process.pid})`);
 
   const config = loadConfig();
-  const intervalMs = config.daemon.sync_interval_minutes * 60 * 1000;
+  const intervalMs = config.daemon.sync_interval_seconds * 1000;
 
   // Build list of enabled sources
   const enabledSources: Source[] = [];
@@ -113,7 +113,7 @@ async function main(): Promise<void> {
     log(`Sources: ${sourceNames.join(", ")}`);
   }
 
-  log(`Sync interval: ${config.daemon.sync_interval_minutes} minutes`);
+  log(`Sync interval: ${config.daemon.sync_interval_seconds}s`);
 
   // Handle graceful shutdown
   const shutdown = () => {
@@ -225,7 +225,7 @@ async function main(): Promise<void> {
         status: "syncing",
         currentSource: source.name,
         enabledSources: sourceNames,
-        intervalMinutes: config.daemon.sync_interval_minutes,
+        intervalSeconds: config.daemon.sync_interval_seconds,
       });
 
       try {
@@ -273,7 +273,7 @@ async function main(): Promise<void> {
       lastSyncTitles: syncTitles,
       lastSyncErrors: Object.keys(syncErrors).length > 0 ? syncErrors : undefined,
       enabledSources: sourceNames,
-      intervalMinutes: config.daemon.sync_interval_minutes,
+      intervalSeconds: config.daemon.sync_interval_seconds,
     });
   }
 

@@ -47,7 +47,7 @@ export async function handleSources() {
     daemon: {
       status,
       currentSource: running ? (daemonState.currentSource || null) : null,
-      intervalMinutes: daemonState.intervalMinutes || config.daemon.sync_interval_minutes,
+      intervalSeconds: daemonState.intervalSeconds || config.daemon.sync_interval_seconds,
       lastSyncAt: daemonState.lastSyncAt || null,
       nextSyncAt: daemonState.nextSyncAt || null,
     },

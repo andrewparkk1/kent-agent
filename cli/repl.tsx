@@ -793,7 +793,7 @@ function App({
             [
               `Daemon:   ${daemonStatus}`,
               `Model:    ${config.agent.default_model}`,
-              `Sync:     every ${config.daemon.sync_interval_minutes}m`,
+              `Sync:     every ${config.daemon.sync_interval_seconds}s`,
               `Sources (on):  ${enabled.length > 0 ? enabled.join(", ") : "none"}`,
               `Sources (off): ${disabled.length > 0 ? disabled.join(", ") : "none"}`,
               Object.keys(counts).length > 0 ? `Data:\n${countLines}` : "Data: (empty)",

@@ -6,7 +6,7 @@ interface Config {
   core: { device_token: string };
   keys: { anthropic: string; openai: string };
   sources: Record<string, boolean>;
-  daemon: { sync_interval_minutes: number };
+  daemon: { sync_interval_seconds: number };
   agent: { default_model: string };
 }
 
@@ -228,14 +228,14 @@ export function SettingsPage() {
         <div className="mb-8">
           <SectionHeader title="Daemon" description="Background sync settings" />
           <div>
-            <label className="text-[12px] text-muted-foreground/60 mb-1 block">Sync Interval (minutes)</label>
+            <label className="text-[12px] text-muted-foreground/60 mb-1 block">Sync Interval (seconds)</label>
             <input
               type="number"
-              min={1}
-              max={60}
-              value={config.daemon.sync_interval_minutes}
+              min={10}
+              max={3600}
+              value={config.daemon.sync_interval_seconds}
               onChange={(e) => {
-                const updated = { ...config, daemon: { ...config.daemon, sync_interval_minutes: parseInt(e.target.value) || 5 } };
+                const updated = { ...config, daemon: { ...config.daemon, sync_interval_seconds: parseInt(e.target.value) || 300 } };
                 setConfig(updated);
                 autoSave(updated, rawKeys);
               }}

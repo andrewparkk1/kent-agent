@@ -69,7 +69,7 @@ describe("DEFAULT_CONFIG", () => {
   });
 
   test("daemon sync interval is a positive number", () => {
-    expect(DEFAULT_CONFIG.daemon.sync_interval_minutes).toBeGreaterThan(0);
+    expect(DEFAULT_CONFIG.daemon.sync_interval_seconds).toBeGreaterThan(0);
   });
 
   test("agent has reasonable defaults", () => {
@@ -106,7 +106,7 @@ describe("Config load/save", () => {
     const custom: Config = {
       ...DEFAULT_CONFIG,
       sources: { ...DEFAULT_CONFIG.sources, imessage: true, gmail: true },
-      daemon: { sync_interval_minutes: 15 },
+      daemon: { sync_interval_seconds: 900 },
     };
     writeFileSync(configPath, JSON.stringify(custom, null, 2), "utf-8");
 
@@ -114,7 +114,7 @@ describe("Config load/save", () => {
     expect(loaded.sources.imessage).toBe(true);
     expect(loaded.sources.gmail).toBe(true);
     expect(loaded.sources.signal).toBe(false);
-    expect(loaded.daemon.sync_interval_minutes).toBe(15);
+    expect(loaded.daemon.sync_interval_seconds).toBe(900);
   });
 
   test("loadConfig returns default on malformed JSON", () => {

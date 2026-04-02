@@ -1,7 +1,10 @@
 /** POST /api/chat — SSE streaming chat with the agent. */
-import { createThread, addMessage, getMessages } from "../../shared/db.ts";
+import { createThread, addMessage, getMessages, finishThread } from "../../shared/db.ts";
 import { loadConfig } from "../../shared/config.ts";
 import { LocalRunner } from "../../daemon/local-runner.ts";
+
+/** Track in-flight agent runs so they survive client disconnects. */
+const activeRuns = new Map<string, Promise<void>>();
 
 export async function handleChat(req: Request) {
   const body = await req.json();
@@ -27,93 +30,92 @@ export async function handleChat(req: Request) {
   const runner = new LocalRunner(config);
 
   const encoder = new TextEncoder();
-  let cancelled = false;
+  let clientConnected = true;
 
   /** Safe enqueue — no-ops if the client already disconnected. */
   const safeSend = (controller: ReadableStreamDefaultController, data: string) => {
-    if (cancelled) return;
+    if (!clientConnected) return;
     try { controller.enqueue(encoder.encode(data)); } catch {}
   };
 
-  const stream = new ReadableStream({
-    async start(controller) {
-      safeSend(controller, `data: ${JSON.stringify({ threadId })}\n\n`);
+  // Mark thread as running so the UI can poll for updates if client reconnects
+  await finishThread(threadId, "running");
 
-      let stderrOutput = "";
-      let textBuffer = "";
-      let flushTimer: ReturnType<typeof setTimeout> | null = null;
+  // Build conversation context
+  const conversationHistory = priorMessages.length > 0
+    ? priorMessages.map((m) => `${m.role === "user" ? "Human" : "Assistant"}: ${m.content}`).join("\n\n")
+    : "";
 
-      const flushText = () => {
-        if (cancelled) return;
-        if (textBuffer) {
-          safeSend(controller, `data: ${JSON.stringify({ delta: textBuffer })}\n\n`);
-          textBuffer = "";
-        }
-        if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
-      };
+  // Launch the agent run as a detached background task.
+  // It writes messages to DB as it goes, so it survives client disconnects.
+  const runPromise = (async () => {
+    let stderrOutput = "";
 
-      try {
-        // Pass prior conversation as context so the agent understands the thread
-        const conversationHistory = priorMessages.length > 0
-          ? priorMessages.map((m) => `${m.role === "user" ? "Human" : "Assistant"}: ${m.content}`).join("\n\n")
-          : "";
-
-        console.log("[chat] starting runner.run for thread:", threadId, "history msgs:", priorMessages.length);
-        const result = await runner.run(message, undefined, (chunk: string, type: "text" | "tool") => {
-          if (cancelled) return;
-          if (type === "text") {
-            textBuffer += chunk;
-            // Flush immediately once we have any reasonable amount of text;
-            // the client already coalesces via requestAnimationFrame.
-            if (textBuffer.length > 1) {
-              flushText();
-            } else if (!flushTimer) {
-              flushTimer = setTimeout(flushText, 8);
-            }
-          } else {
-            flushText();
-            stderrOutput += chunk;
-            safeSend(controller, `data: ${JSON.stringify({ tool: chunk })}\n\n`);
+    try {
+      console.log("[chat] starting runner.run for thread:", threadId, "history msgs:", priorMessages.length);
+      const result = await runner.run(message, undefined, (chunk: string, type: "text" | "tool") => {
+        if (type === "text") {
+          if (clientConnected && streamController) {
+            safeSend(streamController, `data: ${JSON.stringify({ delta: chunk })}\n\n`);
           }
-        }, { threadId, conversationHistory });
-        flushText();
-
-        if (cancelled) return;
-
-        console.log("[chat] runner finished. exitCode:", result.exitCode);
-
-        // Check if agent produced any output
-        if (!result.output?.trim() && (stderrOutput || result.exitCode !== 0)) {
-          const errSource = (stderrOutput || result.stderr || "Unknown error").trim();
-          let errMsg: string;
-          if (errSource.includes("401") || errSource.includes("auth") || errSource.includes("API key")) {
-            errMsg = "Authentication failed. Check your Anthropic API key in Settings.";
-          } else if (errSource.startsWith("Agent error:") || errSource.startsWith("Agent fatal error:")) {
-            errMsg = errSource;
-          } else {
-            errMsg = `Agent error: ${errSource.slice(0, 500)}`;
+        } else {
+          stderrOutput += chunk;
+          if (clientConnected && streamController) {
+            safeSend(streamController, `data: ${JSON.stringify({ tool: chunk })}\n\n`);
           }
-          await addMessage(threadId, "assistant", errMsg);
-          safeSend(controller, `data: ${JSON.stringify({ delta: errMsg })}\n\n`);
         }
+      }, { threadId, conversationHistory });
 
-        safeSend(controller, "data: [DONE]\n\n");
-      } catch (e) {
-        if (!cancelled) {
-          console.error("[chat] catch error:", e);
-          safeSend(controller, `data: ${JSON.stringify({ error: String(e) })}\n\n`);
-          safeSend(controller, "data: [DONE]\n\n");
+      console.log("[chat] runner finished. exitCode:", result.exitCode);
+
+      // Check if agent produced any output
+      if (!result.output?.trim() && (stderrOutput || result.exitCode !== 0)) {
+        const errSource = (stderrOutput || result.stderr || "Unknown error").trim();
+        let errMsg: string;
+        if (errSource.includes("401") || errSource.includes("auth") || errSource.includes("API key")) {
+          errMsg = "Authentication failed. Check your Anthropic API key in Settings.";
+        } else if (errSource.startsWith("Agent error:") || errSource.startsWith("Agent fatal error:")) {
+          errMsg = errSource;
+        } else {
+          errMsg = `Agent error: ${errSource.slice(0, 500)}`;
         }
-      } finally {
-        if (!cancelled) {
-          try { controller.close(); } catch {}
+        await addMessage(threadId, "assistant", errMsg);
+        if (clientConnected && streamController) {
+          safeSend(streamController, `data: ${JSON.stringify({ delta: errMsg })}\n\n`);
         }
       }
+
+      await finishThread(threadId, result.exitCode === 0 ? "done" : "error");
+    } catch (e) {
+      console.error("[chat] agent run error:", e);
+      await finishThread(threadId, "error");
+      if (clientConnected && streamController) {
+        safeSend(streamController, `data: ${JSON.stringify({ error: String(e) })}\n\n`);
+      }
+    } finally {
+      activeRuns.delete(threadId);
+      // Close the SSE stream if client is still connected
+      if (clientConnected && streamController) {
+        safeSend(streamController, "data: [DONE]\n\n");
+        try { streamController.close(); } catch {}
+      }
+    }
+  })();
+
+  activeRuns.set(threadId, runPromise);
+
+  let streamController: ReadableStreamDefaultController | null = null;
+
+  const stream = new ReadableStream({
+    start(controller) {
+      streamController = controller;
+      safeSend(controller, `data: ${JSON.stringify({ threadId })}\n\n`);
     },
     cancel() {
-      console.log("[chat] client disconnected, killing subprocess");
-      cancelled = true;
-      runner.kill().catch(() => {});
+      console.log("[chat] client disconnected — agent continues in background for thread:", threadId);
+      clientConnected = false;
+      streamController = null;
+      // Don't kill the runner — let it finish and save to DB
     },
   });
 
