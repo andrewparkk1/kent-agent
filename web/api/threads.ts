@@ -1,10 +1,10 @@
 /** GET /api/threads — list recent chat threads. */
 /** GET /api/threads/:id/messages — get messages for a thread. */
 /** DELETE /api/threads/:id — delete a thread and its messages. */
-import { getDb, getMessages } from "../../shared/db.ts";
+import { getRawDb, getMessages } from "../../shared/db.ts";
 
 export function handleThreads() {
-  const db = getDb();
+  const db = getRawDb();
   const threads = db
     .prepare("SELECT * FROM threads ORDER BY last_message_at DESC LIMIT 50")
     .all() as any[];
@@ -16,7 +16,7 @@ export async function handleThreadMessages(req: Request) {
   if (!threadId) {
     return Response.json({ error: "Thread ID required" }, { status: 400 });
   }
-  const db = getDb();
+  const db = getRawDb();
   const thread = db.prepare("SELECT type, status FROM threads WHERE id = ?").get(threadId) as any;
   const messages = await getMessages(threadId, 200);
   return Response.json({
@@ -37,7 +37,7 @@ export function handleDeleteThread(req: Request) {
   if (!threadId) {
     return Response.json({ error: "Thread ID required" }, { status: 400 });
   }
-  const db = getDb();
+  const db = getRawDb();
   db.prepare("DELETE FROM messages WHERE thread_id = $id").run({ $id: threadId });
   db.prepare("DELETE FROM threads WHERE id = $id").run({ $id: threadId });
   return Response.json({ ok: true });

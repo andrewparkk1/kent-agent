@@ -15,9 +15,9 @@ function isDaemonRunning(): boolean {
   }
 }
 
-export function handleSources() {
+export async function handleSources() {
   const config = loadConfig();
-  const counts = getItemCount();
+  const counts = await getItemCount();
   const running = isDaemonRunning();
 
   let daemonState: any = { status: "stopped", enabledSources: [] };

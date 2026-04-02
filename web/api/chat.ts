@@ -11,13 +11,13 @@ export async function handleChat(req: Request) {
     return Response.json({ error: "Message is required" }, { status: 400 });
   }
 
-  const threadId = existingThreadId || createThread(message.slice(0, 80));
+  const threadId = existingThreadId || await createThread(message.slice(0, 80));
 
   // Store user message here (agent will skip it via SKIP_USER_MESSAGE)
-  addMessage(threadId, "user", message);
+  await addMessage(threadId, "user", message);
 
   // Build conversation context from history (includes the message we just added)
-  const history = getMessages(threadId, 50);
+  const history = await getMessages(threadId, 50);
   const fullPrompt = history
     .filter((m) => m.role === "user" || m.role === "assistant")
     .map((m) => `${m.role === "user" ? "Human" : "Assistant"}: ${m.content}`)

@@ -1,16 +1,16 @@
 /** GET /api/memories — list/search memories. */
 import { listMemories, searchMemories } from "../../shared/db.ts";
 
-export function handleMemories(req: Request) {
+export async function handleMemories(req: Request) {
   const url = new URL(req.url);
   const q = url.searchParams.get("q");
   const type = url.searchParams.get("type");
 
   let memories;
   if (q) {
-    memories = searchMemories(q);
+    memories = await searchMemories(q);
   } else {
-    memories = listMemories({ type: type as any || undefined });
+    memories = await listMemories({ type: type as any || undefined });
   }
 
   return Response.json({

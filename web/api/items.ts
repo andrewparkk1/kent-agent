@@ -1,5 +1,5 @@
 /** GET /api/items — list/search synced items across all sources. */
-import { getItemCount, searchItems, getItemsBySource, getDb } from "../../shared/db.ts";
+import { getItemCount, searchItems, getItemsBySource, getRawDb } from "../../shared/db.ts";
 
 export async function handleCounts() {
   return Response.json(await getItemCount());
@@ -17,7 +17,7 @@ export async function handleItems(req: Request) {
   } else if (source) {
     items = await getItemsBySource(source, limit);
   } else {
-    const rows = getDb()
+    const rows = getRawDb()
       .prepare(`
         SELECT id, source, external_id, content, metadata, created_at
         FROM items ORDER BY created_at DESC LIMIT ?

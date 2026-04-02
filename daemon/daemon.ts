@@ -143,7 +143,7 @@ async function main(): Promise<void> {
   async function runDueWorkflows(): Promise<void> {
     const now = new Date();
     const nowEpoch = Math.floor(now.getTime() / 1000);
-    const workflows = await getDueWorkflows(nowEpoch);
+    const workflows = await getDueWorkflows();
 
     for (const wf of workflows) {
       if (!wf.cron_schedule) continue;

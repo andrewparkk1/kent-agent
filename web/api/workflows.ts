@@ -1,12 +1,12 @@
 /** GET /api/workflows — list workflows with run stats. */
 /** GET /api/activity — recent workflow runs. */
 /** POST /api/workflow/run — trigger a workflow run with streaming output. */
-import { getDb, updateWorkflow, deleteWorkflow, archiveWorkflow, unarchiveWorkflow, createThread, finishThread } from "../../shared/db.ts";
+import { getRawDb, updateWorkflow, deleteWorkflow, archiveWorkflow, unarchiveWorkflow, createThread, finishThread } from "../../shared/db.ts";
 import { loadConfig, KENT_DIR } from "../../shared/config.ts";
 import { resolve } from "node:path";
 
 export function handleWorkflows() {
-  const db = getDb();
+  const db = getRawDb();
   const workflows = db
     .prepare("SELECT * FROM workflows ORDER BY updated_at DESC")
     .all() as any[];
@@ -40,7 +40,7 @@ export function handleWorkflowDetail(req: Request) {
   const id = url.searchParams.get("id");
   if (!id) return Response.json({ error: "id required" }, { status: 400 });
 
-  const db = getDb();
+  const db = getRawDb();
   const workflow = db.prepare("SELECT * FROM workflows WHERE id = ? OR name = ?").get(id, id) as any;
   if (!workflow) return Response.json({ error: "not found" }, { status: 404 });
 
@@ -66,13 +66,13 @@ export async function handleWorkflowRun(req: Request) {
   const { id } = body as { id: string };
   if (!id) return Response.json({ error: "id required" }, { status: 400 });
 
-  const db = getDb();
+  const db = getRawDb();
   const workflow = db.prepare("SELECT * FROM workflows WHERE id = ? OR name = ?").get(id, id) as any;
   if (!workflow) return Response.json({ error: "not found" }, { status: 404 });
 
   const config = loadConfig();
-  const threadId = createThread(`workflow: ${workflow.name}`, { type: "workflow", workflow_id: workflow.id });
-  updateWorkflow(workflow.id, { last_run_at: Math.floor(Date.now() / 1000) });
+  const threadId = await createThread(`workflow: ${workflow.name}`, { type: "workflow", workflow_id: workflow.id });
+  await updateWorkflow(workflow.id, { last_run_at: Math.floor(Date.now() / 1000) });
 
   const projectRoot = resolve(import.meta.dir, "../..");
   const agentPath = resolve(projectRoot, "agent", "agent.ts");
@@ -138,7 +138,7 @@ export async function handleWorkflowRun(req: Request) {
 
       // Always finalize the thread, even if the stream was cancelled
       try {
-        finishThread(threadId, (proc.exitCode === 0 || proc.exitCode === null) ? "done" : "error");
+        await finishThread(threadId, (proc.exitCode === 0 || proc.exitCode === null) ? "done" : "error");
       } catch {}
 
       try {
@@ -165,12 +165,12 @@ export async function handleWorkflowToggle(req: Request) {
   const { id } = body as { id: string };
   if (!id) return Response.json({ error: "id required" }, { status: 400 });
 
-  const db = getDb();
+  const db = getRawDb();
   const workflow = db.prepare("SELECT * FROM workflows WHERE id = ? OR name = ?").get(id, id) as any;
   if (!workflow) return Response.json({ error: "not found" }, { status: 404 });
 
   const newEnabled = !workflow.enabled;
-  updateWorkflow(workflow.id, { enabled: newEnabled ? 1 : 0 } as any);
+  await updateWorkflow(workflow.id, { enabled: newEnabled ? 1 : 0 } as any);
   return Response.json({ enabled: newEnabled });
 }
 
@@ -178,7 +178,7 @@ export async function handleWorkflowArchive(req: Request) {
   const body = await req.json();
   const { id } = body as { id: string };
   if (!id) return Response.json({ error: "id required" }, { status: 400 });
-  const ok = archiveWorkflow(id);
+  const ok = await archiveWorkflow(id);
   if (!ok) return Response.json({ error: "not found" }, { status: 404 });
   return Response.json({ ok: true });
 }
@@ -187,7 +187,7 @@ export async function handleWorkflowUnarchive(req: Request) {
   const body = await req.json();
   const { id } = body as { id: string };
   if (!id) return Response.json({ error: "id required" }, { status: 400 });
-  const ok = unarchiveWorkflow(id);
+  const ok = await unarchiveWorkflow(id);
   if (!ok) return Response.json({ error: "not found" }, { status: 404 });
   return Response.json({ ok: true });
 }
@@ -197,7 +197,7 @@ export async function handleWorkflowDelete(req: Request) {
   const { id } = body as { id: string };
   if (!id) return Response.json({ error: "id required" }, { status: 400 });
 
-  const deleted = deleteWorkflow(id);
+  const deleted = await deleteWorkflow(id);
   if (!deleted) return Response.json({ error: "not found" }, { status: 404 });
   return Response.json({ ok: true });
 }
@@ -205,7 +205,7 @@ export async function handleWorkflowDelete(req: Request) {
 export function handleBrief(req: Request) {
   const url = new URL(req.url);
   const dateParam = url.searchParams.get("date"); // YYYY-MM-DD
-  const db = getDb();
+  const db = getRawDb();
 
   // Calculate day boundaries (local timezone)
   let dayStart: number;
@@ -304,7 +304,7 @@ export function handleBrief(req: Request) {
 }
 
 export function handleActivity() {
-  const db = getDb();
+  const db = getRawDb();
   const runs = db
     .prepare(
       `SELECT t.*, w.name as workflow_name
