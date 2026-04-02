@@ -21,6 +21,7 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [queued, setQueued] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const nextIdRef = useRef(Date.now());
@@ -68,10 +69,18 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
       fetch(`/api/threads/${initialThreadId}/messages`)
         .then((r) => r.json())
         .then((data) => {
+          const seenTexts = new Set<string>();
           const msgs: Message[] = (data.messages || []).filter((m: Message, i: number, arr: Message[]) => {
-            if (i === 0) return true;
-            const prev = arr[i - 1];
-            return !(m.role === prev.role && m.content === prev.content);
+            if (i > 0) {
+              const prev = arr[i - 1];
+              if (m.role === prev.role && m.content === prev.content) return false;
+            }
+            if (m.role === "assistant" && m.content.trim()) {
+              const text = m.content.trim();
+              if (seenTexts.has(text)) return false;
+              seenTexts.add(text);
+            }
+            return true;
           });
           setMessages(msgs);
           setThreadStatus(data.thread?.status ?? null);
@@ -118,15 +127,45 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
 
   // ─── Send message + streaming ───────────────────────────────────────
 
+  // Process queued messages after streaming ends
+  useEffect(() => {
+    if (!streaming && queued.length > 0) {
+      const next = queued[0];
+      setQueued((q) => q.slice(1));
+      // Defer to next tick so streaming state is fully settled
+      setTimeout(() => {
+        setInput("");
+        doSend(next!);
+      }, 0);
+    }
+  }, [streaming, queued]);
+
   const sendMessage = async () => {
     const text = input.trim();
-    if (!text || streaming) return;
+    if (!text) return;
+
+    if (streaming) {
+      // Queue the message and show it as a user bubble immediately
+      setQueued((q) => [...q, text]);
+      setInput("");
+      const userMsg: Message = { id: genId(), role: "user", content: text, created_at: Math.floor(Date.now() / 1000) };
+      setMessages((prev) => [...prev, userMsg]);
+      return;
+    }
 
     setInput("");
+    doSend(text);
+  };
+
+  const doSend = async (text: string) => {
     setStreaming(true);
 
-    const userMsg: Message = { id: genId(), role: "user", content: text, created_at: Math.floor(Date.now() / 1000) };
-    setMessages((prev) => [...prev, userMsg]);
+    // Only add user bubble if not already added (queued messages add it immediately)
+    setMessages((prev) => {
+      const alreadyHas = prev.some((m) => m.role === "user" && m.content === text);
+      if (alreadyHas) return prev;
+      return [...prev, { id: genId(), role: "user", content: text, created_at: Math.floor(Date.now() / 1000) }];
+    });
 
     let currentAssistantId = genId();
     let currentText = "";
@@ -303,10 +342,21 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
         try {
           const res = await fetch(`/api/threads/${threadId}/messages`);
           const data = await res.json();
+          // Deduplicate: remove assistant messages with identical content (even if separated by tool messages)
+          const seenAssistantTexts = new Set<string>();
           const msgs: Message[] = (data.messages || []).filter((m: Message, i: number, arr: Message[]) => {
-            if (i === 0) return true;
-            const prev = arr[i - 1];
-            return !(m.role === prev.role && m.content === prev.content);
+            // Consecutive same-role same-content dedup
+            if (i > 0) {
+              const prev = arr[i - 1];
+              if (m.role === prev.role && m.content === prev.content) return false;
+            }
+            // Assistant text dedup across entire thread
+            if (m.role === "assistant" && m.content.trim()) {
+              const text = m.content.trim();
+              if (seenAssistantTexts.has(text)) return false;
+              seenAssistantTexts.add(text);
+            }
+            return true;
           });
           if (msgs.length > 0) setMessages(msgs);
         } catch {}
@@ -447,53 +497,60 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
       </div>
 
       {/* Input */}
-      <div className={`w-full ${isEmpty ? "pb-[30vh]" : "pb-6"}`}>
+      <div className={`w-full ${isEmpty ? "pb-[30vh]" : "pt-4 pb-6"}`}>
         <div className="max-w-[680px] mx-auto px-6">
           <div
             className="relative bg-background border border-border/70 rounded-2xl shadow-[0_1px_6px_-1px_rgba(0,0,0,0.06)] hover:shadow-[0_2px_12px_-2px_rgba(0,0,0,0.08)] focus-within:shadow-[0_2px_12px_-2px_rgba(0,0,0,0.08)] focus-within:border-border/90 transition-shadow duration-300"
           >
             <textarea
               ref={inputRef}
-              className="w-full bg-transparent text-[14px] outline-none! ring-0! border-none! shadow-none! placeholder:text-muted-foreground/30 resize-none leading-relaxed max-h-[160px] px-5 pt-5 pb-12 focus:outline-none! focus-visible:outline-none! focus-visible:ring-0!"
-              placeholder={busy ? "Kent is working..." : "Message Kent..."}
+              className="w-full bg-transparent text-[14px] outline-none! ring-0! border-none! shadow-none! placeholder:text-muted-foreground/30 resize-none leading-[1.5] max-h-[160px] px-5 py-3.5 focus:outline-none! focus-visible:outline-none! focus-visible:ring-0!"
+              placeholder={busy ? (queued.length > 0 ? `${queued.length} queued · Message Kent...` : "Kent is working... type to queue") : "Message Kent..."}
               rows={1}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              disabled={busy}
+              disabled={threadStatus === "running"}
             />
 
-            <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between px-3 pb-3 pt-1">
-              <div />
-              {streaming ? (
-                <motion.button
-                  whileHover={{ scale: 1.08 }}
-                  whileTap={{ scale: 0.92 }}
-                  onClick={stopStreaming}
-                  title="Stop generating (Esc)"
-                  className="h-8 w-8 flex items-center justify-center rounded-lg bg-foreground/[0.06] hover:bg-foreground/[0.1] text-muted-foreground/60 hover:text-muted-foreground transition-all cursor-pointer"
-                >
-                  <StopCircle size={14} />
-                </motion.button>
-              ) : busy ? (
-                <div className="h-8 w-8 flex items-center justify-center">
-                  <Loader2 size={14} className="text-muted-foreground/40 animate-spin" />
-                </div>
-              ) : (
-                <motion.button
-                  whileHover={{ scale: 1.08 }}
-                  whileTap={{ scale: 0.92 }}
-                  onClick={sendMessage}
-                  disabled={!input.trim()}
-                  className={`h-8 w-8 flex items-center justify-center rounded-lg shrink-0 transition-all duration-200 cursor-pointer ${
-                    input.trim()
-                      ? "bg-foreground text-background shadow-sm"
-                      : "bg-foreground/[0.06] text-muted-foreground/30"
-                  }`}
-                >
-                  <ArrowUp size={14} strokeWidth={2.5} />
-                </motion.button>
-              )}
+            <div className="flex items-center justify-between px-3 pb-3">
+              <div className="flex items-center gap-1.5">
+                {queued.length > 0 && (
+                  <span className="text-[10px] text-muted-foreground/40 font-mono tabular-nums">{queued.length} queued</span>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5">
+                {streaming && (
+                  <motion.button
+                    whileHover={{ scale: 1.08 }}
+                    whileTap={{ scale: 0.92 }}
+                    onClick={stopStreaming}
+                    title="Stop generating (Esc)"
+                    className="h-8 w-8 flex items-center justify-center rounded-lg bg-foreground/[0.06] hover:bg-foreground/[0.1] text-muted-foreground/60 hover:text-muted-foreground transition-all cursor-pointer"
+                  >
+                    <StopCircle size={14} />
+                  </motion.button>
+                )}
+                {!streaming && busy ? (
+                  <div className="h-8 w-8 flex items-center justify-center">
+                    <Loader2 size={14} className="text-muted-foreground/40 animate-spin" />
+                  </div>
+                ) : (
+                  <motion.button
+                    whileHover={{ scale: 1.08 }}
+                    whileTap={{ scale: 0.92 }}
+                    onClick={sendMessage}
+                    disabled={!input.trim()}
+                    className={`h-8 w-8 flex items-center justify-center rounded-lg shrink-0 transition-all duration-200 cursor-pointer ${
+                      input.trim()
+                        ? "bg-foreground text-background shadow-sm"
+                        : "bg-foreground/[0.06] text-muted-foreground/30"
+                    }`}
+                  >
+                    <ArrowUp size={14} strokeWidth={2.5} />
+                  </motion.button>
+                )}
+              </div>
             </div>
           </div>
 
