@@ -8,7 +8,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { allTools } from "./tools/index.ts";
-import { getItemCount, createThread, addMessage, getMessages } from "@shared/db.ts";
+import { getItemCount, createThread, addMessage, getMessages, listMemories } from "@shared/db.ts";
 
 // ─── Prompt assembly ────────────────────────────────────────────────────────
 
@@ -39,6 +39,28 @@ async function getContext(): Promise<string> {
     return `## Available Data\n${Object.entries(counts).map(([s, c]) => `- ${s}: ${c} items`).join("\n")}`;
   } catch {
     return "Could not read local database.";
+  }
+}
+
+async function getMemoriesContext(): Promise<string> {
+  try {
+    const memories = await listMemories();
+    if (memories.length === 0) return "";
+
+    const now = Math.floor(Date.now() / 1000);
+    const DAY = 86400;
+
+    const lines = memories.map((m) => {
+      const daysSinceUpdate = Math.floor((now - m.updated_at) / DAY);
+      const stale = daysSinceUpdate >= 30 ? " ⚠️ STALE" : "";
+      const aliases = JSON.parse(m.aliases);
+      const aliasStr = aliases.length > 0 ? ` (aliases: ${aliases.join(", ")})` : "";
+      return `- **[${m.id}]** ${m.type}: ${m.title}${aliasStr}${stale}\n  ${m.body}`;
+    });
+
+    return `## Known Memories (${memories.length})\n\nThese are all active memories. Check this list before creating new ones to avoid duplicates. Update existing entries when you learn new info.\n\n${lines.join("\n")}`;
+  } catch {
+    return "";
   }
 }
 
@@ -93,7 +115,8 @@ export async function buildSystemPrompt(options?: {
     ? `## Available Skills\n\nYou have ${skillEntries.length} skills available. Use the read_file tool to load a skill when needed.\n\n${skillEntries.map((s) => `- **${s.name}** → \`${s.path}\``).join("\n")}`
     : "";
 
-  const parts = [identityResolved, soul, tools, skillSection, user].filter(Boolean);
+  const memoriesSection = await getMemoriesContext();
+  const parts = [identityResolved, soul, tools, skillSection, memoriesSection, user].filter(Boolean);
 
   if (options?.conversationHistory) {
     parts.push(`## Conversation History\n\nBelow is the prior conversation in this thread. The user's latest message (your current task) follows as the user prompt. Pay close attention to the MOST RECENT messages — if the user is correcting, cancelling, or changing a previous request, follow their latest instructions.\n\n${options.conversationHistory}`);

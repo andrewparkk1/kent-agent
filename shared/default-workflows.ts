@@ -96,16 +96,18 @@ Rules:
     description: "Maintain a living knowledge base of useful context",
     cron_schedule: "0 10 * * *",
     source: "default" as const,
-    prompt: `You are the memory curator. Use the tools to review recent data AND past conversations, then maintain the knowledge base. No narration — just do it.
+    prompt: `You are the memory curator. Your system prompt already contains ALL active memories. Use that to avoid duplicates. No narration — just do it.
 
 Steps:
-1. Use get_source_stats and get_recent_items to review recent synced activity
-2. Use get_recent_threads to see recent conversations, then get_thread_messages to read through them — these are the richest source of context about the user
-3. Use list_memories to see what already exists — do NOT create duplicates
-4. Use search_memories when checking if a person/topic already has a memory
-5. For new things worth remembering: use create_memory
-6. For existing memories with new info: use update_memory
-7. For stale memories (30+ days no activity): use archive_memory
+1. Review your system prompt's "Known Memories" section — this is the authoritative list of what already exists
+2. Use get_source_stats and get_recent_items to review recent synced activity
+3. Use get_recent_threads to see recent conversations, then get_thread_messages to read through them — these are the richest source of context about the user
+4. For each new thing worth remembering:
+   a. Check your Known Memories section — does a memory for this person/topic/project already exist?
+   b. If YES: use update_memory with the existing ID to add new info. Do NOT create a second entry.
+   c. If NO: use create_memory
+5. Archive stale memories: any memory marked ⚠️ STALE in your Known Memories section (30+ days since last update) should be archived with archive_memory UNLESS it still has active relevance (ongoing project, active relationship, current preference)
+6. Archive completed items: past events, finished projects, resolved topics — archive these regardless of age
 
 What to look for in conversations:
 - People the user mentioned or asked about — who are they, what's the relationship?
@@ -126,7 +128,8 @@ After updating memories, output a brief summary of what you changed (created/upd
 Rules:
 - Keep each memory body to 2-5 sentences
 - The test: "Would this help me assist better next time?" If not, don't save it.
-- Always check list_memories first. Update existing entries, don't create duplicates.
+- NEVER create a memory if one already exists for the same person/topic — use update_memory instead
+- Use search_memories as a fallback check if you're unsure whether a memory exists (e.g. searching by alias or nickname)
 - DO NOT save: browsing patterns, judgmental observations, obvious calendar/inbox info
 - DO NOT narrate your process. Just do the work and report what changed.`,
   },

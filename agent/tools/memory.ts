@@ -61,10 +61,16 @@ export const memList: AgentTool<any> = {
     try {
       const memories = await listMemories({ type: params.type as MemoryType | undefined });
       if (memories.length === 0) return ok("No memories yet.");
-      return json(memories.map((m) => ({
-        id: m.id, type: m.type, title: m.title, body: m.body,
-        aliases: JSON.parse(m.aliases), updated: new Date(m.updated_at * 1000).toISOString(),
-      })));
+      const now = Math.floor(Date.now() / 1000);
+      return json(memories.map((m) => {
+        const daysSinceUpdate = Math.floor((now - m.updated_at) / 86400);
+        return {
+          id: m.id, type: m.type, title: m.title, body: m.body,
+          aliases: JSON.parse(m.aliases), updated: new Date(m.updated_at * 1000).toISOString(),
+          days_since_update: daysSinceUpdate,
+          stale: daysSinceUpdate >= 30,
+        };
+      }));
     } catch (e) { return err(`Failed to list memories: ${e}`); }
   },
 };

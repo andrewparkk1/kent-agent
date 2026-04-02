@@ -13,4 +13,7 @@ export async function handleRun(): Promise<void> {
 
   // Start web + open browser
   await handleWeb();
+
+  // Bun.spawn refs keep the event loop alive — exit explicitly
+  process.exit(0);
 }
