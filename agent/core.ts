@@ -147,7 +147,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
   });
 
   // Only add system prompt if thread doesn't already have one
-  const existingMessages = await getMessages(threadId, 1);
+  const existingMessages = await getMessages(threadId);
   const hasSystemPrompt = existingMessages.some((m) => m.role === "system");
   if (!hasSystemPrompt) {
     await addMessage(threadId, "system", systemPrompt);
