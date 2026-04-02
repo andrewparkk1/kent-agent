@@ -62,19 +62,25 @@ export function App() {
 
   const [itemsPage, setItemsPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
+  const [totalItems, setTotalItems] = useState(0);
+  const CONVERSATION_SOURCES = ["imessage", "signal"];
   const PAGE_SIZE = 50;
+  const CONVO_PAGE_SIZE = 500;
 
   const fetchItems = useCallback(async (page = 0) => {
+    const isConvo = filter ? CONVERSATION_SOURCES.includes(filter) : false;
+    const pageSize = isConvo ? CONVO_PAGE_SIZE : PAGE_SIZE;
     const params = new URLSearchParams();
     if (filter) params.set("source", filter);
     if (query) params.set("q", query);
-    params.set("limit", String(PAGE_SIZE));
-    params.set("offset", String(page * PAGE_SIZE));
+    params.set("limit", String(pageSize));
+    params.set("offset", String(page * pageSize));
     try {
       const res = await fetch(`/api/items?${params}`);
       const data = await res.json();
       setItems(data.items);
       setHasMore(data.hasMore ?? false);
+      setTotalItems(data.total ?? 0);
     } catch {}
     setLoading(false);
   }, [filter, query]);
@@ -158,7 +164,7 @@ export function App() {
         {page === "activity" && <ActivityPage />}
         {page === "chat" && <ChatPage threadId={selectedThreadId} onThreadCreated={setSelectedThreadId} />}
         {page === "sources" && (
-          <SourcesPage items={items} loading={loading} filter={filter} setFilter={setFilter} query={query} setQuery={setQuery} counts={counts} sources={sources} daemon={daemon} onRefresh={() => { fetchItems(itemsPage); fetchCounts(); fetchSources(); }} page={itemsPage} hasMore={hasMore} onPageChange={setItemsPage} />
+          <SourcesPage items={items} loading={loading} filter={filter} setFilter={setFilter} query={query} setQuery={setQuery} counts={counts} sources={sources} daemon={daemon} onRefresh={() => { fetchItems(itemsPage); fetchCounts(); fetchSources(); }} page={itemsPage} hasMore={hasMore} totalPages={totalItems > 0 ? Math.ceil(totalItems / (filter && ["imessage", "signal"].includes(filter) ? CONVO_PAGE_SIZE : PAGE_SIZE)) : undefined} onPageChange={setItemsPage} />
         )}
         {page === "identity" && <IdentityPage />}
         {page === "memories" && <MemoriesPage />}

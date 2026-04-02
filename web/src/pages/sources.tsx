@@ -662,7 +662,7 @@ function SourceAwareList({ items, filter }: { items: Item[]; filter: string | nu
   );
 }
 
-function Pagination({ page, hasMore, onPageChange }: { page: number; hasMore: boolean; onPageChange: (p: number) => void }) {
+function Pagination({ page, hasMore, totalPages, onPageChange }: { page: number; hasMore: boolean; totalPages?: number; onPageChange: (p: number) => void }) {
   if (page === 0 && !hasMore) return null;
   return (
     <div className="flex items-center justify-center gap-3 mt-6 mb-2">
@@ -673,7 +673,9 @@ function Pagination({ page, hasMore, onPageChange }: { page: number; hasMore: bo
       >
         Previous
       </button>
-      <span className="text-[11px] font-mono text-muted-foreground/50 tabular-nums">Page {page + 1}</span>
+      <span className="text-[11px] font-mono text-muted-foreground/50 tabular-nums">
+        Page {page + 1}{totalPages ? ` of ${totalPages}` : ""}
+      </span>
       <button
         onClick={() => onPageChange(page + 1)}
         disabled={!hasMore}
@@ -685,11 +687,11 @@ function Pagination({ page, hasMore, onPageChange }: { page: number; hasMore: bo
   );
 }
 
-export function SourcesPage({ items, loading, filter, setFilter, query, setQuery, counts, sources, daemon, onRefresh, page, hasMore, onPageChange }: {
+export function SourcesPage({ items, loading, filter, setFilter, query, setQuery, counts, sources, daemon, onRefresh, page, hasMore, totalPages, onPageChange }: {
   items: Item[]; loading: boolean; filter: string | null; setFilter: (f: string | null) => void;
   query: string; setQuery: (q: string) => void; counts: Record<string, number>;
   sources: SourceInfo[]; daemon: DaemonInfo; onRefresh: () => void;
-  page: number; hasMore: boolean; onPageChange: (p: number) => void;
+  page: number; hasMore: boolean; totalPages?: number; onPageChange: (p: number) => void;
 }) {
   const sortedSources = Object.entries(counts).sort((a, b) => b[1] - a[1]);
   const now = useTick(1000);
@@ -830,7 +832,7 @@ export function SourcesPage({ items, loading, filter, setFilter, query, setQuery
       ) : (
         <>
           <SourceAwareList items={items} filter={filter} />
-          <Pagination page={page} hasMore={hasMore} onPageChange={onPageChange} />
+          <Pagination page={page} hasMore={hasMore} totalPages={totalPages} onPageChange={onPageChange} />
         </>
       )}
     </div>

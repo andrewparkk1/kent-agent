@@ -85,13 +85,19 @@ export const fsRunCommand: AgentTool<any> = {
     cwd: Type.Optional(Type.String({ description: "Working directory" })),
   }),
   execute: async (_id, params) => {
+    const TIMEOUT_MS = 60_000; // 60s timeout for commands
     try {
       const proc = Bun.spawn(["bash", "-c", params.command], {
         cwd: params.cwd, stdout: "pipe", stderr: "pipe", env: { ...process.env },
       });
-      const stdout = await new Response(proc.stdout).text();
-      const stderr = await new Response(proc.stderr).text();
-      await proc.exited;
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => { proc.kill(); reject(new Error(`Command timed out after ${TIMEOUT_MS / 1000}s`)); }, TIMEOUT_MS)
+      );
+      const [stdout, stderr] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+      ]);
+      await Promise.race([proc.exited, timeout]);
       const output = [stdout ? `stdout:\n${stdout}` : "", stderr ? `stderr:\n${stderr}` : ""].filter(Boolean).join("\n");
       if (proc.exitCode !== 0) {
         return err(output || `Command failed with exit code ${proc.exitCode}`);

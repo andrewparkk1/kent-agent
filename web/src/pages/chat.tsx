@@ -278,7 +278,7 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
       abortRef.current = null;
       setStreaming(false);
 
-      // Notify when done (only if tab is not focused)
+      // Notify when done (only if tab/window is not focused)
       if (document.hidden) {
         const preview = currentText.trim().slice(0, 80).replace(/\n/g, " ");
         toast(preview || "Done", {
@@ -287,10 +287,11 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
           icon: <img src={kentIcon} alt="" className="w-5 h-5 rounded-md" />,
         });
 
+        // Native notification in Tauri desktop app
         if ((window as any).__TAURI__) {
-          try {
-            new Notification("Kent", { body: preview || "Finished responding" });
-          } catch {}
+          import("@tauri-apps/plugin-notification")
+            .then(({ sendNotification }) => sendNotification({ title: "Kent", body: preview || "Finished responding" }))
+            .catch(() => {});
         }
       }
 
@@ -442,7 +443,7 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
           >
             <textarea
               ref={inputRef}
-              className="w-full bg-transparent text-[14px] outline-none! ring-0! border-none! shadow-none! placeholder:text-muted-foreground/30 resize-none leading-relaxed max-h-[160px] px-5 pt-4 pb-12 focus:outline-none! focus-visible:outline-none! focus-visible:ring-0!"
+              className="w-full bg-transparent text-[14px] outline-none! ring-0! border-none! shadow-none! placeholder:text-muted-foreground/30 resize-none leading-relaxed max-h-[160px] px-5 pt-5 pb-12 focus:outline-none! focus-visible:outline-none! focus-visible:ring-0!"
               placeholder={busy ? "Kent is working..." : "Message Kent..."}
               rows={1}
               value={input}

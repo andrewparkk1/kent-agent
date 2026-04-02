@@ -1,6 +1,6 @@
 {
   "name": "kent-agent",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "description": "Personal AI agent that runs on your Mac",
   "repository": {
     "type": "git",
@@ -13,7 +13,7 @@
     "dist/"
   ],
   "bin": {
-    "kent": "./dist/index.js"
+    "kent": "dist/index.js"
   },
   "scripts": {
     "start": "bun run cli/index.ts",

@@ -9,8 +9,8 @@ import type { Message } from "./types";
 
 export function AssistantGroup({ items, streaming }: { items: Message[]; streaming: boolean }) {
   const lastItem = items[items.length - 1]!;
-  const showLoading = streaming && lastItem.role === "assistant" && !lastItem.content;
   const hasRunningTool = items.some((m) => m.role === "tool" && m.content.startsWith("Calling "));
+  const showLoading = streaming && lastItem.role === "assistant" && !lastItem.content && !hasRunningTool;
 
   return (
     <motion.div
@@ -50,18 +50,9 @@ export function AssistantGroup({ items, streaming }: { items: Message[]; streami
             );
           })}
           {showLoading && (
-            <div className="flex items-center gap-1.5 py-1">
-              {hasRunningTool ? (
-                <span className="text-[11px] text-muted-foreground/30 flex items-center gap-2">
-                  <Loader2 size={12} className="animate-spin" />
-                </span>
-              ) : (
-                <>
-                  <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 animate-pulse" style={{ animationDelay: "0ms" }} />
-                  <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 animate-pulse" style={{ animationDelay: "150ms" }} />
-                  <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 animate-pulse" style={{ animationDelay: "300ms" }} />
-                </>
-              )}
+            <div className="flex items-center gap-2 py-1">
+              <Loader2 size={12} className="animate-spin text-muted-foreground/40" />
+              <span className="text-[12px] text-muted-foreground/40">Thinking...</span>
             </div>
           )}
         </div>
