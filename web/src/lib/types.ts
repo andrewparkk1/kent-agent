@@ -105,10 +105,20 @@ export function cronToHuman(cron: string | null): string {
   const parts = cron.split(" ");
   if (parts.length !== 5) return cron;
   const [min, hour, , , dow] = parts;
-  const h = parseInt(hour);
-  const time = `${h > 12 ? h - 12 : h}:${min.padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
   const days: Record<string, string> = { "0": "Sun", "1": "Mon", "2": "Tue", "3": "Wed", "4": "Thu", "5": "Fri", "6": "Sat" };
+
+  // Handle interval-based crons like */30 * * * * or 0 */2 * * *
+  if (hour === "*" || hour?.startsWith("*/")) {
+    if (min?.startsWith("*/")) return `Every ${min.slice(2)} minutes`;
+    if (hour.startsWith("*/")) return `Every ${hour.slice(2)} hours`;
+    return "Every minute";
+  }
+
+  const h = parseInt(hour!);
+  if (isNaN(h)) return cron;
+  const time = `${h > 12 ? h - 12 : h === 0 ? 12 : h}:${min!.padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
   if (dow === "*") return `Daily at ${time}`;
   if (dow === "1-5") return `Weekdays at ${time}`;
-  return `${days[dow] || dow} at ${time}`;
+  const dowParts = dow!.split(",").map((d) => days[d] || d).join(", ");
+  return `${dowParts} at ${time}`;
 }

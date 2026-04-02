@@ -46,6 +46,13 @@ export async function handleChat(req: Request) {
     ? priorMessages.map((m) => `${m.role === "user" ? "Human" : "Assistant"}: ${m.content}`).join("\n\n")
     : "";
 
+  // SSE heartbeat — keeps the connection alive during long tool calls / LLM thinking
+  const heartbeat = setInterval(() => {
+    if (clientConnected && streamController) {
+      safeSend(streamController, ": heartbeat\n\n");
+    }
+  }, 3_000);
+
   // Launch the agent run as a detached background task.
   // It writes messages to DB as it goes, so it survives client disconnects.
   const runPromise = (async () => {
@@ -93,6 +100,7 @@ export async function handleChat(req: Request) {
         safeSend(streamController, `data: ${JSON.stringify({ error: String(e) })}\n\n`);
       }
     } finally {
+      clearInterval(heartbeat);
       activeRuns.delete(threadId);
       // Close the SSE stream if client is still connected
       if (clientConnected && streamController) {
@@ -115,6 +123,7 @@ export async function handleChat(req: Request) {
       console.log("[chat] client disconnected — agent continues in background for thread:", threadId);
       clientConnected = false;
       streamController = null;
+      clearInterval(heartbeat);
       // Don't kill the runner — let it finish and save to DB
     },
   });

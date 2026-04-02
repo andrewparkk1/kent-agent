@@ -107,9 +107,9 @@ export function Sidebar({ page, setPage, openChat, selectedThreadId, workflowCou
         </div>
 
         <div className="mt-6 mb-1">
-          <div className="flex items-center justify-between px-3 mb-1.5">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/50">Chats</span>
-            <button onClick={() => openChat()} className="p-0.5 rounded hover:bg-foreground/5 text-muted-foreground/40 hover:text-muted-foreground transition-colors cursor-pointer">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/50 px-3">Chats</span>
+            <button onClick={() => openChat()} className="p-0.5 mr-1.5 rounded hover:bg-foreground/5 text-muted-foreground/40 hover:text-muted-foreground transition-colors cursor-pointer">
               <Plus size={12} />
             </button>
           </div>

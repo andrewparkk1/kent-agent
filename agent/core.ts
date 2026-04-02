@@ -172,9 +172,10 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
   let currentToolArgs: any = {};
 
   async function flushText() {
-    if (pendingText.trim()) {
-      await addMessage(threadId, "assistant", pendingText.trim());
-      pendingText = "";
+    const text = pendingText.trim();
+    pendingText = "";  // Reset immediately to prevent duplicate flushes from parallel tool_starts
+    if (text) {
+      await addMessage(threadId, "assistant", text);
     }
   }
 
