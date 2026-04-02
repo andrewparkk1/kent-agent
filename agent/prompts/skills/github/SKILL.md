@@ -1,6 +1,8 @@
 # GitHub — gh CLI Reference
 
-Use `run_command` to execute these. Requires `gh auth login` (already done).
+Use `run_command` to execute these. Requires `gh auth login`.
+
+If a command fails with an auth/token error, run `gh auth login` via `run_command` and retry.
 
 ## Issues
 

@@ -4,7 +4,7 @@ import { Activity } from "lucide-react";
 import { Stagger, StaggerItem } from "@/components/stagger";
 import { WorkflowRunRow, type WorkflowRun } from "@/components/workflow-run-row";
 
-export function ActivityPage() {
+export function ActivityPage({ openChat }: { openChat?: (threadId: string) => void }) {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -52,7 +52,7 @@ export function ActivityPage() {
         <Stagger className="flex flex-col gap-1">
           {runs.map((run) => (
             <StaggerItem key={run.id}>
-              <WorkflowRunRow run={run} showName expandable />
+              <WorkflowRunRow run={run} showName onClick={() => openChat?.(run.id)} />
             </StaggerItem>
           ))}
         </Stagger>

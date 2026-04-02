@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion } from "motion/react";
-import { Zap, Play, ChevronRight, Clock, Sparkles, Archive, Plus, ArchiveRestore, Loader2, Timer } from "lucide-react";
+import { Zap, Play, ChevronRight, Clock, Sparkles, Archive, Plus, ArchiveRestore, Loader2, Timer, Search } from "lucide-react";
 import { Stagger, StaggerItem } from "@/components/stagger";
 import { type Workflow, cronToHuman, timeAgo, nextCronRun, formatCountdown } from "@/lib/types";
 
@@ -141,6 +141,7 @@ export function WorkflowsPage({ workflows, loading, onSelect, onRefresh, openCha
 }) {
   const [tab, setTab] = useState<Tab>("active");
   const [runningId, setRunningId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
   const archiveWorkflow = async (id: string) => {
     try {
@@ -201,9 +202,15 @@ export function WorkflowsPage({ workflows, loading, onSelect, onRefresh, openCha
     }
   };
 
-  const active = workflows.filter((w) => !w.is_archived && w.source !== "suggested");
-  const suggested = workflows.filter((w) => !w.is_archived && w.source === "suggested");
-  const archived = workflows.filter((w) => w.is_archived);
+  const matchesSearch = (w: Workflow) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return w.name.toLowerCase().includes(q) || (w.description || "").toLowerCase().includes(q);
+  };
+
+  const active = workflows.filter((w) => !w.is_archived && w.source !== "suggested" && matchesSearch(w));
+  const suggested = workflows.filter((w) => !w.is_archived && w.source === "suggested" && matchesSearch(w));
+  const archived = workflows.filter((w) => w.is_archived && matchesSearch(w));
 
   const tabs: { id: Tab; label: string; count: number }[] = [
     { id: "active", label: "My Workflows", count: active.length },
@@ -234,6 +241,18 @@ export function WorkflowsPage({ workflows, loading, onSelect, onRefresh, openCha
       >
         Workflows
       </motion.h1>
+
+      {/* Search */}
+      <div className="relative mb-4">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/40" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search workflows..."
+          className="w-full pl-9 pr-3 py-2 text-[13px] bg-transparent border border-border/50 rounded-lg text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:border-foreground/20 transition-colors"
+        />
+      </div>
 
       {/* Tabs */}
       <div className="flex items-center gap-1 mb-6 border-b border-border/40 pb-px">

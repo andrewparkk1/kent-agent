@@ -7,9 +7,21 @@ import { getMessages, getThread } from "../../shared/db/threads.ts";
 export async function handleThreads() {
   const threads = await getDb()
     .selectFrom("threads")
-    .orderBy("last_message_at", "desc")
+    .leftJoin("workflows", "workflows.id", "threads.workflow_id")
+    .orderBy("threads.last_message_at", "desc")
     .limit(50)
-    .selectAll()
+    .select([
+      "threads.id",
+      "threads.title",
+      "threads.type",
+      "threads.workflow_id",
+      "threads.status",
+      "threads.started_at",
+      "threads.finished_at",
+      "threads.created_at",
+      "threads.last_message_at",
+      "workflows.name as workflow_name",
+    ])
     .execute();
   return Response.json({ threads });
 }
@@ -21,9 +33,21 @@ export async function handleThreadMessages(req: Request) {
   }
   const thread = await getThread(threadId);
   const messages = await getMessages(threadId, 200);
+
+  // Resolve workflow name if this is a workflow thread
+  let workflowName: string | null = null;
+  if (thread?.workflow_id) {
+    const wf = await getDb()
+      .selectFrom("workflows")
+      .where("id", "=", thread.workflow_id)
+      .select("name")
+      .executeTakeFirst();
+    workflowName = wf?.name ?? null;
+  }
+
   return Response.json({
     messages,
-    thread: thread ? { type: thread.type, status: thread.status } : null,
+    thread: thread ? { type: thread.type, status: thread.status, workflow_name: workflowName } : null,
   });
 }
 

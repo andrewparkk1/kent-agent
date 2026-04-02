@@ -1,7 +1,7 @@
 /** Workflow tools — create/manage scheduled automations. */
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import { createWorkflow, listWorkflows, deleteWorkflow } from "@shared/db.ts";
+import { createWorkflow, listWorkflows, deleteWorkflow, updateWorkflow, getWorkflow } from "@shared/db.ts";
 import { ok, err, json } from "./helpers.ts";
 
 const Empty = Type.Object({});
@@ -61,4 +61,29 @@ export const wfDelete: AgentTool<any> = {
   },
 };
 
-export const workflowTools = [wfCreate, wfList, wfDelete] as AgentTool[];
+export const wfUpdate: AgentTool<any> = {
+  name: "update_workflow",
+  label: "Updating workflow...",
+  description: "Update an existing workflow's fields (name, description, prompt, cron_schedule, enabled).",
+  parameters: Type.Object({
+    name: Type.String({ description: "Current name of the workflow to update" }),
+    updates: Type.Object({
+      name: Type.Optional(Type.String({ description: "New name" })),
+      description: Type.Optional(Type.String({ description: "New description" })),
+      prompt: Type.Optional(Type.String({ description: "New prompt" })),
+      cron_schedule: Type.Optional(Type.String({ description: "New cron expression" })),
+      enabled: Type.Optional(Type.Number({ description: "1 to enable, 0 to disable" })),
+    }, { description: "Fields to update" }),
+  }),
+  execute: async (_id, params) => {
+    try {
+      const wf = await getWorkflow(params.name);
+      if (!wf) return err(`Workflow "${params.name}" not found.`);
+      await updateWorkflow(wf.id, params.updates);
+      const fields = Object.keys(params.updates).join(", ");
+      return ok(`Workflow "${params.name}" updated (${fields}).`);
+    } catch (e) { return err(`Failed to update workflow: ${e}`); }
+  },
+};
+
+export const workflowTools = [wfCreate, wfList, wfDelete, wfUpdate] as AgentTool[];

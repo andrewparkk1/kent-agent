@@ -1,6 +1,8 @@
 # Google Calendar — gws CLI Reference
 
-Use `run_command` to execute these. Requires `gws auth login` (already done).
+Use `run_command` to execute these. Requires `gws auth login`.
+
+If a command fails with an auth/token error, run `gws auth login -s gmail,calendar,tasks,drive,docs,sheets,slides` via `run_command` and retry.
 
 ## View Agenda (Preferred)
 

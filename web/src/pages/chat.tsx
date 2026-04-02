@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { ArrowUp, Loader2, StopCircle } from "lucide-react";
+import { ArrowUp, Loader2, StopCircle, Zap } from "lucide-react";
 import { toast } from "sonner";
 import kentIcon from "@/assets/icon.png";
 import {
@@ -56,6 +56,7 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
 
   // Load existing thread messages — abort streaming if thread changes
   const [threadStatus, setThreadStatus] = useState<string | null>(null);
+  const [workflowName, setWorkflowName] = useState<string | null>(null);
 
   useEffect(() => {
     if (streaming && initialThreadId && initialThreadId === threadId) return;
@@ -74,12 +75,14 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
           });
           setMessages(msgs);
           setThreadStatus(data.thread?.status ?? null);
+          setWorkflowName(data.thread?.workflow_name ?? null);
         })
         .catch(() => {})
         .finally(() => setLoadingHistory(false));
     } else {
       setMessages([]);
       setThreadStatus(null);
+      setWorkflowName(null);
     }
     setTimeout(() => inputRef.current?.focus(), 50);
   }, [initialThreadId]);
@@ -398,6 +401,14 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
           </div>
         ) : (
           <div className="max-w-[900px] mx-auto px-6 py-8 space-y-1">
+            {workflowName && (
+              <div className="flex items-center gap-1.5 mb-3 px-1">
+                <Zap size={12} className="text-amber-500/70" />
+                <span className="text-[12px] text-muted-foreground/50">
+                  from <span className="text-muted-foreground/70 font-medium">{workflowName}</span>
+                </span>
+              </div>
+            )}
             {messages.filter((m) => m.role === "system").map((msg) => (
               <SystemPromptBlock key={msg.id} content={msg.content} />
             ))}

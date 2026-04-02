@@ -10,6 +10,8 @@ import type { Page } from "@/lib/types";
 interface Thread {
   id: string;
   title: string;
+  type: "chat" | "workflow";
+  workflow_name: string | null;
   created_at: number;
   last_message_at: number;
 }
@@ -67,7 +69,7 @@ export function Sidebar({ page, setPage, openChat, selectedThreadId, workflowCou
       try {
         const res = await fetch("/api/threads");
         const data = await res.json();
-        setThreads(data.threads);
+        setThreads(data.threads.filter((t: Thread) => t.type !== "workflow"));
       } catch {}
     };
     load();
@@ -93,7 +95,7 @@ export function Sidebar({ page, setPage, openChat, selectedThreadId, workflowCou
         <span className="text-[17px] font-display tracking-tight">Kent</span>
       </div>
 
-      <nav className="flex-1 px-3 overflow-y-auto">
+      <nav className="flex-1 px-3 overflow-y-auto no-scrollbar">
         <div className="space-y-0.5">
           {NAV_MAIN.map((item) => (
             <NavButton

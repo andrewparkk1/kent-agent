@@ -161,7 +161,7 @@ export function App() {
             openChat={openChat}
           />
         )}
-        {page === "activity" && <ActivityPage />}
+        {page === "activity" && <ActivityPage openChat={openChat} />}
         {page === "chat" && <ChatPage threadId={selectedThreadId} onThreadCreated={setSelectedThreadId} />}
         {page === "sources" && (
           <SourcesPage items={items} loading={loading} filter={filter} setFilter={setFilter} query={query} setQuery={setQuery} counts={counts} sources={sources} daemon={daemon} onRefresh={() => { fetchItems(itemsPage); fetchCounts(); fetchSources(); }} page={itemsPage} hasMore={hasMore} totalPages={totalItems > 0 ? Math.ceil(totalItems / (filter && ["imessage", "signal"].includes(filter) ? CONVO_PAGE_SIZE : PAGE_SIZE)) : undefined} onPageChange={setItemsPage} />

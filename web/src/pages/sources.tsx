@@ -786,7 +786,7 @@ export function SourcesPage({ items, loading, filter, setFilter, query, setQuery
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/50" size={14} />
         <input
           className="w-full pl-9 pr-3 h-9 text-[13px] bg-foreground/[0.03] border border-border/50 rounded-lg outline-none placeholder:text-muted-foreground/40 focus:border-foreground/20 focus:bg-card transition-all duration-200"
-          placeholder="Search everything... ⌘K"
+          placeholder="Search everything..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />

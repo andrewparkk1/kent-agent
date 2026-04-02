@@ -2,6 +2,8 @@
 
 Use `run_command` to execute these. Requires `gws auth login` with Tasks scope.
 
+If a command fails with an auth/token error, run `gws auth login -s gmail,calendar,tasks,drive,docs,sheets,slides` via `run_command` and retry.
+
 ## List Task Lists
 
 ```bash

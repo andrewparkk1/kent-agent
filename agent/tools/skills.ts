@@ -57,7 +57,7 @@ export const getSkill: AgentTool<any> = {
   label: "Loading skill reference...",
   description:
     "Load a skill reference by name. Skills contain CLI syntax and usage guides for external tools (e.g. 'calendar', 'gmail', 'github'). " +
-    "ALWAYS call this before using gws or gh CLI commands to get the correct syntax. " +
+    "Load once per conversation — no need to reload if you already have it. " +
     "Call with no arguments to list available skills.",
   parameters: Type.Object({
     name: Type.Optional(Type.String({ description: "Skill name (e.g. 'calendar', 'gmail', 'github'). Omit to list all available skills." })),

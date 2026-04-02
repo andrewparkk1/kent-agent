@@ -213,7 +213,7 @@ export function WorkflowDetailPage({
         ) : (
           <div className="flex flex-col gap-1">
             {runs.map((run) => (
-              <WorkflowRunRow key={run.id} run={run} showName={false} expandable />
+              <WorkflowRunRow key={run.id} run={run} showName={false} onClick={() => openChat(run.id)} />
             ))}
           </div>
         )}

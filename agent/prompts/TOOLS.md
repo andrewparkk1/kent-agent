@@ -71,6 +71,16 @@ Create a new scheduled or manual workflow.
 ### list_workflows
 List all configured workflows with their schedules and status. No parameters.
 
+### update_workflow
+Update an existing workflow's fields without deleting and recreating it.
+- `name` (string, required): Current name of the workflow to update
+- `updates` (object, required): Fields to update — any of:
+  - `name` (string, optional): New name
+  - `description` (string, optional): New description
+  - `prompt` (string, optional): New prompt
+  - `cron_schedule` (string, optional): New cron expression
+  - `enabled` (number, optional): 1 to enable, 0 to disable
+
 ### delete_workflow
 Delete a workflow by name.
 - `name` (string, required): Name of the workflow to delete

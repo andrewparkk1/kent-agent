@@ -1,9 +1,10 @@
 /**
- * Granola ingestion — reads the local Granola cache file to extract
- * meeting transcripts, notes, AI summaries, calendar events, and contacts.
+ * Granola ingestion — reads the local Granola cache file for metadata,
+ * then fetches transcripts and AI summaries from the Granola API.
  *
- * Granola stores everything in ~/Library/Application Support/Granola/cache-v*.json
- * (currently v6, dynamically detected). No API calls needed — just reads the local file.
+ * Local cache: ~/Library/Application Support/Granola/cache-v*.json
+ * Auth tokens: ~/Library/Application Support/Granola/supabase.json
+ * API: https://api.granola.ai/v1/
  */
 import { join } from "path";
 import { homedir } from "os";
@@ -63,6 +64,81 @@ function readCache(): any | null {
   } catch (e) {
     console.warn(`[granola] Failed to read cache: ${e}`);
     return null;
+  }
+}
+
+// ─── Granola API ───────────────────────────────────────────────────────────
+
+const SUPABASE_PATH = join(GRANOLA_DIR, "supabase.json");
+const GRANOLA_API = "https://api.granola.ai/v1";
+
+/** Read access token from Granola's local auth storage. */
+function getAccessToken(): string | null {
+  try {
+    if (!existsSync(SUPABASE_PATH)) return null;
+    const data = JSON.parse(readFileSync(SUPABASE_PATH, "utf-8"));
+    const tokens = JSON.parse(data.workos_tokens);
+    // Check expiry
+    const payload = JSON.parse(Buffer.from(tokens.access_token.split(".")[1], "base64url").toString());
+    if (Date.now() > payload.exp * 1000) {
+      console.warn("[granola] Access token expired, will try refresh");
+      return refreshToken(tokens.refresh_token);
+    }
+    return tokens.access_token;
+  } catch (e) {
+    console.warn(`[granola] Failed to read access token: ${e}`);
+    return null;
+  }
+}
+
+/** Refresh the access token using the refresh token. */
+function refreshToken(refreshToken: string): string | null {
+  // Synchronous — we can't await here but this runs in an async context
+  // Just return null and let the caller handle it; token will refresh on next Granola app open
+  return null;
+}
+
+/** Fetch document transcript from Granola API. */
+async function fetchTranscript(docId: string, token: string): Promise<string> {
+  try {
+    const res = await fetch(`${GRANOLA_API}/get-document-transcript`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ document_id: docId }),
+    });
+    if (!res.ok) return "";
+    const segments: any[] = await res.json();
+    if (!segments.length) return "";
+    return segments
+      .filter((s) => s.is_final)
+      .map((s) => s.text)
+      .join("\n");
+  } catch {
+    return "";
+  }
+}
+
+/** Fetch AI-generated panels (summaries) from Granola API. */
+async function fetchPanels(docId: string, token: string): Promise<string> {
+  try {
+    const res = await fetch(`${GRANOLA_API}/get-document-panels`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ document_id: docId }),
+    });
+    if (!res.ok) return "";
+    const panels: any[] = await res.json();
+    if (!panels.length) return "";
+    return panels
+      .map((p) => {
+        const title = p.title || "Summary";
+        const text = p.content ? extractText(p.content).trim() : "";
+        return text ? `### ${title}\n${text}` : "";
+      })
+      .filter(Boolean)
+      .join("\n\n");
+  } catch {
+    return "";
   }
 }
 
@@ -221,11 +297,12 @@ export const granola: Source = {
       const lastSync = state.getLastSync("granola");
       const lastSyncDate = lastSync > 0 ? new Date(lastSync * 1000) : new Date(0);
       const items: Item[] = [];
+      const token = getAccessToken();
 
       // --- Meetings (documents) ---
       if (cacheState.documents && typeof cacheState.documents === "object") {
         const ownerUserId = getOwnerUserId(cacheState.documents);
-        const transcripts: Record<string, any[]> =
+        const localTranscripts: Record<string, any[]> =
           cacheState.transcripts || {};
         const meetingsMetadata: Record<string, any> =
           cacheState.meetingsMetadata || {};
@@ -235,11 +312,10 @@ export const granola: Source = {
           if (!doc.created_at || doc.deleted_at) continue;
           const createdDate = new Date(doc.created_at);
           if (createdDate <= lastSyncDate) continue;
-          // Only include meetings from the owner (most frequent user_id)
           if (ownerUserId && doc.user_id !== ownerUserId) continue;
           if (!(doc.notes_markdown || doc.notes_plain || doc.title)) continue;
 
-          // AI summary — try inline fields first (v4+), then panels (v3)
+          // AI summary — try local cache first, then API
           let aiSummary = "";
           if (doc.summary) {
             aiSummary =
@@ -264,8 +340,25 @@ export const granola: Source = {
 
           const attendees = getAttendees(doc, meetingsMetadata);
           const chapters = getChapters(doc);
-          const transcript = assembleTranscript(transcripts[doc.id] || []);
-          const notes = doc.notes_markdown || doc.notes_plain || "";
+
+          // Transcript: try local cache first, then API
+          let transcript = assembleTranscript(localTranscripts[doc.id] || []);
+
+          // Notes: try local sources
+          let notes = doc.notes_markdown || doc.notes_plain || "";
+          if (!notes.trim() && doc.notes) {
+            notes = extractText(doc.notes).trim();
+          }
+
+          // If local content is empty, fetch from Granola API
+          if (token && !transcript && !aiSummary.trim()) {
+            const [apiTranscript, apiPanels] = await Promise.all([
+              fetchTranscript(doc.id, token),
+              fetchPanels(doc.id, token),
+            ]);
+            if (apiTranscript) transcript = apiTranscript;
+            if (apiPanels) aiSummary = apiPanels;
+          }
 
           const contentParts: string[] = [];
           contentParts.push(`# ${doc.title || "Untitled meeting"}`);

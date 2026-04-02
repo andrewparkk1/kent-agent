@@ -373,7 +373,7 @@ export async function handleActivity() {
     .select([
       "t.id", "t.title", "t.type", "t.workflow_id", "t.status",
       "t.started_at", "t.finished_at", "t.created_at", "t.last_message_at",
-      "w.name as workflow_name",
+      sql<string>`COALESCE(w.name, REPLACE(t.title, 'workflow: ', ''))`.as("workflow_name"),
     ])
     .execute();
 
