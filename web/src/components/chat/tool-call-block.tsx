@@ -10,12 +10,24 @@ export function ToolCallBlock({ content, metadata }: { content: string; metadata
 
   let label = "Tool call";
   if (metadata?.name) {
-    const argsPreview = metadata.args
+    const argsPreview = metadata.args && Object.keys(metadata.args).length > 0
       ? Object.entries(metadata.args).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ").slice(0, 60)
       : "";
     label = `${metadata.name}${argsPreview ? `(${argsPreview})` : ""}`;
   } else {
-    label = content.split("\n")[0]?.slice(0, 80) || "Tool call";
+    // No tool name — this is a bare result. Summarize it instead of showing raw content.
+    const trimmed = content.trim();
+    if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        const count = Array.isArray(parsed) ? parsed.length : Object.keys(parsed).length;
+        label = Array.isArray(parsed) ? `${count} result${count !== 1 ? "s" : ""}` : "result";
+      } catch {
+        label = "result";
+      }
+    } else {
+      label = content.split("\n")[0]?.slice(0, 80) || "Tool call";
+    }
   }
 
   const statusIcon = isRunning

@@ -98,7 +98,7 @@ function refreshToken(refreshToken: string): string | null {
   return null;
 }
 
-/** Fetch document transcript from Granola API. */
+/** Fetch document transcript from Granola API, formatted with speaker labels. */
 async function fetchTranscript(docId: string, token: string): Promise<string> {
   try {
     const res = await fetch(`${GRANOLA_API}/get-document-transcript`, {
@@ -109,10 +109,27 @@ async function fetchTranscript(docId: string, token: string): Promise<string> {
     if (!res.ok) return "";
     const segments: any[] = await res.json();
     if (!segments.length) return "";
-    return segments
-      .filter((s) => s.is_final)
-      .map((s) => s.text)
-      .join("\n");
+
+    // Group consecutive segments by speaker for cleaner output
+    const lines: string[] = [];
+    let lastSpeaker = "";
+    for (const s of segments.filter((s) => s.is_final)) {
+      const match = s.text.match(/^(Speaker [A-Z]):\s*/);
+      const speaker = match ? match[1] : "";
+      const text = match ? s.text.slice(match[0].length) : s.text;
+      if (speaker && speaker !== lastSpeaker) {
+        lines.push(`\n**${speaker}:** ${text}`);
+        lastSpeaker = speaker;
+      } else {
+        // Append to previous speaker's block
+        if (lines.length > 0) {
+          lines[lines.length - 1] += " " + text;
+        } else {
+          lines.push(text);
+        }
+      }
+    }
+    return lines.join("\n").trim();
   } catch {
     return "";
   }

@@ -183,7 +183,7 @@ export function HomePage() {
   // ─── Empty state (no briefs at all) ──────────────────────────
   if (briefs.length === 0 && availableDates.length === 0) {
     return (
-      <div className="max-w-[900px] mx-auto px-8 py-10">
+      <div className="max-w-[900px] mx-auto px-6 py-6">
         <motion.h1
           className="text-[36px] font-display tracking-tight mb-2"
           initial={{ opacity: 0, y: 10 }}
@@ -206,14 +206,14 @@ export function HomePage() {
 
   // ─── Brief content ──────────────────────────────────────────
   return (
-    <div className="max-w-[900px] mx-auto px-8 py-10">
+    <div className="max-w-[900px] mx-auto px-6 py-6">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] }}
       >
-        <h1 className="text-[36px] font-display tracking-tight mb-1">
+        <h1 className="text-[32px] font-display tracking-tight mb-0.5">
           {isToday ? greeting : formatFullDate(selectedDate)}
         </h1>
 
@@ -300,7 +300,7 @@ export function HomePage() {
 
       {/* Divider */}
       <motion.div
-        className="h-px bg-border/50 my-5"
+        className="h-px bg-border/50 my-3"
         initial={{ scaleX: 0, originX: 0 }}
         animate={{ scaleX: 1 }}
         transition={{ delay: 0.2, duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] }}

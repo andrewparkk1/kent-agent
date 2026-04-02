@@ -157,6 +157,64 @@ function PlainBody({ text }: { text: string }) {
   );
 }
 
+/** Speaker color assignments for transcript view */
+const SPEAKER_COLORS = [
+  { bg: "bg-blue-500", text: "text-white", label: "text-blue-500/70" },
+  { bg: "bg-emerald-500", text: "text-white", label: "text-emerald-500/70" },
+  { bg: "bg-violet-500", text: "text-white", label: "text-violet-500/70" },
+  { bg: "bg-amber-500", text: "text-white", label: "text-amber-500/70" },
+  { bg: "bg-rose-500", text: "text-white", label: "text-rose-500/70" },
+];
+
+/** Parse transcript markdown into speaker segments */
+function parseTranscript(text: string): { speaker: string; text: string }[] {
+  const segments: { speaker: string; text: string }[] = [];
+  // Match **Speaker X:** pattern
+  const parts = text.split(/\n?\*\*Speaker ([A-Z]):\*\*\s*/);
+  // parts[0] is before first speaker, then alternating: speaker letter, text
+  for (let i = 1; i < parts.length; i += 2) {
+    const speaker = `Speaker ${parts[i]}`;
+    const content = (parts[i + 1] || "").trim();
+    if (content) segments.push({ speaker, text: content });
+  }
+  // If no speaker pattern found, return empty (fall back to plain rendering)
+  return segments;
+}
+
+function TranscriptView({ text }: { text: string }) {
+  const segments = parseTranscript(text);
+  if (segments.length === 0) return null;
+
+  const speakerMap = new Map<string, number>();
+  segments.forEach((s) => {
+    if (!speakerMap.has(s.speaker)) speakerMap.set(s.speaker, speakerMap.size);
+  });
+
+  return (
+    <div className="space-y-2">
+      {segments.map((seg, i) => {
+        const colorIdx = speakerMap.get(seg.speaker)! % SPEAKER_COLORS.length;
+        const color = SPEAKER_COLORS[colorIdx];
+        const isLeft = colorIdx % 2 === 1;
+        return (
+          <div key={i} className={`flex ${isLeft ? "justify-start" : "justify-end"}`}>
+            <div className="max-w-[80%]">
+              <div className={`text-[10px] font-medium mb-0.5 ${color.label}`}>{seg.speaker}</div>
+              <div className={`px-3 py-1.5 rounded-2xl text-[12px] leading-relaxed ${
+                isLeft
+                  ? "bg-foreground/[0.06] text-foreground/80 rounded-bl-md"
+                  : `${color.bg} ${color.text} rounded-br-md`
+              }`}>
+                {seg.text}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ItemDetail({ item }: { item: Item }) {
   const m = item.metadata;
 
@@ -180,6 +238,20 @@ function ItemDetail({ item }: { item: Item }) {
   // For content-heavy sources (notes, chrome, messages), show the full content
   const isContentSource = ["apple-notes", "apple_notes", "chrome", "imessage", "signal", "granola"].includes(item.source);
 
+  // For Granola: split content into summary and transcript sections
+  const isGranola = item.source === "granola";
+  let granolaBody = "";
+  let granolaTranscript = "";
+  if (isGranola) {
+    const transcriptIdx = item.content.indexOf("## Transcript\n");
+    if (transcriptIdx >= 0) {
+      granolaBody = item.content.slice(0, transcriptIdx).trim();
+      granolaTranscript = item.content.slice(transcriptIdx + "## Transcript\n".length).trim();
+    } else {
+      granolaBody = item.content;
+    }
+  }
+
   return (
     <div className="mx-3 mb-2 px-4 py-3 rounded-lg bg-foreground/[0.02] border border-border/30 space-y-3">
       {/* Structured fields */}
@@ -201,8 +273,29 @@ function ItemDetail({ item }: { item: Item }) {
         <div className="text-[12px] text-foreground/60 leading-relaxed whitespace-pre-wrap border-t border-border/20 pt-2.5">{description}</div>
       )}
 
-      {/* Full content for content-heavy sources */}
-      {isContentSource && (
+      {/* Granola: summary + chat-style transcript */}
+      {isGranola && granolaBody && (
+        <div className="max-h-[300px] overflow-y-auto">
+          <div className="prose-chat text-[13px] leading-relaxed">
+            <Markdown>{granolaBody}</Markdown>
+          </div>
+        </div>
+      )}
+      {isGranola && granolaTranscript && (
+        <div className="border-t border-border/20 pt-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/40 mb-2">Transcript</div>
+          <div className="max-h-[400px] overflow-y-auto">
+            {parseTranscript(granolaTranscript).length > 0 ? (
+              <TranscriptView text={granolaTranscript} />
+            ) : (
+              <div className="text-[12px] text-foreground/70 leading-relaxed whitespace-pre-wrap">{granolaTranscript}</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Full content for other content-heavy sources */}
+      {isContentSource && !isGranola && (
         <div className="max-h-[400px] overflow-y-auto">
           <div className="prose-chat text-[13px] leading-relaxed">
             <Markdown>{item.content}</Markdown>
@@ -699,6 +792,15 @@ export function SourcesPage({ items, loading, filter, setFilter, query, setQuery
   const [syncPanelOpen, setSyncPanelOpen] = useState(false);
   const enabledSources = sources.filter((s) => s.enabled);
 
+  useEffect(() => {
+    if (!syncPanelOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); setSyncPanelOpen(false); }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [syncPanelOpen]);
+
   return (
     <div className="max-w-[900px] mx-auto px-8 py-10">
       <div className="flex items-center justify-between mb-7">
@@ -742,13 +844,14 @@ export function SourcesPage({ items, loading, filter, setFilter, query, setQuery
           <AnimatePresence>
             {syncPanelOpen && (
               <>
-                <div className="fixed inset-0 z-[998]" onClick={() => setSyncPanelOpen(false)} />
+                <div className="fixed inset-0 z-[998] bg-background/60 backdrop-blur-[2px]" onClick={() => setSyncPanelOpen(false)} />
                 <motion.div
                   initial={{ opacity: 0, y: -4, scale: 0.97 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -4, scale: 0.97 }}
                   transition={{ duration: 0.15 }}
-                  className="fixed right-8 top-16 z-[999] bg-background border border-border rounded-xl shadow-2xl ring-1 ring-black/5 p-2 w-[280px]"
+                  className="fixed right-8 top-16 z-[999] border border-border rounded-xl shadow-2xl ring-1 ring-black/5 p-2 w-[280px]"
+                  style={{ backgroundColor: "hsl(40 24% 97%)" }}
                 >
                   <div className="flex items-center justify-between px-2 py-1.5 mb-1">
                     <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/50">Sources</span>
