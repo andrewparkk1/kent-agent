@@ -1,8 +1,25 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "motion/react";
-import { Zap, Play, ChevronRight, Clock, Sparkles, Archive, Plus, ArchiveRestore, Loader2 } from "lucide-react";
+import { Zap, Play, ChevronRight, Clock, Sparkles, Archive, Plus, ArchiveRestore, Loader2, Timer } from "lucide-react";
 import { Stagger, StaggerItem } from "@/components/stagger";
-import { type Workflow, cronToHuman, timeAgo } from "@/lib/types";
+import { type Workflow, cronToHuman, timeAgo, nextCronRun, formatCountdown } from "@/lib/types";
+
+function useCountdown(cron: string | null, enabled: boolean): string | null {
+  const [label, setLabel] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!cron || !enabled) { setLabel(null); return; }
+    const tick = () => {
+      const next = nextCronRun(cron);
+      setLabel(next ? formatCountdown(next) : null);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [cron, enabled]);
+
+  return label;
+}
 
 type Tab = "active" | "suggested" | "archived";
 
@@ -12,6 +29,11 @@ function WorkflowCard({ workflow, onClick, actions }: {
   actions?: React.ReactNode;
 }) {
   const [hovered, setHovered] = useState(false);
+  const countdown = useCountdown(workflow.cron_schedule, workflow.enabled);
+
+  const sourceBadge = workflow.source === "suggested"
+    ? { label: "suggested", cls: "bg-foreground/[0.04] text-muted-foreground/50" }
+    : null;
 
   return (
     <StaggerItem>
@@ -36,10 +58,9 @@ function WorkflowCard({ workflow, onClick, actions }: {
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2.5">
               <span className="text-[14px] font-medium text-foreground leading-snug">{workflow.name}</span>
-              {workflow.source === "suggested" && (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/10 text-amber-500">
-                  <Sparkles size={9} />
-                  suggested
+              {sourceBadge && (
+                <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${sourceBadge.cls}`}>
+                  {sourceBadge.label}
                 </span>
               )}
               {workflow.source !== "suggested" && workflow.enabled && (
@@ -57,6 +78,12 @@ function WorkflowCard({ workflow, onClick, actions }: {
                 <Clock size={11} className="text-muted-foreground/40" />
                 <span className="text-[11px] text-muted-foreground/50">{cronToHuman(workflow.cron_schedule)}</span>
               </div>
+              {countdown && workflow.enabled && (
+                <div className="flex items-center gap-1">
+                  <Timer size={10} className="text-muted-foreground/30" />
+                  <span className="text-[11px] text-muted-foreground/40 tabular-nums">{countdown}</span>
+                </div>
+              )}
               {workflow.lastRunAt && (
                 <span className="text-[11px] text-muted-foreground/40">· {timeAgo(workflow.lastRunAt)}</span>
               )}
@@ -285,7 +312,7 @@ export function WorkflowsPage({ workflows, loading, onSelect, onRefresh, openCha
                 actions={
                   <button
                     onClick={(e) => { e.stopPropagation(); unarchiveWorkflow(w.id); }}
-                    className="p-1.5 rounded-md hover:bg-foreground/5 text-muted-foreground/50 hover:text-foreground transition-colors"
+                    className="p-1.5 rounded-md hover:bg-foreground/5 text-muted-foreground/50 hover:text-foreground transition-colors cursor-pointer"
                     title="Unarchive"
                   >
                     <ArchiveRestore size={13} />
@@ -302,14 +329,14 @@ export function WorkflowsPage({ workflows, loading, onSelect, onRefresh, openCha
                     <button
                       onClick={(e) => { e.stopPropagation(); runWorkflow(w.id); }}
                       disabled={runningId === w.id}
-                      className="p-1.5 rounded-md hover:bg-foreground/5 text-muted-foreground/50 hover:text-emerald-500 transition-colors disabled:opacity-50"
+                      className="p-1.5 rounded-md hover:bg-foreground/5 text-muted-foreground/50 hover:text-emerald-500 transition-colors disabled:opacity-50 cursor-pointer"
                       title="Run now"
                     >
                       {runningId === w.id ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); archiveWorkflow(w.id); }}
-                      className="p-1.5 rounded-md hover:bg-foreground/5 text-muted-foreground/50 hover:text-red-400 transition-colors"
+                      className="p-1.5 rounded-md hover:bg-foreground/5 text-muted-foreground/50 hover:text-red-400 transition-colors cursor-pointer"
                       title="Archive"
                     >
                       <Archive size={13} />

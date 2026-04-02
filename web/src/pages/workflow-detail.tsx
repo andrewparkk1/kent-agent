@@ -180,8 +180,8 @@ export function WorkflowDetailPage({
             <Clock size={12} />
             {cronToHuman(wf.cron_schedule)}
           </div>
-          {wf.source && wf.source !== "user" && (
-            <span className="px-1.5 py-0.5 rounded bg-foreground/5 text-[10px]">{wf.source}</span>
+          {wf.source && (
+            <span className="px-1.5 py-0.5 rounded bg-foreground/[0.04] text-[10px]">{wf.source}</span>
           )}
           {wf.lastRunAt && (
             <span>Last run: {timeAgo(wf.lastRunAt)}</span>

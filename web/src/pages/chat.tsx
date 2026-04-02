@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { ArrowUp, Loader2, StopCircle } from "lucide-react";
+import { toast } from "sonner";
 import kentIcon from "@/assets/icon.png";
 import {
   SystemPromptBlock,
@@ -276,6 +277,22 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
     } finally {
       abortRef.current = null;
       setStreaming(false);
+
+      // Notify when done (only if tab is not focused)
+      if (document.hidden) {
+        const preview = currentText.trim().slice(0, 80).replace(/\n/g, " ");
+        toast(preview || "Done", {
+          description: preview ? "Kent finished" : "Kent finished responding",
+          duration: 4000,
+          icon: <img src={kentIcon} alt="" className="w-5 h-5 rounded-md" />,
+        });
+
+        if ((window as any).__TAURI__) {
+          try {
+            new Notification("Kent", { body: preview || "Finished responding" });
+          } catch {}
+        }
+      }
 
       // Reload messages from DB to pick up system prompt + any agent-saved messages
       if (threadId) {

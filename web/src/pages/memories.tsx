@@ -148,7 +148,7 @@ export function MemoriesPage() {
                     <div className="min-w-0 flex-1">
                       <span className="text-[13px] text-foreground leading-snug">{memory.title}</span>
                       {memory.body && (
-                        <span className="text-[12px] text-muted-foreground/50 line-clamp-2 block mt-0.5 leading-relaxed">{memory.body}</span>
+                        <span className="text-[12px] text-muted-foreground/50 line-clamp-2 block mt-0.5 leading-relaxed whitespace-pre-line">{memory.body}</span>
                       )}
                     </div>
                     <div className="shrink-0 flex items-center gap-2 mt-0.5">
@@ -161,14 +161,6 @@ export function MemoriesPage() {
             })}
           </Stagger>
 
-          <motion.p
-            className="text-[11px] text-muted-foreground/40 mt-8 font-mono"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.4 }}
-          >
-            {memories.length} memor{memories.length !== 1 ? "ies" : "y"}
-          </motion.p>
         </>
       )}
     </div>

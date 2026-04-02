@@ -90,7 +90,7 @@ export function Sidebar({ page, setPage, openChat, selectedThreadId, workflowCou
     <aside className="w-[220px] shrink-0 border-r border-border/60 flex flex-col h-screen fixed top-0 left-0 z-30">
       <div className="px-5 pt-6 pb-5 flex items-center gap-3">
         <img src={kentIcon} alt="Kent" className="h-7 w-7 rounded-md" />
-        <span className="text-[15px] font-semibold tracking-tight">Kent</span>
+        <span className="text-[17px] font-display tracking-tight">Kent</span>
       </div>
 
       <nav className="flex-1 px-3 overflow-y-auto">

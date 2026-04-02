@@ -100,6 +100,80 @@ export function getSubtitle(item: Item): string | null {
   return null;
 }
 
+/** Compute next run time from a cron expression (simple subset: min hour * * dow). */
+export function nextCronRun(cron: string | null): Date | null {
+  if (!cron) return null;
+  const parts = cron.split(" ");
+  if (parts.length !== 5) return null;
+  const [minStr, hourStr, , , dow] = parts;
+
+  const now = new Date();
+
+  // Interval-based: */N * * * * or 0 */N * * *
+  if (hourStr === "*" || hourStr?.startsWith("*/")) {
+    if (minStr?.startsWith("*/")) {
+      const interval = parseInt(minStr.slice(2));
+      const next = new Date(now);
+      next.setSeconds(0, 0);
+      next.setMinutes(Math.ceil((now.getMinutes() + 1) / interval) * interval);
+      if (next <= now) next.setMinutes(next.getMinutes() + interval);
+      return next;
+    }
+    if (hourStr.startsWith("*/")) {
+      const interval = parseInt(hourStr.slice(2));
+      const next = new Date(now);
+      next.setMinutes(parseInt(minStr!), 0, 0);
+      next.setHours(Math.ceil((now.getHours() + 1) / interval) * interval);
+      if (next <= now) next.setHours(next.getHours() + interval);
+      return next;
+    }
+    return null;
+  }
+
+  const targetMin = parseInt(minStr!);
+  const targetHour = parseInt(hourStr!);
+  if (isNaN(targetMin) || isNaN(targetHour)) return null;
+
+  // Parse allowed days of week
+  let allowedDays: number[] | null = null;
+  if (dow && dow !== "*") {
+    if (dow.includes("-")) {
+      const [start, end] = dow.split("-").map(Number);
+      allowedDays = [];
+      for (let d = start!; d <= end!; d++) allowedDays.push(d);
+    } else {
+      allowedDays = dow.split(",").map(Number);
+    }
+  }
+
+  // Find next matching time
+  const next = new Date(now);
+  next.setHours(targetHour, targetMin, 0, 0);
+
+  for (let i = 0; i < 8; i++) {
+    if (next > now && (!allowedDays || allowedDays.includes(next.getDay()))) {
+      return next;
+    }
+    next.setDate(next.getDate() + 1);
+    next.setHours(targetHour, targetMin, 0, 0);
+  }
+  return null;
+}
+
+/** Format a countdown like "2d 5h" or "45m 30s". */
+export function formatCountdown(target: Date): string {
+  const diff = Math.max(0, Math.floor((target.getTime() - Date.now()) / 1000));
+  if (diff <= 0) return "now";
+  const d = Math.floor(diff / 86400);
+  const h = Math.floor((diff % 86400) / 3600);
+  const m = Math.floor((diff % 3600) / 60);
+  const s = diff % 60;
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
 export function cronToHuman(cron: string | null): string {
   if (!cron) return "Manual trigger";
   const parts = cron.split(" ");
