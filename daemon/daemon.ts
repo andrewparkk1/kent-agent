@@ -143,7 +143,7 @@ async function main(): Promise<void> {
   async function runDueWorkflows(): Promise<void> {
     const now = new Date();
     const nowEpoch = Math.floor(now.getTime() / 1000);
-    const workflows = getDueWorkflows(nowEpoch);
+    const workflows = await getDueWorkflows(nowEpoch);
 
     for (const wf of workflows) {
       if (!wf.cron_schedule) continue;
@@ -164,8 +164,8 @@ async function main(): Promise<void> {
       }
 
       log(`workflow: running "${wf.name}"`);
-      const threadId = createThread(`workflow: ${wf.name}`, { type: "workflow", workflow_id: wf.id });
-      updateWorkflow(wf.id, { last_run_at: nowEpoch });
+      const threadId = await createThread(`workflow: ${wf.name}`, { type: "workflow", workflow_id: wf.id });
+      await updateWorkflow(wf.id, { last_run_at: nowEpoch });
 
       try {
         const env: Record<string, string> = {
@@ -188,10 +188,10 @@ async function main(): Promise<void> {
         await new Response(proc.stdout).text();
         await proc.exited;
 
-        finishThread(threadId, proc.exitCode === 0 ? "done" : "error");
+        await finishThread(threadId, proc.exitCode === 0 ? "done" : "error");
         log(`workflow: "${wf.name}" ${proc.exitCode === 0 ? "completed" : "failed"}`);
       } catch (e) {
-        finishThread(threadId, "error");
+        await finishThread(threadId, "error");
         log(`workflow: "${wf.name}" error — ${e}`);
       }
     }

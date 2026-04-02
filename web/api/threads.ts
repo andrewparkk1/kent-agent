@@ -11,14 +11,14 @@ export function handleThreads() {
   return Response.json({ threads });
 }
 
-export function handleThreadMessages(req: Request) {
+export async function handleThreadMessages(req: Request) {
   const threadId = (req as any).params?.id || new URL(req.url).pathname.split("/")[3];
   if (!threadId) {
     return Response.json({ error: "Thread ID required" }, { status: 400 });
   }
   const db = getDb();
   const thread = db.prepare("SELECT type, status FROM threads WHERE id = ?").get(threadId) as any;
-  const messages = getMessages(threadId, 200);
+  const messages = await getMessages(threadId, 200);
   return Response.json({
     messages,
     thread: thread ? { type: thread.type, status: thread.status } : null,

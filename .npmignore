@@ -1,0 +1,20 @@
+# Tests
+tests/
+
+# Web dashboard (installed separately)
+web/
+
+# Assets (not needed at runtime)
+assets/
+
+# Dev files
+.env
+.env.example
+CLAUDE.md
+bun.lock
+tsconfig.json
+*.test.ts
+
+# Git
+.git/
+.gitignore

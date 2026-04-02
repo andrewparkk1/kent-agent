@@ -1,11 +1,11 @@
 /** GET /api/items — list/search synced items across all sources. */
 import { getItemCount, searchItems, getItemsBySource, getDb } from "../../shared/db.ts";
 
-export function handleCounts() {
-  return Response.json(getItemCount());
+export async function handleCounts() {
+  return Response.json(await getItemCount());
 }
 
-export function handleItems(req: Request) {
+export async function handleItems(req: Request) {
   const url = new URL(req.url);
   const source = url.searchParams.get("source");
   const q = url.searchParams.get("q");
@@ -15,7 +15,7 @@ export function handleItems(req: Request) {
   if (q) {
     items = searchItems(q, limit, source ?? undefined);
   } else if (source) {
-    items = getItemsBySource(source, limit);
+    items = await getItemsBySource(source, limit);
   } else {
     const rows = getDb()
       .prepare(`

@@ -39,7 +39,7 @@ export async function handleWorkflow(args: string[]): Promise<void> {
 
   switch (sub) {
     case "list":
-      workflowList();
+      await workflowList();
       break;
     case "create":
       await workflowCreate(args.slice(1));
@@ -48,24 +48,24 @@ export async function handleWorkflow(args: string[]): Promise<void> {
       await workflowRun(args.slice(1));
       break;
     case "enable":
-      workflowToggle(args.slice(1), true);
+      await workflowToggle(args.slice(1), true);
       break;
     case "disable":
-      workflowToggle(args.slice(1), false);
+      await workflowToggle(args.slice(1), false);
       break;
     case "delete":
-      workflowDelete(args.slice(1));
+      await workflowDelete(args.slice(1));
       break;
     case "history":
-      workflowHistory(args.slice(1));
+      await workflowHistory(args.slice(1));
       break;
   }
 }
 
 // ── List ──────────────────────────────────────────────────────────────────
 
-function workflowList(): void {
-  const workflows = listWorkflows();
+async function workflowList(): Promise<void> {
+  const workflows = await listWorkflows();
 
   if (workflows.length === 0) {
     console.log("  No workflows yet. Create one with: kent workflow create <name>");
@@ -100,7 +100,7 @@ async function workflowCreate(args: string[]): Promise<void> {
   }
 
   // Check if already exists
-  if (getWorkflow(name)) {
+  if (await getWorkflow(name)) {
     console.error(`Workflow "${name}" already exists.`);
     process.exit(1);
   }
@@ -145,7 +145,7 @@ async function workflowCreate(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const id = createWorkflow({ name, prompt, description, cron_schedule: cron });
+  const id = await createWorkflow({ name, prompt, description, cron_schedule: cron });
   console.log(`${GREEN}  ✓ Created workflow "${name}"${NC}`);
   if (cron) {
     console.log(`    Schedule: ${cron}`);
@@ -163,7 +163,7 @@ async function workflowRun(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const wf = getWorkflow(name);
+  const wf = await getWorkflow(name);
   if (!wf) {
     console.error(`Workflow "${name}" not found.`);
     process.exit(1);
@@ -172,8 +172,8 @@ async function workflowRun(args: string[]): Promise<void> {
   console.log(`${CYAN}  Running "${wf.name}"...${NC}`);
 
   const config = loadConfig();
-  const threadId = createThread(`workflow: ${wf.name}`, { type: "workflow", workflow_id: wf.id });
-  updateWorkflow(wf.id, { last_run_at: Math.floor(Date.now() / 1000) });
+  const threadId = await createThread(`workflow: ${wf.name}`, { type: "workflow", workflow_id: wf.id });
+  await updateWorkflow(wf.id, { last_run_at: Math.floor(Date.now() / 1000) });
 
   const projectRoot = resolve(import.meta.dir, "../..");
   const agentPath = resolve(projectRoot, "agent", "agent.ts");
@@ -199,7 +199,7 @@ async function workflowRun(args: string[]): Promise<void> {
   const stdout = await new Response(proc.stdout).text();
   await proc.exited;
 
-  finishThread(threadId, proc.exitCode === 0 ? "done" : "error");
+  await finishThread(threadId, proc.exitCode === 0 ? "done" : "error");
 
   if (proc.exitCode === 0) {
     console.log(`\n${stdout}`);
@@ -212,34 +212,34 @@ async function workflowRun(args: string[]): Promise<void> {
 
 // ── Toggle ────────────────────────────────────────────────────────────────
 
-function workflowToggle(args: string[], enabled: boolean): void {
+async function workflowToggle(args: string[], enabled: boolean): Promise<void> {
   const name = args[0];
   if (!name) {
     console.error(`Usage: kent workflow ${enabled ? "enable" : "disable"} <name>`);
     process.exit(1);
   }
 
-  const wf = getWorkflow(name);
+  const wf = await getWorkflow(name);
   if (!wf) {
     console.error(`Workflow "${name}" not found.`);
     process.exit(1);
   }
 
-  updateWorkflow(wf.id, { enabled: enabled ? 1 : 0 });
+  await updateWorkflow(wf.id, { enabled: enabled ? 1 : 0 });
   const label = enabled ? `${GREEN}enabled${NC}` : `${RED}disabled${NC}`;
   console.log(`  ✓ Workflow "${wf.name}" ${label}`);
 }
 
 // ── Delete ────────────────────────────────────────────────────────────────
 
-function workflowDelete(args: string[]): void {
+async function workflowDelete(args: string[]): Promise<void> {
   const name = args[0];
   if (!name) {
     console.error("Usage: kent workflow delete <name>");
     process.exit(1);
   }
 
-  if (deleteWorkflow(name)) {
+  if (await deleteWorkflow(name)) {
     console.log(`  ✓ Deleted workflow "${name}"`);
   } else {
     console.error(`Workflow "${name}" not found.`);
@@ -249,20 +249,20 @@ function workflowDelete(args: string[]): void {
 
 // ── History ───────────────────────────────────────────────────────────────
 
-function workflowHistory(args: string[]): void {
+async function workflowHistory(args: string[]): Promise<void> {
   const name = args[0];
   if (!name) {
     console.error("Usage: kent workflow history <name>");
     process.exit(1);
   }
 
-  const wf = getWorkflow(name);
+  const wf = await getWorkflow(name);
   if (!wf) {
     console.error(`Workflow "${name}" not found.`);
     process.exit(1);
   }
 
-  const runs = getWorkflowRuns(wf.id);
+  const runs = await getWorkflowRuns(wf.id);
 
   if (runs.length === 0) {
     console.log(`  No runs yet for "${wf.name}".`);
@@ -285,7 +285,7 @@ function workflowHistory(args: string[]): void {
     console.log(`  ${statusIcon} ${date}  ${DIM}(${duration})${NC}`);
 
     // Show preview from last assistant message
-    const msgs = getMessages(run.id, 200);
+    const msgs = await getMessages(run.id, 200);
     const lastAssistant = [...msgs].reverse().find((m) => m.role === "assistant");
     if (lastAssistant) {
       const preview = lastAssistant.content.split("\n")[0]?.slice(0, 100) ?? "";

@@ -61,7 +61,7 @@ kent web                      # open web dashboard
 | Chrome | Stable | History, bookmarks, downloads, search terms. |
 | Granola | Stable | Meeting transcripts from local JSON files. |
 | Apple Notes | Stable | Reads `NoteStore.sqlite`. Requires Full Disk Access. |
-| Signal | Requires setup | Needs `sqlcipher` and Signal Desktop. |
+| Signal | Stable | Reads encrypted DB. Needs `brew install sqlcipher` and Signal Desktop. |
 
 ## Workflows
 

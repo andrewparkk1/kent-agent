@@ -35,12 +35,12 @@ export const getRecent: AgentTool<any> = {
   execute: async (_id, params) => {
     try {
       if (params.source) {
-        return json(getItemsBySource(params.source, params.limit ?? 50));
+        return json(await getItemsBySource(params.source, params.limit ?? 50));
       }
-      const counts = getItemCount();
+      const counts = await getItemCount();
       const all: any[] = [];
       for (const source of Object.keys(counts)) {
-        all.push(...getItemsBySource(source, params.limit ?? 10));
+        all.push(...await getItemsBySource(source, params.limit ?? 10));
       }
       all.sort((a, b) => b.created_at - a.created_at);
       return json(all.slice(0, params.limit ?? 50));
@@ -57,7 +57,7 @@ export const getStats: AgentTool<any> = {
   parameters: Empty,
   execute: async () => {
     try {
-      return json(getItemCount());
+      return json(await getItemCount());
     } catch (e) {
       return err(`get_source_stats failed: ${e}`);
     }

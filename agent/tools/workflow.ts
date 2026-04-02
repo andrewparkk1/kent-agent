@@ -20,7 +20,7 @@ export const wfCreate: AgentTool<any> = {
   }),
   execute: async (_id, params) => {
     try {
-      const id = createWorkflow({
+      const id = await createWorkflow({
         name: params.name, prompt: params.prompt, description: params.description,
         cron_schedule: params.cron_schedule, type: (params.type as any) ?? undefined,
         source: (params.source as any) ?? "user",
@@ -38,7 +38,7 @@ export const wfList: AgentTool<any> = {
   parameters: Empty,
   execute: async () => {
     try {
-      const workflows = listWorkflows();
+      const workflows = await listWorkflows();
       if (workflows.length === 0) return ok("No workflows configured yet.");
       return json(workflows.map((wf) => ({
         name: wf.name, description: wf.description, cron: wf.cron_schedule ?? "manual",
@@ -56,7 +56,7 @@ export const wfDelete: AgentTool<any> = {
   parameters: Type.Object({ name: Type.String({ description: "Name of the workflow" }) }),
   execute: async (_id, params) => {
     try {
-      return deleteWorkflow(params.name) ? ok(`Workflow "${params.name}" deleted.`) : err(`Workflow "${params.name}" not found.`);
+      return (await deleteWorkflow(params.name)) ? ok(`Workflow "${params.name}" deleted.`) : err(`Workflow "${params.name}" not found.`);
     } catch (e) { return err(`Failed to delete workflow: ${e}`); }
   },
 };

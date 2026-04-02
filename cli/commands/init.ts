@@ -240,8 +240,8 @@ function installPrompts(): void {
 
 // Default workflows are defined in shared/default-workflows.ts
 
-function seedDefaultWorkflows(): void {
-  const existing = listWorkflows();
+async function seedDefaultWorkflows(): Promise<void> {
+  const existing = await listWorkflows();
   if (existing.length > 0) {
     info("  Workflows already exist (skipping seed)");
     return;
@@ -250,7 +250,7 @@ function seedDefaultWorkflows(): void {
   let count = 0;
   for (const wf of DEFAULT_WORKFLOWS) {
     try {
-      createWorkflow(wf);
+      await createWorkflow(wf);
       count++;
     } catch {
       // Duplicate name — skip
@@ -584,7 +584,7 @@ export async function handleInit(): Promise<void> {
   success(`Config saved to ${CONFIG_PATH}`);
 
   // Seed default workflows
-  seedDefaultWorkflows();
+  await seedDefaultWorkflows();
 
   // Install and start launchd daemon
   try {

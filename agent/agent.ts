@@ -125,9 +125,9 @@ async function run(): Promise<void> {
   let currentToolName = "";
   let currentToolArgs: any = {};
 
-  function flushText() {
+  async function flushText() {
     if (pendingText.trim()) {
-      addMessage(threadId, "assistant", pendingText.trim());
+      await addMessage(threadId, "assistant", pendingText.trim());
       pendingText = "";
     }
   }
@@ -145,7 +145,7 @@ async function run(): Promise<void> {
 
       case "tool_execution_start": {
         // Flush any accumulated text before the tool call
-        flushText();
+        void flushText();
         currentToolName = event.toolName;
         currentToolArgs = event.args;
         // Still write to stderr for the REPL/web stream
@@ -165,7 +165,7 @@ async function run(): Promise<void> {
         } catch {}
 
         // Store tool call as a message
-        addMessage(threadId, "tool", resultPreview || "(no output)", {
+        void addMessage(threadId, "tool", resultPreview || "(no output)", {
           name: currentToolName,
           args: currentToolArgs,
           error: event.isError || false,
@@ -193,7 +193,7 @@ async function run(): Promise<void> {
 
       case "agent_end":
         // Flush any remaining text
-        flushText();
+        void flushText();
         process.stdout.write("\n");
         break;
     }
@@ -204,7 +204,7 @@ async function run(): Promise<void> {
   } finally {
     unsub();
     // Safety flush in case agent_end didn't fire
-    flushText();
+    await flushText();
   }
 }
 

@@ -17,7 +17,7 @@ export const memCreate: AgentTool<any> = {
   }),
   execute: async (_id, params) => {
     try {
-      const id = createMemory({ type: params.type as MemoryType, title: params.title, body: params.body, sources: params.sources, aliases: params.aliases });
+      const id = await createMemory({ type: params.type as MemoryType, title: params.title, body: params.body, sources: params.sources, aliases: params.aliases });
       return ok(`Memory created: "${params.title}" (${params.type}, id: ${id})`);
     } catch (e) { return err(`Failed to create memory: ${e}`); }
   },
@@ -36,7 +36,7 @@ export const memUpdate: AgentTool<any> = {
     aliases: Type.Optional(Type.Array(Type.String())),
   }),
   execute: async (_id, params) => {
-    try { const { id, ...fields } = params; updateMemory(id, fields as any); return ok(`Memory "${id}" updated.`); }
+    try { const { id, ...fields } = params; await updateMemory(id, fields as any); return ok(`Memory "${id}" updated.`); }
     catch (e) { return err(`Failed to update memory: ${e}`); }
   },
 };
@@ -47,7 +47,7 @@ export const memArchive: AgentTool<any> = {
   description: "Archive a stale memory (30+ days no activity, completed project, past event).",
   parameters: Type.Object({ id: Type.String({ description: "Memory ID" }) }),
   execute: async (_id, params) => {
-    try { archiveMemory(params.id); return ok(`Memory "${params.id}" archived.`); }
+    try { await archiveMemory(params.id); return ok(`Memory "${params.id}" archived.`); }
     catch (e) { return err(`Failed to archive memory: ${e}`); }
   },
 };
@@ -59,7 +59,7 @@ export const memList: AgentTool<any> = {
   parameters: Type.Object({ type: Type.Optional(Type.String({ description: "Filter by type" })) }),
   execute: async (_id, params) => {
     try {
-      const memories = listMemories({ type: params.type as MemoryType | undefined });
+      const memories = await listMemories({ type: params.type as MemoryType | undefined });
       if (memories.length === 0) return ok("No memories yet.");
       return json(memories.map((m) => ({
         id: m.id, type: m.type, title: m.title, body: m.body,
@@ -76,7 +76,7 @@ export const memSearch: AgentTool<any> = {
   parameters: Type.Object({ query: Type.String({ description: "Search term" }) }),
   execute: async (_id, params) => {
     try {
-      const results = searchMemories(params.query);
+      const results = await searchMemories(params.query);
       if (results.length === 0) return ok("No matching memories found.");
       return json(results.map((m) => ({ id: m.id, type: m.type, title: m.title, body: m.body, aliases: JSON.parse(m.aliases) })));
     } catch (e) { return err(`Failed to search memories: ${e}`); }

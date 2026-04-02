@@ -640,44 +640,46 @@ function App({
 
   // Initialize thread on mount
   useEffect(() => {
-    const recent = getRecentThreads(1);
-    if (recent.length > 0) {
-      const latest = recent[0]!;
-      const hoursSince = (Date.now() / 1000 - latest.last_message_at) / 3600;
-      if (hoursSince < 24) {
-        threadIdRef.current = latest.id;
-        const msgs = dbGetMessages(latest.id);
-        const history = msgs
-          .filter((m) => m.role === "user" || m.role === "assistant")
-          .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
-        conversationRef.current = history;
-        if (history.length > 0) {
-          for (const m of history) {
-            setMessages((prev) => [
-              ...prev,
-              { id: nextId(), role: m.role, content: m.content },
-            ]);
+    (async () => {
+      const recent = await getRecentThreads(1);
+      if (recent.length > 0) {
+        const latest = recent[0]!;
+        const hoursSince = (Date.now() / 1000 - latest.last_message_at) / 3600;
+        if (hoursSince < 24) {
+          threadIdRef.current = latest.id;
+          const msgs = await dbGetMessages(latest.id);
+          const history = msgs
+            .filter((m) => m.role === "user" || m.role === "assistant")
+            .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+          conversationRef.current = history;
+          if (history.length > 0) {
+            for (const m of history) {
+              setMessages((prev) => [
+                ...prev,
+                { id: nextId(), role: m.role, content: m.content },
+              ]);
+            }
           }
+          const title = latest.title || "(untitled)";
+          setMessages((prev) => [
+            ...prev,
+            { id: nextId(), role: "system", content: `Resumed: ${title} (${history.length} messages)` },
+          ]);
+        } else {
+          threadIdRef.current = await createThread();
+          setMessages((prev) => [
+            ...prev,
+            { id: nextId(), role: "system", content: "New thread started." },
+          ]);
         }
-        const title = latest.title || "(untitled)";
-        setMessages((prev) => [
-          ...prev,
-          { id: nextId(), role: "system", content: `Resumed: ${title} (${history.length} messages)` },
-        ]);
       } else {
-        threadIdRef.current = createThread();
+        threadIdRef.current = await createThread();
         setMessages((prev) => [
           ...prev,
           { id: nextId(), role: "system", content: "New thread started." },
         ]);
       }
-    } else {
-      threadIdRef.current = createThread();
-      setMessages((prev) => [
-        ...prev,
-        { id: nextId(), role: "system", content: "New thread started." },
-      ]);
-    }
+    })();
   }, []);
 
   const addMessage = useCallback(
@@ -711,7 +713,7 @@ function App({
 
         case "/clear": {
           conversationRef.current = [];
-          threadIdRef.current = createThread();
+          threadIdRef.current = await createThread();
           setMessages([]);
           addMessage("system", "Conversation cleared, new thread started.");
           return;
@@ -781,7 +783,7 @@ function App({
             .filter(([, v]) => !v)
             .map(([k]) => k);
 
-          const counts = getItemCount();
+          const counts = await getItemCount();
           const countLines = Object.entries(counts)
             .map(([source, count]) => `    ${source}: ${count}`)
             .join("\n");
@@ -801,7 +803,7 @@ function App({
         }
 
         case "/threads": {
-          const recentThreads = getRecentThreads(10);
+          const recentThreads = await getRecentThreads(10);
           if (recentThreads.length === 0) {
             addMessage("system", "No threads yet.");
           } else {
@@ -823,7 +825,7 @@ function App({
           const sub = parts[1];
 
           if (sub === "new") {
-            threadIdRef.current = createThread();
+            threadIdRef.current = await createThread();
             conversationRef.current = [];
             setMessages([]);
             addMessage("system", "Started new thread.");
@@ -836,7 +838,7 @@ function App({
             return;
           }
 
-          const recentThreads = getRecentThreads(10);
+          const recentThreads = await getRecentThreads(10);
           if (num > recentThreads.length) {
             addMessage("system", `Thread ${num} not found.`);
             return;
@@ -844,7 +846,7 @@ function App({
           const selected = recentThreads[num - 1]!;
           threadIdRef.current = selected.id;
 
-          const msgs = dbGetMessages(selected.id);
+          const msgs = await dbGetMessages(selected.id);
           conversationRef.current = msgs
             .filter((m) => m.role === "user" || m.role === "assistant")
             .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
@@ -906,7 +908,7 @@ function App({
       conversationRef.current.push({ role: "user", content: trimmed });
 
       if (threadIdRef.current) {
-        dbAddMessage(threadIdRef.current, "user", trimmed);
+        await dbAddMessage(threadIdRef.current, "user", trimmed);
       }
 
       const fullPrompt = conversationRef.current
@@ -979,7 +981,7 @@ function App({
           });
 
           if (threadIdRef.current && assistantContent) {
-            dbAddMessage(threadIdRef.current, "assistant", assistantContent);
+            await dbAddMessage(threadIdRef.current, "assistant", assistantContent);
           }
 
           const duration = (Date.now() - startTimeRef.current) / 1000;
