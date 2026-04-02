@@ -17,6 +17,8 @@ export interface SyncOptions {
   defaultDays?: number;
   /** Override per-batch row limit. */
   limit?: number;
+  /** Called periodically with the number of items fetched so far. */
+  onProgress?: (count: number) => void;
 }
 
 export interface Source {

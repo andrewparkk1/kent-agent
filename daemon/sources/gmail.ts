@@ -80,53 +80,71 @@ export const gmail: Source = {
     const daysBack = daysBackFromLastSync(lastSync, options?.defaultDays);
     const maxMessages = options?.limit ?? 500;
 
-    // Paginate through message IDs
+    // Fetch both inbox and sent mail so we capture the user's own messages
+    const queries = [
+      `newer_than:${daysBack}d in:inbox`,
+      `newer_than:${daysBack}d in:sent`,
+    ];
+
     const allMessageIds: Array<{ id: string }> = [];
-    let pageToken: string | undefined;
+    const seenIds = new Set<string>();
 
-    while (allMessageIds.length < maxMessages) {
-      const batchSize = Math.min(100, maxMessages - allMessageIds.length);
-      const params: Record<string, any> = {
-        userId: "me",
-        maxResults: batchSize,
-        q: `newer_than:${daysBack}d`,
-      };
-      if (pageToken) params.pageToken = pageToken;
+    for (const q of queries) {
+      let pageToken: string | undefined;
+      while (allMessageIds.length < maxMessages) {
+        const batchSize = Math.min(100, maxMessages - allMessageIds.length);
+        const params: Record<string, any> = {
+          userId: "me",
+          maxResults: batchSize,
+          q,
+        };
+        if (pageToken) params.pageToken = pageToken;
 
-      const listData = await runGws([
-        "gmail", "users", "messages", "list",
-        "--params", JSON.stringify(params),
-      ]);
+        const listData = await runGws([
+          "gmail", "users", "messages", "list",
+          "--params", JSON.stringify(params),
+        ]);
 
-      if (!listData?.messages || !Array.isArray(listData.messages)) break;
-      allMessageIds.push(...listData.messages);
+        if (!listData?.messages || !Array.isArray(listData.messages)) break;
+        for (const msg of listData.messages) {
+          if (!seenIds.has(msg.id)) {
+            seenIds.add(msg.id);
+            allMessageIds.push(msg);
+          }
+        }
 
-      pageToken = listData.nextPageToken;
-      if (!pageToken) break;
+        pageToken = listData.nextPageToken;
+        if (!pageToken) break;
+      }
     }
 
     if (allMessageIds.length === 0) return [];
 
-    // Fetch metadata concurrently in batches of 20 to avoid overwhelming the API
+    // Fetch metadata concurrently in batches of 20
     const details: Array<{ msgId: string; detail: any }> = [];
     const BATCH = 20;
     for (let i = 0; i < allMessageIds.length; i += BATCH) {
       const batch = allMessageIds.slice(i, i + BATCH);
       const batchResults = await Promise.all(
         batch.map(async (msg) => {
-          const detail = await runGws([
-            "gmail", "users", "messages", "get",
-            "--params", JSON.stringify({
-              userId: "me",
-              id: msg.id,
-              format: "metadata",
-              metadataHeaders: ["Subject", "From", "To", "Date"],
-            }),
-          ]);
-          return { msgId: msg.id, detail };
+          try {
+            const detail = await runGws([
+              "gmail", "users", "messages", "get",
+              "--params", JSON.stringify({
+                userId: "me",
+                id: msg.id,
+                format: "metadata",
+                metadataHeaders: ["Subject", "From", "To", "Date"],
+              }),
+            ]);
+            return { msgId: msg.id, detail };
+          } catch {
+            return { msgId: msg.id, detail: null };
+          }
         })
       );
       details.push(...batchResults);
+      options?.onProgress?.(details.length);
     }
 
     const items: Item[] = [];

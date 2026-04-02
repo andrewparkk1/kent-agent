@@ -42,62 +42,61 @@ interface SourceStatus {
   name: string;
   state: "pending" | "syncing" | "saving" | "done" | "error";
   items: number;
+  progress: number; // items fetched so far (during syncing)
   timeMs: number;
+  startMs: number;
   error?: string;
 }
 
-// Serialise renderProgress calls so concurrent sources don't interleave ANSI escapes
+// Render state — all repaints go through a single coalesced timer
 let _firstRender = true;
-let _renderQueued = false;
 let _renderTimer: ReturnType<typeof setTimeout> | null = null;
+
+function repaint(statuses: SourceStatus[]): void {
+  const maxName = Math.max(...statuses.map((s) => s.name.length));
+  // Build the entire frame as one string to avoid interleaving
+  let frame = `\x1b[${statuses.length}A`;
+  for (const s of statuses) {
+    frame += `\x1b[2K${formatLine(s, maxName)}\n`;
+  }
+  process.stdout.write(frame);
+}
 
 function renderProgress(statuses: SourceStatus[]): void {
   if (_firstRender) {
     _firstRender = false;
     process.stdout.write("\x1b[?25l");
     const maxName = Math.max(...statuses.map((s) => s.name.length));
+    let frame = "";
     for (const s of statuses) {
-      process.stdout.write(`\x1b[2K${formatLine(s, maxName)}\n`);
+      frame += `\x1b[2K${formatLine(s, maxName)}\n`;
     }
+    process.stdout.write(frame);
     return;
   }
 
-  // Coalesce rapid updates into a single repaint on next tick
-  if (!_renderQueued) {
-    _renderQueued = true;
+  // Coalesce all updates into a single repaint per frame
+  if (!_renderTimer) {
     _renderTimer = setTimeout(() => {
-      _renderQueued = false;
       _renderTimer = null;
-      const maxName = Math.max(...statuses.map((s) => s.name.length));
-      process.stdout.write(`\x1b[${statuses.length}A`);
-      for (const s of statuses) {
-        process.stdout.write(`\x1b[2K${formatLine(s, maxName)}\n`);
-      }
-    }, 16); // ~60fps
+      repaint(statuses);
+    }, 16);
   }
 }
 
-/** Flush any pending render immediately */
 function flushRender(statuses: SourceStatus[]): void {
   if (_renderTimer) {
     clearTimeout(_renderTimer);
-    _renderQueued = false;
     _renderTimer = null;
   }
   if (!_firstRender) {
-    const maxName = Math.max(...statuses.map((s) => s.name.length));
-    process.stdout.write(`\x1b[${statuses.length}A`);
-    for (const s of statuses) {
-      process.stdout.write(`\x1b[2K${formatLine(s, maxName)}\n`);
-    }
+    repaint(statuses);
   }
 }
 
 function finishProgress(statuses: SourceStatus[]): void {
   flushRender(statuses);
-  // Show cursor again
   process.stdout.write("\x1b[?25h");
-  // Reset state for potential re-use
   _firstRender = true;
 }
 
@@ -106,8 +105,12 @@ function formatLine(s: SourceStatus, maxName: number): string {
   switch (s.state) {
     case "pending":
       return `  \x1b[90m${name}  waiting...\x1b[0m`;
-    case "syncing":
-      return `  \x1b[33m${name}  ⠋ syncing...\x1b[0m`;
+    case "syncing": {
+      const elapsed = s.startMs > 0 ? formatTime(performance.now() - s.startMs) : "";
+      const progress = s.progress > 0 ? ` ${s.progress.toLocaleString()} items` : "";
+      const time = elapsed ? ` \x1b[90m(${elapsed})\x1b[0m` : "";
+      return `  \x1b[33m${name}  ⠋${progress || " syncing..."}${time}\x1b[0m`;
+    }
     case "saving":
       return `  \x1b[33m${name}  ${s.items.toLocaleString()} items, saving...\x1b[0m`;
     case "done":
@@ -125,6 +128,8 @@ function formatTime(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+const SOURCE_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes per source
+
 async function syncSource(
   source: Source,
   state: SyncState,
@@ -133,13 +138,28 @@ async function syncSource(
   options: SyncOptions,
 ): Promise<void> {
   status.state = "syncing";
+  status.startMs = performance.now();
   renderProgress(statuses);
 
   const start = performance.now();
 
+  // Progress callback — update the status and re-render
+  const syncOptions: SyncOptions = {
+    ...options,
+    onProgress: (count: number) => {
+      status.progress = count;
+      renderProgress(statuses);
+    },
+  };
+
   try {
-    const items = await source.fetchNew(state, options);
-    const fetchMs = performance.now() - start;
+    // Race the fetch against a timeout
+    const items = await Promise.race([
+      source.fetchNew(state, syncOptions),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Timed out after 2 minutes")), SOURCE_TIMEOUT_MS)
+      ),
+    ]);
 
     if (items.length > 0) {
       status.state = "saving";
@@ -214,7 +234,9 @@ export async function handleSync(args: string[]): Promise<void> {
     name: s.name,
     state: "pending" as const,
     items: 0,
+    progress: 0,
     timeMs: 0,
+    startMs: 0,
   }));
 
   // Suppress console.warn/log from sources during parallel sync — they corrupt the progress display

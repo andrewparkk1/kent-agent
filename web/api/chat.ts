@@ -1,7 +1,7 @@
 /** POST /api/chat — SSE streaming chat with the agent. */
 import { createThread, addMessage, getMessages, finishThread } from "../../shared/db.ts";
 import { loadConfig } from "../../shared/config.ts";
-import { LocalRunner } from "../../daemon/local-runner.ts";
+import { InProcessRunner } from "../../daemon/inprocess-runner.ts";
 
 /** Track in-flight agent runs so they survive client disconnects. */
 const activeRuns = new Map<string, Promise<void>>();
@@ -27,7 +27,7 @@ export async function handleChat(req: Request) {
     .slice(0, -1); // Drop the last (current) user message
 
   const config = loadConfig();
-  const runner = new LocalRunner(config);
+  const runner = new InProcessRunner(config);
 
   const encoder = new TextEncoder();
   let clientConnected = true;

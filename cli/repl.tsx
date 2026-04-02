@@ -978,8 +978,8 @@ function App({
 
           // Check if agent failed with no output
           if (!assistantContent?.trim() && result.exitCode !== 0 && result.stderr) {
-            const errMsg = result.stderr.includes("401") || result.stderr.includes("auth")
-              ? "Agent authentication failed. Check your Anthropic API key (`kent init` or edit ~/.kent/config.json)."
+            const errMsg = result.stderr.includes("401") || result.stderr.includes("auth") || result.stderr.includes("no output")
+              ? "Something went wrong. Run `kent init` to set up your API key and config."
               : `Agent error: ${result.stderr.slice(0, 500)}`;
             setCurrentStreamText("");
             setActiveTools([]);

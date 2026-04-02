@@ -7,7 +7,7 @@ const VITE_PORT = 5173;
 
 async function isPortInUse(port: number): Promise<boolean> {
   try {
-    const res = await fetch(`http://localhost:${port}/`);
+    await fetch(`http://localhost:${port}/`);
     return true;
   } catch {
     return false;
@@ -23,33 +23,69 @@ async function waitForPort(port: number, timeoutMs = 10000): Promise<boolean> {
   return false;
 }
 
+function prefixStream(stream: ReadableStream<Uint8Array>, prefix: string): void {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  (async () => {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (line.trim()) process.stdout.write(`${prefix} ${line}\n`);
+      }
+    }
+    if (buffer.trim()) process.stdout.write(`${prefix} ${buffer}\n`);
+  })();
+}
+
 export async function handleWeb(): Promise<void> {
   const bunPath = execFileSync("which", ["bun"], { encoding: "utf-8" }).trim();
   const webDir = resolve(import.meta.dir, "../../web");
+  const procs: { proc: ReturnType<typeof Bun.spawn>; name: string }[] = [];
 
-  // Start API server if not already running
+  // Start API server
   const apiRunning = await isPortInUse(API_PORT);
   if (!apiRunning) {
     const serverScript = resolve(webDir, "server.ts");
-    const proc = Bun.spawn(["bash", "-c", `nohup "${bunPath}" run "${serverScript}" > /dev/null 2>&1 &`], {
-      stdout: "ignore",
-      stderr: "ignore",
+    const proc = Bun.spawn([bunPath, "run", serverScript], {
+      stdout: "pipe",
+      stderr: "pipe",
       stdin: "ignore",
     });
-    await proc.exited;
+    procs.push({ proc, name: "api" });
+    prefixStream(proc.stdout, "\x1b[36m[api]\x1b[0m");
+    prefixStream(proc.stderr, "\x1b[36m[api]\x1b[0m");
   }
 
-  // Start Vite dev server if not already running
+  // Start Vite dev server
   const viteRunning = await isPortInUse(VITE_PORT);
   if (!viteRunning) {
     const npxPath = execFileSync("which", ["bunx"], { encoding: "utf-8" }).trim();
-    const proc = Bun.spawn(["bash", "-c", `cd "${webDir}" && nohup "${npxPath}" vite --port ${VITE_PORT} > /dev/null 2>&1 &`], {
-      stdout: "ignore",
-      stderr: "ignore",
+    const proc = Bun.spawn([npxPath, "vite", "--port", String(VITE_PORT)], {
+      stdout: "pipe",
+      stderr: "pipe",
       stdin: "ignore",
+      cwd: webDir,
     });
-    await proc.exited;
+    procs.push({ proc, name: "vite" });
+    prefixStream(proc.stdout, "\x1b[35m[vite]\x1b[0m");
+    prefixStream(proc.stderr, "\x1b[35m[vite]\x1b[0m");
   }
+
+  // Cleanup on exit
+  const cleanup = () => {
+    for (const { proc } of procs) {
+      try { proc.kill(); } catch {}
+    }
+    process.exit(0);
+  };
+  process.on("SIGINT", cleanup);
+  process.on("SIGTERM", cleanup);
 
   // Wait for both to be ready
   const [apiReady, viteReady] = await Promise.all([
@@ -67,9 +103,10 @@ export async function handleWeb(): Promise<void> {
     console.log(`Open http://localhost:${VITE_PORT} in your browser`);
   }
 
-  console.log(`Kent web dashboard running at http://localhost:${VITE_PORT}`);
+  console.log(`\nKent web dashboard running at http://localhost:${VITE_PORT}`);
   console.log(`API server at http://localhost:${API_PORT}`);
-  if (!apiRunning || !viteRunning) {
-    console.log("To stop: lsof -ti:3456,5173 | xargs kill");
-  }
+  console.log("Press Ctrl+C to stop\n");
+
+  // Keep alive until processes exit or user kills
+  await Promise.all(procs.map(({ proc }) => proc.exited));
 }
