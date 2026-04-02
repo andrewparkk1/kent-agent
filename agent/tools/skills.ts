@@ -1,7 +1,7 @@
-/** Skill tools — load skill references on demand instead of bloating the system prompt. */
+/** Skill tools — create, read, update, delete agent skills. */
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { ok, err } from "./helpers.ts";
@@ -76,4 +76,75 @@ export const getSkill: AgentTool<any> = {
   },
 };
 
-export const skillTools = [getSkill] as AgentTool[];
+export const createSkill: AgentTool<any> = {
+  name: "create_skill",
+  label: "Creating skill...",
+  description:
+    "Create a new skill. Skills are markdown reference docs that teach you how to use a tool, API, or workflow. " +
+    "They are listed in your system prompt by name — you can load them on demand with get_skill.",
+  parameters: Type.Object({
+    name: Type.String({ description: "Skill name (lowercase, hyphens ok, e.g. 'google-calendar')" }),
+    content: Type.String({ description: "Skill content as markdown" }),
+  }),
+  execute: async (_id, params) => {
+    try {
+      const skillDir = join(USER_SKILLS_DIR, params.name);
+      if (existsSync(skillDir)) return err(`Skill "${params.name}" already exists. Use update_skill to modify it.`);
+      mkdirSync(skillDir, { recursive: true });
+      const skillPath = join(skillDir, "SKILL.md");
+      await Bun.write(skillPath, params.content);
+      return ok(`Created skill "${params.name}" at ${skillPath} (${params.content.length} bytes)`);
+    } catch (e) { return err(`Failed to create skill: ${e}`); }
+  },
+};
+
+export const updateSkill: AgentTool<any> = {
+  name: "update_skill",
+  label: "Updating skill...",
+  description: "Update an existing skill's content.",
+  parameters: Type.Object({
+    name: Type.String({ description: "Skill name to update" }),
+    content: Type.String({ description: "New skill content as markdown" }),
+  }),
+  execute: async (_id, params) => {
+    try {
+      const skillPath = join(USER_SKILLS_DIR, params.name, "SKILL.md");
+      const flatPath = join(USER_SKILLS_DIR, `${params.name}.md`);
+      if (!existsSync(skillPath) && !existsSync(flatPath)) {
+        return err(`Skill "${params.name}" not found. Use create_skill first.`);
+      }
+      // Always write to nested format
+      if (!existsSync(join(USER_SKILLS_DIR, params.name))) {
+        mkdirSync(join(USER_SKILLS_DIR, params.name), { recursive: true });
+      }
+      await Bun.write(join(USER_SKILLS_DIR, params.name, "SKILL.md"), params.content);
+      return ok(`Updated skill "${params.name}" (${params.content.length} bytes)`);
+    } catch (e) { return err(`Failed to update skill: ${e}`); }
+  },
+};
+
+export const deleteSkill: AgentTool<any> = {
+  name: "delete_skill",
+  label: "Deleting skill...",
+  description: "Delete a user skill by name. Cannot delete bundled skills.",
+  parameters: Type.Object({
+    name: Type.String({ description: "Skill name to delete" }),
+  }),
+  execute: async (_id, params) => {
+    try {
+      const skillDir = join(USER_SKILLS_DIR, params.name);
+      const flatPath = join(USER_SKILLS_DIR, `${params.name}.md`);
+      if (existsSync(skillDir)) {
+        rmSync(skillDir, { recursive: true });
+        return ok(`Deleted skill "${params.name}"`);
+      }
+      if (existsSync(flatPath)) {
+        rmSync(flatPath);
+        return ok(`Deleted skill "${params.name}"`);
+      }
+      return err(`Skill "${params.name}" not found in user skills.`);
+    } catch (e) { return err(`Failed to delete skill: ${e}`); }
+  },
+};
+
+export const skillTools = [getSkill, createSkill, updateSkill, deleteSkill] as AgentTool[];

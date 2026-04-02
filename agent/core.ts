@@ -146,7 +146,12 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
     conversationHistory: options.conversationHistory,
   });
 
-  await addMessage(threadId, "system", systemPrompt);
+  // Only add system prompt if thread doesn't already have one
+  const existingMessages = await getMessages(threadId, 1);
+  const hasSystemPrompt = existingMessages.some((m) => m.role === "system");
+  if (!hasSystemPrompt) {
+    await addMessage(threadId, "system", systemPrompt);
+  }
 
   if (!options.skipUserMessage) {
     await addMessage(threadId, "user", prompt);

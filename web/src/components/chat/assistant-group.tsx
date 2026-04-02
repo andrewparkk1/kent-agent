@@ -1,6 +1,7 @@
 import { motion } from "motion/react";
 import { Loader2 } from "lucide-react";
 import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import kentIcon from "@/assets/icon.png";
 import { ToolCallBlock } from "./tool-call-block";
 import { StreamingMarkdown } from "./streaming-markdown";
@@ -43,7 +44,7 @@ export function AssistantGroup({ items, streaming }: { items: Message[]; streami
                 {isStreamingThis ? (
                   <StreamingMarkdown content={msg.content} />
                 ) : (
-                  <Markdown>{msg.content}</Markdown>
+                  <Markdown remarkPlugins={[remarkGfm]}>{msg.content}</Markdown>
                 )}
               </div>
             );

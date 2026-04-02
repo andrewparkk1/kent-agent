@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Moon, Sun, ChevronLeft, ChevronRight, Calendar, Loader2 } from "lucide-react";
 import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { timeAgo } from "@/lib/types";
 
 interface BriefRun {
@@ -321,7 +322,7 @@ export function HomePage() {
             </div>
           ) : (
             <div className="prose-brief">
-              <Markdown>{activeBrief.output}</Markdown>
+              <Markdown remarkPlugins={[remarkGfm]}>{activeBrief.output}</Markdown>
             </div>
           )}
         </motion.div>

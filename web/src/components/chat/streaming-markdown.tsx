@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 export function StreamingMarkdown({ content }: { content: string }) {
   const [rendered, setRendered] = useState(content);
@@ -24,5 +25,5 @@ export function StreamingMarkdown({ content }: { content: string }) {
     return () => { setRendered(latestRef.current); };
   }, []);
 
-  return <Markdown>{rendered}</Markdown>;
+  return <Markdown remarkPlugins={[remarkGfm]}>{rendered}</Markdown>;
 }

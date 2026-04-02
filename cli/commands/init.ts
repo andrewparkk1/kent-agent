@@ -612,6 +612,16 @@ export async function handleInit(): Promise<void> {
     warn(`Sync failed: ${e instanceof Error ? e.message : e}. Run 'kent sync' to retry.`);
   }
 
+  // Start web dashboard
+  info("Starting web dashboard...\n");
+  try {
+    const { handleWeb } = await import("./web.ts");
+    await handleWeb();
+  } catch (e) {
+    warn(`Web dashboard failed: ${e}`);
+    info("Start manually: kent web");
+  }
+
   // ------------------------------------------------------------------
   // Done
   // ------------------------------------------------------------------
@@ -620,9 +630,11 @@ export async function handleInit(): Promise<void> {
   console.log(`
 ${GREEN}${BOLD}  Setup complete!${NC}
 
-  ${BOLD}Try:${NC}
+  ${BOLD}Commands:${NC}
     kent                    ${DIM}# interactive REPL${NC}
+    kent run                ${DIM}# start daemon + web dashboard${NC}
     kent sync               ${DIM}# manual sync${NC}
+    kent web                ${DIM}# open web dashboard${NC}
     kent daemon status      ${DIM}# check daemon${NC}
     kent workflow list       ${DIM}# see scheduled workflows${NC}
 

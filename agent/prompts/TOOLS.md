@@ -115,4 +115,11 @@ Execute a shell command on the user's Mac.
 
 ## Skills
 
-Skills are loaded into your system prompt automatically. They contain CLI syntax and usage guides for external tools like `gws` (Google Workspace) and `gh` (GitHub). Refer to the skill sections above when using these CLIs via `run_command`. Do not guess CLI flags — use the exact syntax from the skill reference.
+Skills are loaded into your system prompt automatically from `agent/prompts/skills/`. They give you access to external tools and APIs via `run_command`. **Always refer to the skill sections in your system prompt for exact CLI syntax — do not guess flags or endpoints.**
+
+Available skill categories:
+- **Google Workspace** (gmail, calendar, tasks): Read/send emails, manage calendar events, create tasks via `gws` CLI
+- **GitHub**: Issues, PRs, repos via `gh` CLI
+- **AgentCash**: Web search, web scraping, people/company research, image generation, and 300+ more APIs via `npx agentcash fetch`. Use this whenever you need to look something up on the internet, scrape a webpage, or access any external API.
+
+When the user asks you to search the web, look something up online, research a topic, or access any external service — check your skills for the right tool before saying you can't do it.

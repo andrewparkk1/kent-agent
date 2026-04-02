@@ -31,6 +31,7 @@ Usage:
   kent daemon <start|stop|status>  Manage background daemon
   kent sync [--source <name>] [--full]  Sync data sources
   kent workflow <sub>           Manage scheduled workflows
+  kent run                      Start daemon + web dashboard
   kent web                      Open web dashboard
 
 Flags:
@@ -76,6 +77,11 @@ async function main(): Promise<void> {
     case "workflow":
       await handleWorkflow(subArgs);
       break;
+    case "run": {
+      const { handleRun } = await import("./commands/run.ts");
+      await handleRun();
+      break;
+    }
     case "web": {
       const { handleWeb } = await import("./commands/web.ts");
       await handleWeb();

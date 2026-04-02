@@ -180,6 +180,8 @@ html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; }
   border-collapse: collapse;
   margin: 0.75em 0;
   font-size: 0.9em;
+  display: block;
+  overflow-x: auto;
 }
 .prose-chat th {
   text-align: left;
