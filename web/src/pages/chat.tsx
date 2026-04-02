@@ -24,24 +24,8 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const nextIdRef = useRef(Date.now());
   const abortRef = useRef<AbortController | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const pendingUpdateRef = useRef<((prev: Message[]) => Message[]) | null>(null);
 
   const genId = () => nextIdRef.current++;
-
-  // Batched state update — coalesces rapid setMessages calls into one per frame
-  const scheduleUpdate = useCallback((updater: (prev: Message[]) => Message[]) => {
-    pendingUpdateRef.current = updater;
-    if (!rafRef.current) {
-      rafRef.current = requestAnimationFrame(() => {
-        rafRef.current = null;
-        if (pendingUpdateRef.current) {
-          setMessages(pendingUpdateRef.current);
-          pendingUpdateRef.current = null;
-        }
-      });
-    }
-  }, []);
 
   const scrollToBottom = useCallback((instant?: boolean) => {
     messagesEndRef.current?.scrollIntoView({ behavior: instant ? "instant" : "smooth" });
@@ -142,6 +126,7 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
 
     let currentAssistantId = genId();
     let currentText = "";
+    const allFinalizedTexts = new Set<string>();  // Track all finalized text segments to deduplicate
 
     setMessages((prev) => [...prev, { id: currentAssistantId, role: "assistant", content: "", created_at: Math.floor(Date.now() / 1000) }]);
 
@@ -195,11 +180,15 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
               try {
                 const toolEvent = JSON.parse(parsed.tool);
                 if (toolEvent.event === "tool_start") {
-                  if (currentText.trim()) {
+                  const trimmed = currentText.trim();
+                  if (trimmed && !allFinalizedTexts.has(trimmed)) {
+                    // New unique text — finalize it
+                    allFinalizedTexts.add(trimmed);
                     const finalText = currentText;
                     const finalId = currentAssistantId;
                     setMessages((prev) => prev.map((m) => m.id === finalId ? { ...m, content: finalText } : m));
                   } else {
+                    // Empty or duplicate text from parallel tool responses — remove it
                     const emptyId = currentAssistantId;
                     setMessages((prev) => prev.filter((m) => m.id !== emptyId));
                   }
@@ -246,17 +235,22 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
 
             if (parsed.delta) {
               currentText += parsed.delta;
-              const textNow = currentText;
-              const idNow = currentAssistantId;
-              scheduleUpdate((prev) => prev.map((m) => m.id === idNow ? { ...m, content: textNow } : m));
+              // Skip rendering if this is a duplicate of any already-finalized text
+              const trimmedSoFar = currentText.trim();
+              const isDuplicatePrefix = allFinalizedTexts.size > 0 && Array.from(allFinalizedTexts).some(
+                (ft) => ft.startsWith(trimmedSoFar) || ft === trimmedSoFar
+              );
+              if (isDuplicatePrefix) {
+                // Still accumulating a duplicate — don't render
+              } else {
+                const textNow = currentText;
+                const idNow = currentAssistantId;
+                setMessages((prev) => prev.map((m) => m.id === idNow ? { ...m, content: textNow } : m));
+              }
             }
           } catch {}
         }
       }
-
-      // Flush any pending RAF update
-      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
-      if (pendingUpdateRef.current) { setMessages(pendingUpdateRef.current); pendingUpdateRef.current = null; }
 
       // Clean up trailing empty assistant message
       if (!currentText.trim()) {

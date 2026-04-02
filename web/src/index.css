@@ -175,6 +175,31 @@ html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; }
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+.prose-chat table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75em 0;
+  font-size: 0.9em;
+}
+.prose-chat th {
+  text-align: left;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  padding: 0.5em 0.75em;
+  border-bottom: 2px solid hsl(var(--border) / 0.6);
+  white-space: nowrap;
+}
+.prose-chat td {
+  padding: 0.4em 0.75em;
+  border-bottom: 1px solid hsl(var(--border) / 0.3);
+  vertical-align: top;
+}
+.prose-chat tr:last-child td {
+  border-bottom: none;
+}
+.prose-chat tbody tr:hover {
+  background: hsl(var(--foreground) / 0.02);
+}
 .prose-chat hr {
   border: none;
   border-top: 1px solid hsl(var(--border) / 0.5);

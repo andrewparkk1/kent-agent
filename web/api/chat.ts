@@ -53,9 +53,32 @@ export async function handleChat(req: Request) {
     }
   }, 3_000);
 
+  // Wait for the stream controller to be ready before starting the agent
+  let streamController: ReadableStreamDefaultController | null = null;
+  let resolveControllerReady!: () => void;
+  const controllerReady = new Promise<void>((resolve) => { resolveControllerReady = resolve; });
+
+  const stream = new ReadableStream({
+    start(controller) {
+      streamController = controller;
+      safeSend(controller, `data: ${JSON.stringify({ threadId })}\n\n`);
+      resolveControllerReady!();
+    },
+    cancel() {
+      console.log("[chat] client disconnected — agent continues in background for thread:", threadId);
+      clientConnected = false;
+      streamController = null;
+      clearInterval(heartbeat);
+      // Don't kill the runner — let it finish and save to DB
+    },
+  });
+
   // Launch the agent run as a detached background task.
   // It writes messages to DB as it goes, so it survives client disconnects.
   const runPromise = (async () => {
+    // Wait for the stream controller to be assigned before emitting any events
+    await controllerReady;
+
     let stderrOutput = "";
 
     try {
@@ -111,22 +134,6 @@ export async function handleChat(req: Request) {
   })();
 
   activeRuns.set(threadId, runPromise);
-
-  let streamController: ReadableStreamDefaultController | null = null;
-
-  const stream = new ReadableStream({
-    start(controller) {
-      streamController = controller;
-      safeSend(controller, `data: ${JSON.stringify({ threadId })}\n\n`);
-    },
-    cancel() {
-      console.log("[chat] client disconnected — agent continues in background for thread:", threadId);
-      clientConnected = false;
-      streamController = null;
-      clearInterval(heartbeat);
-      // Don't kill the runner — let it finish and save to DB
-    },
-  });
 
   return new Response(stream, {
     headers: {

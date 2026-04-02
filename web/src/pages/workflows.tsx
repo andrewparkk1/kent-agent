@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "motion/react";
-import { Zap, Play, ChevronRight, Clock, Sparkles, Archive, Plus } from "lucide-react";
+import { Zap, Play, ChevronRight, Clock, Sparkles, Archive, Plus, ArchiveRestore, Loader2 } from "lucide-react";
 import { Stagger, StaggerItem } from "@/components/stagger";
 import { type Workflow, cronToHuman, timeAgo } from "@/lib/types";
 
@@ -105,13 +105,74 @@ function SuggestedCard({ workflow, onClick, onEnable }: {
   );
 }
 
-export function WorkflowsPage({ workflows, loading, onSelect, onRefresh }: {
+export function WorkflowsPage({ workflows, loading, onSelect, onRefresh, openChat }: {
   workflows: Workflow[];
   loading: boolean;
   onSelect?: (id: string) => void;
   onRefresh?: () => void;
+  openChat?: (threadId?: string) => void;
 }) {
   const [tab, setTab] = useState<Tab>("active");
+  const [runningId, setRunningId] = useState<string | null>(null);
+
+  const archiveWorkflow = async (id: string) => {
+    try {
+      await fetch("/api/workflow/archive", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      onRefresh?.();
+    } catch {}
+  };
+
+  const unarchiveWorkflow = async (id: string) => {
+    try {
+      await fetch("/api/workflow/unarchive", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      onRefresh?.();
+    } catch {}
+  };
+
+  const runWorkflow = async (id: string) => {
+    if (runningId) return;
+    setRunningId(id);
+    try {
+      const res = await fetch("/api/workflow/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const reader = res.body?.getReader();
+      if (!reader) return;
+      const decoder = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() || "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const payload = line.slice(6);
+          if (payload === "[DONE]") continue;
+          try {
+            const event = JSON.parse(payload);
+            if (event.threadId) {
+              openChat?.(event.threadId);
+              return;
+            }
+          } catch {}
+        }
+      }
+    } catch {} finally {
+      setRunningId(null);
+    }
+  };
 
   const active = workflows.filter((w) => !w.is_archived && w.source !== "suggested");
   const suggested = workflows.filter((w) => !w.is_archived && w.source === "suggested");
@@ -216,11 +277,45 @@ export function WorkflowsPage({ workflows, loading, onSelect, onRefresh }: {
                 onClick={() => onSelect?.(w.id)}
                 onEnable={() => enableWorkflow(w.id)}
               />
+            ) : tab === "archived" ? (
+              <WorkflowCard
+                key={w.id}
+                workflow={w}
+                onClick={() => onSelect?.(w.id)}
+                actions={
+                  <button
+                    onClick={(e) => { e.stopPropagation(); unarchiveWorkflow(w.id); }}
+                    className="p-1.5 rounded-md hover:bg-foreground/5 text-muted-foreground/50 hover:text-foreground transition-colors"
+                    title="Unarchive"
+                  >
+                    <ArchiveRestore size={13} />
+                  </button>
+                }
+              />
             ) : (
               <WorkflowCard
                 key={w.id}
                 workflow={w}
                 onClick={() => onSelect?.(w.id)}
+                actions={
+                  <>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); runWorkflow(w.id); }}
+                      disabled={runningId === w.id}
+                      className="p-1.5 rounded-md hover:bg-foreground/5 text-muted-foreground/50 hover:text-emerald-500 transition-colors disabled:opacity-50"
+                      title="Run now"
+                    >
+                      {runningId === w.id ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); archiveWorkflow(w.id); }}
+                      className="p-1.5 rounded-md hover:bg-foreground/5 text-muted-foreground/50 hover:text-red-400 transition-colors"
+                      title="Archive"
+                    >
+                      <Archive size={13} />
+                    </button>
+                  </>
+                }
               />
             )
           )}

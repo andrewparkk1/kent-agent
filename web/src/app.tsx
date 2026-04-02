@@ -145,6 +145,7 @@ export function App() {
             loading={workflowsLoading}
             onSelect={(id) => { setSelectedWorkflowId(id); setPage("workflow-detail"); }}
             onRefresh={fetchWorkflows}
+            openChat={openChat}
           />
         )}
         {page === "workflow-detail" && selectedWorkflowId && (
