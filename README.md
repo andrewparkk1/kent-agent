@@ -12,13 +12,13 @@ bun install -g kent-agent
 kent init
 ```
 
-`kent init` walks you through connecting sources and adding your API keys.
+`kent init` walks you through connecting sources, adding your API keys, runs your first sync, starts the daemon, and opens the web dashboard.
 
 ## Quick start
 
 ```bash
 kent                          # interactive chat
-kent daemon start             # start background sync + scheduled workflows
+kent run                      # start daemon + web dashboard
 kent web                      # open web dashboard
 ```
 
@@ -119,14 +119,15 @@ Opens a local React dashboard with pages for:
 
 ```bash
 kent                              # interactive REPL
-kent init                         # setup wizard
-kent daemon start|stop|status     # background sync + scheduler
+kent init                         # setup wizard (+ first sync + daemon + web)
+kent run                          # start daemon + web dashboard
+kent web                          # open web dashboard
+kent daemon start|stop|status     # manage background daemon
 kent sync                         # sync all sources now
 kent sync --source imessage       # sync one source
 kent workflow list                # list workflows
 kent workflow run <name>          # run a workflow
 kent workflow create              # create a workflow
-kent web                          # open web dashboard
 ```
 
 ## Security

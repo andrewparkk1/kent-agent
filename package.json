@@ -1,6 +1,6 @@
 {
   "name": "kent-agent",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Personal AI agent that runs on your Mac",
   "repository": {
     "type": "git",
