@@ -10,7 +10,7 @@ import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { loadConfig, ensureKentDir, KENT_DIR, PID_PATH, LOG_PATH, DAEMON_STATE_PATH } from "@shared/config.ts";
 import { upsertItems, getDueWorkflows, updateWorkflow, createThread, finishThread } from "@shared/db.ts";
-import { matchesCron } from "./cron.ts";
+import { matchesCron, getNextCronTime } from "./cron.ts";
 import { FileSyncState } from "./sync-state.ts";
 import type { Source } from "./sources/types.ts";
 import { imessage } from "./sources/imessage.ts";
@@ -147,21 +147,35 @@ async function main(): Promise<void> {
 
     for (const wf of workflows) {
       if (!wf.cron_schedule) continue;
-      if (!matchesCron(wf.cron_schedule, now)) continue;
 
-      // Don't re-run if already ran this minute
-      if (wf.last_run_at) {
-        const lastRunDate = new Date(wf.last_run_at * 1000);
-        if (
-          lastRunDate.getFullYear() === now.getFullYear() &&
-          lastRunDate.getMonth() === now.getMonth() &&
-          lastRunDate.getDate() === now.getDate() &&
-          lastRunDate.getHours() === now.getHours() &&
-          lastRunDate.getMinutes() === now.getMinutes()
-        ) {
-          continue; // Already ran this minute window
+      let shouldRun = false;
+
+      if (matchesCron(wf.cron_schedule, now)) {
+        // Cron matches right now — run unless we already ran this minute
+        shouldRun = true;
+        if (wf.last_run_at) {
+          const lastRunDate = new Date(wf.last_run_at * 1000);
+          if (
+            lastRunDate.getFullYear() === now.getFullYear() &&
+            lastRunDate.getMonth() === now.getMonth() &&
+            lastRunDate.getDate() === now.getDate() &&
+            lastRunDate.getHours() === now.getHours() &&
+            lastRunDate.getMinutes() === now.getMinutes()
+          ) {
+            shouldRun = false; // Already ran this minute window
+          }
+        }
+      } else if (wf.last_run_at) {
+        // Cron doesn't match now — check if we missed a run (e.g. laptop was asleep)
+        const lastRanDate = new Date(wf.last_run_at * 1000);
+        const nextDue = getNextCronTime(wf.cron_schedule, lastRanDate);
+        if (nextDue && nextDue.getTime() < now.getTime()) {
+          log(`workflow: "${wf.name}" missed run at ${nextDue.toISOString()}, catching up now`);
+          shouldRun = true;
         }
       }
+
+      if (!shouldRun) continue;
 
       log(`workflow: running "${wf.name}"`);
       await updateWorkflow(wf.id, { last_run_at: nowEpoch });

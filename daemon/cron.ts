@@ -42,6 +42,25 @@ function matchField(field: string, value: number, max: number): boolean {
  * Expression format: "minute hour day-of-month month day-of-week"
  * Day-of-week: 0=Sunday, 1=Monday, ..., 6=Saturday
  */
+/**
+ * Find the next Date after `after` that matches the cron expression.
+ * Brute-force checks each minute, capped at 48 hours to avoid infinite loops.
+ * Returns null if no match is found within the window.
+ */
+export function getNextCronTime(expression: string, after: Date): Date | null {
+  const maxMinutes = 48 * 60; // 48 hours
+  const candidate = new Date(after.getTime());
+  // Advance to the next minute boundary
+  candidate.setSeconds(0, 0);
+  candidate.setTime(candidate.getTime() + 60_000);
+
+  for (let i = 0; i < maxMinutes; i++) {
+    if (matchesCron(expression, candidate)) return candidate;
+    candidate.setTime(candidate.getTime() + 60_000);
+  }
+  return null;
+}
+
 export function matchesCron(expression: string, date: Date): boolean {
   const parts = expression.trim().split(/\s+/);
   if (parts.length !== 5) return false;
