@@ -85,18 +85,20 @@ gws gmail +forward --message-id <MESSAGE_ID> --to "dave@example.com" --body "FYI
 
 ## List Messages (Low-level)
 
+userId `"me"` is **required** for all raw `users` commands.
+
 ```bash
 # List messages (returns IDs — use +read to get content)
-gws gmail users messages list --params '{"q": "from:alice@example.com"}'
-gws gmail users messages list --params '{"q": "subject:deployment after:2026/04/01"}'
-gws gmail users messages list --params '{"maxResults": 10}'
+gws gmail users messages list --params '{"userId": "me", "q": "from:alice@example.com"}'
+gws gmail users messages list --params '{"userId": "me", "q": "subject:deployment after:2026/04/01"}'
+gws gmail users messages list --params '{"userId": "me", "maxResults": 10}'
 ```
 
 ## Labels
 
 ```bash
 # List all labels
-gws gmail users labels list
+gws gmail users labels list --params '{"userId": "me"}'
 ```
 
 ## Search Syntax

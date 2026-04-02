@@ -90,15 +90,15 @@ async function run(): Promise<void> {
   // Resolve or create thread
   const threadId = THREAD_ID || await createThread(PROMPT.slice(0, 80));
 
-  // Store the user message (unless caller already did it)
-  if (!SKIP_USER_MESSAGE) {
-    await addMessage(threadId, "user", PROMPT);
-  }
-
   const systemPrompt = await buildSystemPrompt();
 
   // Always store the system prompt so it's visible in the UI
   await addMessage(threadId, "system", systemPrompt);
+
+  // Store the user message (unless caller already did it)
+  if (!SKIP_USER_MESSAGE) {
+    await addMessage(threadId, "user", PROMPT);
+  }
 
   const model = getModel("anthropic", MODEL_NAME as any);
 
@@ -127,6 +127,11 @@ async function run(): Promise<void> {
   let agentError: string | null = null;
 
   const unsub = agent.subscribe((event) => {
+    if ((event as any).type === "error") {
+      agentError = (event as any).error?.message || (event as any).message || String((event as any).error || "Unknown agent error");
+      console.error(JSON.stringify({ event: "agent_error", error: agentError }));
+      return;
+    }
     switch (event.type) {
       case "message_update": {
         const ame = event.assistantMessageEvent;
@@ -135,12 +140,6 @@ async function run(): Promise<void> {
           pendingText += ame.delta;
           process.stdout.write(ame.delta);
         }
-        break;
-      }
-
-      case "error": {
-        agentError = (event as any).error?.message || (event as any).message || String((event as any).error || "Unknown agent error");
-        console.error(JSON.stringify({ event: "agent_error", error: agentError }));
         break;
       }
 

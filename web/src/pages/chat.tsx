@@ -20,9 +20,9 @@ function SystemPromptBlock({ content }: { content: string }) {
         <span className="ml-auto">{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
       </button>
       {open && (
-        <pre className="mt-2 text-[11px] font-mono text-muted-foreground/50 whitespace-pre-wrap leading-relaxed px-3 py-3 bg-foreground/[0.02] border border-border/20 rounded-lg max-h-[400px] overflow-y-auto">
-          {content}
-        </pre>
+        <div className="mt-2 text-[11px] text-muted-foreground/50 leading-relaxed px-3 py-3 bg-foreground/[0.02] border border-border/20 rounded-lg max-h-[400px] overflow-y-auto prose-chat prose-sm">
+          <Markdown>{content}</Markdown>
+        </div>
       )}
     </div>
   );
@@ -565,12 +565,12 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
           </div>
         ) : (
           <div className="max-w-[900px] mx-auto px-6 py-8 space-y-1">
+            {/* System prompts always render first */}
+            {messages.filter((m) => m.role === "system").map((msg) => (
+              <SystemPromptBlock key={msg.id} content={msg.content} />
+            ))}
             <AnimatePresence initial={false}>
-              {messages.map((msg) => {
-                if (msg.role === "system") {
-                  return <SystemPromptBlock key={msg.id} content={msg.content} />;
-                }
-
+              {messages.filter((m) => m.role !== "system").map((msg) => {
                 if (msg.role === "tool") {
                   let meta: any = null;
                   if (msg.metadata) {

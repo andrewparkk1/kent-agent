@@ -22,7 +22,7 @@ export class LocalRunner extends BaseRunner {
     prompt: string,
     workflowId?: string,
     streamCallback?: StreamCallback | TypedStreamCallback,
-    options?: { threadId?: string }
+    options?: { threadId?: string; conversationHistory?: string }
   ): Promise<RunResult> {
     const runId = crypto.randomUUID();
     const runsDir = join(KENT_DIR, "runs", runId);

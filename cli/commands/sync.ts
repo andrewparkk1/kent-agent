@@ -232,7 +232,7 @@ export async function handleSync(args: string[]): Promise<void> {
   // Run all sources in parallel
   await Promise.all(
     sourcesToSync.map((source, i) =>
-      syncSource(source, state, statuses[i], statuses, options)
+      syncSource(source, state, statuses[i]!, statuses, options)
     )
   );
 

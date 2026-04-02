@@ -94,7 +94,15 @@ export function loadConfig(): Config {
   }
   try {
     const raw = readFileSync(CONFIG_PATH, "utf-8");
-    return JSON.parse(raw) as Config;
+    const saved = JSON.parse(raw);
+    // Deep merge with defaults so new fields get filled in
+    return {
+      core: { ...DEFAULT_CONFIG.core, ...saved.core },
+      keys: { ...DEFAULT_CONFIG.keys, ...saved.keys },
+      sources: { ...DEFAULT_CONFIG.sources, ...saved.sources },
+      daemon: { ...DEFAULT_CONFIG.daemon, ...saved.daemon },
+      agent: { ...DEFAULT_CONFIG.agent, ...saved.agent },
+    };
   } catch {
     return DEFAULT_CONFIG;
   }

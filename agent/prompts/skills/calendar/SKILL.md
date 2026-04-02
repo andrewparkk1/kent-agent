@@ -48,21 +48,20 @@ gws calendar +insert --calendar 'Work' --summary 'Focus Time' --start '2026-04-0
 
 ## List Events (Low-level)
 
+calendarId is **required** for all raw `events` commands.
+
 ```bash
-# List upcoming events (default: next 7 days)
-gws calendar events list
-
-# Date range
-gws calendar events list --params '{"timeMin": "2026-04-01T00:00:00Z", "timeMax": "2026-04-07T00:00:00Z"}'
-
-# From a specific calendar
+# List upcoming events from primary calendar
 gws calendar events list --params '{"calendarId": "primary"}'
 
+# Date range
+gws calendar events list --params '{"calendarId": "primary", "timeMin": "2026-04-01T00:00:00Z", "timeMax": "2026-04-07T00:00:00Z"}'
+
 # Limit results
-gws calendar events list --params '{"maxResults": 5}'
+gws calendar events list --params '{"calendarId": "primary", "maxResults": 5}'
 
 # Search events by text
-gws calendar events list --params '{"q": "standup"}'
+gws calendar events list --params '{"calendarId": "primary", "q": "standup"}'
 ```
 
 ## Quick Add (Natural Language)

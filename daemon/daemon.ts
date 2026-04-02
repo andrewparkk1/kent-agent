@@ -164,34 +164,51 @@ async function main(): Promise<void> {
       }
 
       log(`workflow: running "${wf.name}"`);
-      const threadId = await createThread(`workflow: ${wf.name}`, { type: "workflow", workflow_id: wf.id });
       await updateWorkflow(wf.id, { last_run_at: nowEpoch });
 
-      try {
-        const env: Record<string, string> = {
-          ...process.env as Record<string, string>,
-          ANTHROPIC_API_KEY: config.keys.anthropic || process.env.ANTHROPIC_API_KEY || "",
-          RUNNER: "workflow",
-          THREAD_ID: threadId,
-          PROMPT: wf.prompt,
-          MODEL: config.agent.default_model,
-        };
+      const maxAttempts = 2;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const threadId = await createThread(`workflow: ${wf.name}`, { type: "workflow", workflow_id: wf.id });
 
-        const proc = Bun.spawn([bunPath, "run", agentPath], {
-          env,
-          stdout: "pipe",
-          stderr: "pipe",
-          cwd: projectRoot,
-        });
+        try {
+          const env: Record<string, string> = {
+            ...process.env as Record<string, string>,
+            ANTHROPIC_API_KEY: config.keys.anthropic || process.env.ANTHROPIC_API_KEY || "",
+            RUNNER: "workflow",
+            THREAD_ID: threadId,
+            PROMPT: wf.prompt,
+            MODEL: config.agent.default_model,
+          };
 
-        await new Response(proc.stdout).text();
-        await proc.exited;
+          const proc = Bun.spawn([bunPath, "run", agentPath], {
+            env,
+            stdout: "pipe",
+            stderr: "pipe",
+            cwd: projectRoot,
+          });
 
-        await finishThread(threadId, proc.exitCode === 0 ? "done" : "error");
-        log(`workflow: "${wf.name}" ${proc.exitCode === 0 ? "completed" : "failed"}`);
-      } catch (e) {
-        await finishThread(threadId, "error");
-        log(`workflow: "${wf.name}" error — ${e}`);
+          await new Response(proc.stdout).text();
+          await proc.exited;
+
+          const success = proc.exitCode === 0;
+          await finishThread(threadId, success ? "done" : "error");
+
+          if (success) {
+            log(`workflow: "${wf.name}" completed`);
+            break;
+          } else if (attempt < maxAttempts) {
+            log(`workflow: "${wf.name}" failed (attempt ${attempt}/${maxAttempts}), retrying...`);
+          } else {
+            log(`workflow: "${wf.name}" failed after ${maxAttempts} attempts`);
+          }
+        } catch (e) {
+          await finishThread(threadId, "error");
+          if (attempt < maxAttempts) {
+            log(`workflow: "${wf.name}" error (attempt ${attempt}/${maxAttempts}), retrying — ${e}`);
+          } else {
+            log(`workflow: "${wf.name}" error after ${maxAttempts} attempts — ${e}`);
+          }
+        }
       }
     }
   }
