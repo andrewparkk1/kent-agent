@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Moon, Sun, ChevronLeft, ChevronRight, Calendar, Loader2 } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { toast } from "sonner";
 import { timeAgo } from "@/lib/types";
 
 interface BriefRun {
@@ -107,6 +108,7 @@ export function HomePage() {
   const [loading, setLoading] = useState(true);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [direction, setDirection] = useState(0);
+  const directionRef = useRef(0);
 
   const morningBrief = briefs.find((b) => b.workflow_name.includes("morning")) || null;
   const eveningBrief = briefs.find((b) => b.workflow_name.includes("evening")) || null;
@@ -139,7 +141,9 @@ export function HomePage() {
       } else {
         setActiveType(null);
       }
-    } catch {}
+    } catch {
+      toast.error("Failed to load brief");
+    }
     setLoading(false);
   }, []);
 
@@ -149,7 +153,9 @@ export function HomePage() {
     const idx = availableDates.indexOf(selectedDate);
     const newIdx = idx + offset;
     if (newIdx >= 0 && newIdx < availableDates.length) {
-      setDirection(offset > 0 ? -1 : 1);
+      const newDir = offset > 0 ? -1 : 1;
+      directionRef.current = newDir;
+      setDirection(newDir);
       const newDate = availableDates[newIdx]!;
       setSelectedDate(newDate);
       fetchBrief(newDate);
@@ -159,7 +165,9 @@ export function HomePage() {
   const selectDate = (date: string) => {
     const oldIdx = availableDates.indexOf(selectedDate);
     const newIdx = availableDates.indexOf(date);
-    setDirection(newIdx > oldIdx ? -1 : 1);
+    const newDir = newIdx > oldIdx ? -1 : 1;
+    directionRef.current = newDir;
+    setDirection(newDir);
     setSelectedDate(date);
     fetchBrief(date);
   };
@@ -310,9 +318,9 @@ export function HomePage() {
       <AnimatePresence mode="wait" initial={false}>
         <motion.div
           key={`${selectedDate}-${activeType}`}
-          initial={{ opacity: 0, x: direction * 20 }}
+          initial={{ opacity: 0, x: directionRef.current * 20 }}
           animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: direction * -20 }}
+          exit={{ opacity: 0, x: directionRef.current * -20 }}
           transition={{ duration: 0.25, ease: [0.25, 0.46, 0.45, 0.94] }}
         >
           {!activeBrief ? (

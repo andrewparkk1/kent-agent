@@ -4,6 +4,7 @@ import {
   Home, Zap, Activity, MessageCircle, Plus, X,
   Database, UserCircle, Settings, Brain,
 } from "lucide-react";
+import { toast } from "sonner";
 import kentIcon from "@/assets/icon.png";
 import type { Page } from "@/lib/types";
 
@@ -52,13 +53,14 @@ function NavButton({ item, active, onClick, badge }: { item: { id: Page; icon: t
   );
 }
 
-export function Sidebar({ page, setPage, openChat, selectedThreadId, workflowCount, runCount }: {
+export function Sidebar({ page, setPage, openChat, selectedThreadId, workflowCount, runCount, refreshKey }: {
   page: Page;
   setPage: (p: Page) => void;
   openChat: (threadId?: string) => void;
   selectedThreadId: string | null;
   workflowCount?: number;
   runCount?: number;
+  refreshKey?: number;
 }) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [showAllThreads, setShowAllThreads] = useState(false);
@@ -75,7 +77,7 @@ export function Sidebar({ page, setPage, openChat, selectedThreadId, workflowCou
     load();
     const interval = setInterval(load, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [refreshKey]);
 
   const deleteThread = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -85,7 +87,9 @@ export function Sidebar({ page, setPage, openChat, selectedThreadId, workflowCou
       if (selectedThreadId === id) {
         openChat(); // go to new chat
       }
-    } catch {}
+    } catch {
+      toast.error("Failed to delete thread");
+    }
   };
 
   return (

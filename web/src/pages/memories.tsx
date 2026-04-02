@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
 import { Brain, User, FolderOpen, Hash, CalendarDays, Heart, MapPin, Search } from "lucide-react";
+import { toast } from "sonner";
 import { Stagger, StaggerItem } from "@/components/stagger";
 import { timeAgo } from "@/lib/types";
 
@@ -29,24 +30,35 @@ export function MemoriesPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [allTypes, setAllTypes] = useState<string[]>([]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query), 300);
+    return () => clearTimeout(timer);
+  }, [query]);
 
   const fetchMemories = useCallback(async () => {
     try {
       const params = new URLSearchParams();
-      if (query) params.set("q", query);
+      if (debouncedQuery) params.set("q", debouncedQuery);
       if (filter) params.set("type", filter);
       const res = await fetch(`/api/memories?${params}`);
       const data = await res.json();
       setMemories(data.memories);
-    } catch {}
+      if (!filter && !debouncedQuery) {
+        setAllTypes([...new Set(data.memories.map((m: Memory) => m.type))]);
+      }
+    } catch {
+      toast.error("Failed to load memories");
+    }
     setLoading(false);
-  }, [query, filter]);
+  }, [debouncedQuery, filter]);
 
   useEffect(() => {
     fetchMemories();
   }, [fetchMemories]);
 
-  const types = [...new Set(memories.map((m) => m.type))];
   const filtered = filter ? memories.filter((m) => m.type === filter) : memories;
 
   return (
@@ -99,7 +111,7 @@ export function MemoriesPage() {
         </motion.div>
       ) : (
         <>
-          {types.length > 1 && (
+          {allTypes.length > 1 && (
             <motion.div
               className="flex gap-1.5 mb-6 overflow-x-auto pb-1 no-scrollbar"
               initial={{ opacity: 0 }}
@@ -114,7 +126,7 @@ export function MemoriesPage() {
               >
                 All
               </button>
-              {types.map((type) => {
+              {allTypes.map((type) => {
                 const meta = TYPE_META[type] || { icon: Brain, label: type, color: "text-neutral-400", bg: "bg-neutral-500/8" };
                 return (
                   <button

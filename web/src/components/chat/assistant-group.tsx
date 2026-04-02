@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { motion } from "motion/react";
-import { Loader2 } from "lucide-react";
+import { Copy, Check, Loader2 } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { toast } from "sonner";
 import kentIcon from "@/assets/icon.png";
 import { ToolCallBlock } from "./tool-call-block";
 import { StreamingMarkdown } from "./streaming-markdown";
@@ -12,22 +14,49 @@ export function AssistantGroup({ items, streaming }: { items: Message[]; streami
   const hasRunningTool = items.some((m) => m.role === "tool" && m.content.startsWith("Calling "));
   const showLoading = streaming && lastItem.role === "assistant" && !lastItem.content && !hasRunningTool;
 
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    const text = items
+      .filter((m) => m.role === "assistant" && m.content.trim())
+      .map((m) => m.content.trim())
+      .join("\n\n");
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      toast("Copied");
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("Failed to copy");
+    }
+  };
+
   return (
     <motion.div
       key={items[0]!.id}
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, ease: [0.25, 0.46, 0.45, 0.94] }}
-      className="flex gap-3 py-3"
+      className="group/assistant flex gap-3 py-3"
     >
       <div className="shrink-0 mt-0.5">
         <img src={kentIcon} alt="Kent" className="w-6 h-6 rounded-md" />
       </div>
 
       <div className="flex-1 min-w-0">
-        <span className="text-[11px] font-medium text-muted-foreground/40 uppercase tracking-wider">
-          Kent
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-medium text-muted-foreground/40 uppercase tracking-wider">
+            Kent
+          </span>
+          <button
+            onClick={handleCopy}
+            className="opacity-0 group-hover/assistant:opacity-100 transition-opacity duration-150 p-0.5 rounded hover:bg-foreground/[0.06] text-muted-foreground/40 hover:text-muted-foreground/70 cursor-pointer"
+            title="Copy message"
+          >
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+          </button>
+        </div>
         <div className="mt-1 space-y-1">
           {items.map((msg) => {
             if (msg.role === "tool") {

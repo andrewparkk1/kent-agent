@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion } from "motion/react";
 import { Loader2, Check, Eye, EyeOff } from "lucide-react";
+import { toast } from "sonner";
 
 interface Config {
   core: { device_token: string };
@@ -70,7 +71,9 @@ export function SettingsPage() {
       const data = await res.json();
       setConfig(data.config);
       setRawKeys({ anthropic: data.raw.keys.anthropic, openai: data.raw.keys.openai });
-    } catch {}
+    } catch {
+      toast.error("Failed to load settings");
+    }
     setLoading(false);
   }, []);
 
@@ -88,7 +91,9 @@ export function SettingsPage() {
         });
         setSaved(true);
         setTimeout(() => setSaved(false), 1500);
-      } catch {}
+      } catch {
+        toast.error("Failed to save settings");
+      }
     }, 500);
   }, []);
 

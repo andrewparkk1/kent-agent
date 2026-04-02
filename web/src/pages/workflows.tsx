@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { Zap, Play, ChevronRight, Clock, Sparkles, Archive, Plus, ArchiveRestore, Loader2, Timer, Search } from "lucide-react";
+import { toast } from "sonner";
 import { Stagger, StaggerItem } from "@/components/stagger";
 import { type Workflow, cronToHuman, timeAgo, nextCronRun, formatCountdown } from "@/lib/types";
 
@@ -100,9 +101,9 @@ function WorkflowCard({ workflow, onClick, actions }: {
             transition={{ duration: 0.15 }}
           >
             {actions}
-            <button className="p-1.5 rounded-md hover:bg-foreground/5 text-muted-foreground/50 hover:text-foreground transition-colors">
+            <div className="p-1.5 text-muted-foreground/50">
               <ChevronRight size={13} />
-            </button>
+            </div>
           </motion.div>
         </div>
       </motion.div>
@@ -151,7 +152,9 @@ export function WorkflowsPage({ workflows, loading, onSelect, onRefresh, openCha
         body: JSON.stringify({ id }),
       });
       onRefresh?.();
-    } catch {}
+    } catch {
+      toast.error("Failed to archive workflow");
+    }
   };
 
   const unarchiveWorkflow = async (id: string) => {
@@ -162,7 +165,9 @@ export function WorkflowsPage({ workflows, loading, onSelect, onRefresh, openCha
         body: JSON.stringify({ id }),
       });
       onRefresh?.();
-    } catch {}
+    } catch {
+      toast.error("Failed to unarchive workflow");
+    }
   };
 
   const runWorkflow = async (id: string) => {
@@ -197,7 +202,9 @@ export function WorkflowsPage({ workflows, loading, onSelect, onRefresh, openCha
           } catch {}
         }
       }
-    } catch {} finally {
+    } catch {
+      toast.error("Failed to run workflow");
+    } finally {
       setRunningId(null);
     }
   };
@@ -226,7 +233,9 @@ export function WorkflowsPage({ workflows, loading, onSelect, onRefresh, openCha
         body: JSON.stringify({ id }),
       });
       onRefresh?.();
-    } catch {}
+    } catch {
+      toast.error("Failed to enable workflow");
+    }
   };
 
   const current = tab === "active" ? active : tab === "suggested" ? suggested : archived;

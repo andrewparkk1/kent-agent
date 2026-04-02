@@ -86,7 +86,7 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
           setThreadStatus(data.thread?.status ?? null);
           setWorkflowName(data.thread?.workflow_name ?? null);
         })
-        .catch(() => {})
+        .catch(() => { toast.error("Failed to load messages"); })
         .finally(() => setLoadingHistory(false));
     } else {
       setMessages([]);
@@ -307,6 +307,7 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
           setMessages((prev) => prev.filter((m) => m.id !== emptyId));
         }
       } else {
+        toast.error("Something went wrong. Please try again.");
         setMessages((prev) => {
           const updated = [...prev];
           const last = updated[updated.length - 1];
@@ -359,7 +360,9 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
             return true;
           });
           if (msgs.length > 0) setMessages(msgs);
-        } catch {}
+        } catch {
+          toast.error("Failed to reload messages");
+        }
       }
     }
   };
@@ -504,13 +507,12 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
           >
             <textarea
               ref={inputRef}
-              className="w-full bg-transparent text-[14px] outline-none! ring-0! border-none! shadow-none! placeholder:text-muted-foreground/30 resize-none leading-[1.5] max-h-[160px] px-5 py-3.5 focus:outline-none! focus-visible:outline-none! focus-visible:ring-0!"
+              className="w-full bg-transparent text-[14px] outline-none! ring-0! border-none! shadow-none! placeholder:text-muted-foreground/30 resize-none leading-[1.5] max-h-[160px] px-5 py-3.5 pb-12 focus:outline-none! focus-visible:outline-none! focus-visible:ring-0!"
               placeholder={busy ? (queued.length > 0 ? `${queued.length} queued · Message Kent...` : "Kent is working... type to queue") : "Message Kent..."}
               rows={1}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              disabled={threadStatus === "running"}
             />
 
             <div className="flex items-center justify-between px-3 pb-3">

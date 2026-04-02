@@ -54,6 +54,7 @@ export function App() {
   const [daemon, setDaemon] = useState<DaemonInfo>({ status: "stopped", currentSource: null, intervalSeconds: 300, lastSyncAt: null, nextSyncAt: null });
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
+  const [threadRefreshKey, setThreadRefreshKey] = useState(0);
 
   const openChat = useCallback((threadId?: string) => {
     setSelectedThreadId(threadId ?? null);
@@ -138,6 +139,7 @@ export function App() {
         selectedThreadId={selectedThreadId}
         workflowCount={workflows.length}
         runCount={totalRuns}
+        refreshKey={threadRefreshKey}
       />
 
       {/* Spacer for fixed sidebar */}
@@ -162,7 +164,7 @@ export function App() {
           />
         )}
         {page === "activity" && <ActivityPage openChat={openChat} />}
-        {page === "chat" && <ChatPage threadId={selectedThreadId} onThreadCreated={setSelectedThreadId} />}
+        {page === "chat" && <ChatPage threadId={selectedThreadId} onThreadCreated={(id) => { setSelectedThreadId(id); setThreadRefreshKey((k) => k + 1); }} />}
         {page === "sources" && (
           <SourcesPage items={items} loading={loading} filter={filter} setFilter={setFilter} query={query} setQuery={setQuery} counts={counts} sources={sources} daemon={daemon} onRefresh={() => { fetchItems(itemsPage); fetchCounts(); fetchSources(); }} page={itemsPage} hasMore={hasMore} totalPages={totalItems > 0 ? Math.ceil(totalItems / (filter && ["imessage", "signal"].includes(filter) ? CONVO_PAGE_SIZE : PAGE_SIZE)) : undefined} onPageChange={setItemsPage} />
         )}
