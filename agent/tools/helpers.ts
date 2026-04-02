@@ -7,8 +7,8 @@ export function ok(text: string): AgentToolResult<undefined> {
   return { content: [{ type: "text", text }], details: undefined };
 }
 
-export function err(text: string): AgentToolResult<undefined> {
-  return { content: [{ type: "text", text }], details: undefined };
+export function err(text: string): never {
+  throw new Error(text);
 }
 
 export function json(data: unknown): AgentToolResult<undefined> {

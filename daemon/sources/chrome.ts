@@ -19,7 +19,7 @@ import {
   mkdirSync,
   readdirSync,
 } from "fs";
-import type { Source, SyncState, Item } from "./types";
+import type { Source, SyncState, SyncOptions, Item } from "./types";
 
 const CHROME_BASE = join(
   homedir(),
@@ -119,7 +119,7 @@ function categorizeDomain(url: string): string {
 export const chrome: Source = {
   name: "chrome",
 
-  async fetchNew(state: SyncState): Promise<Item[]> {
+  async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
     try {
       const historyPaths = getAllProfileHistoryPaths();
       if (historyPaths.length === 0) {
@@ -159,7 +159,7 @@ export const chrome: Source = {
                 JOIN visits v ON u.id = v.url
                 WHERE v.visit_time > ?
                 ORDER BY v.visit_time DESC
-                LIMIT 500
+                LIMIT 5000
                 `
               )
               .all(lastSyncChrome.toString()) as any[];

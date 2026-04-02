@@ -1,8 +1,32 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, memo } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { ArrowUp, User, Loader2, StopCircle, Terminal, ChevronDown, ChevronRight } from "lucide-react";
+import { ArrowUp, User, Loader2, StopCircle, Terminal, ChevronDown, ChevronRight, Settings2 } from "lucide-react";
 import Markdown from "react-markdown";
 import kentIcon from "@/assets/icon.png";
+
+// ─── System Prompt Block ───────────────────────────────────────────────────
+
+function SystemPromptBlock({ content }: { content: string }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="mb-4">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 text-[11px] text-muted-foreground/40 hover:text-muted-foreground/60 transition-colors cursor-pointer py-1.5 px-3 rounded-lg bg-foreground/[0.02] border border-border/30 hover:border-border/50 w-full"
+      >
+        <Settings2 size={12} />
+        <span className="font-medium">System Prompt</span>
+        <span className="ml-auto">{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
+      </button>
+      {open && (
+        <pre className="mt-2 text-[11px] font-mono text-muted-foreground/50 whitespace-pre-wrap leading-relaxed px-3 py-3 bg-foreground/[0.02] border border-border/20 rounded-lg max-h-[400px] overflow-y-auto">
+          {content}
+        </pre>
+      )}
+    </div>
+  );
+}
 
 // ─── Tool Call Block ────────────────────────────────────────────────────────
 
@@ -57,6 +81,87 @@ function ToolCallBlock({ content, metadata }: { content: string; metadata?: any 
   );
 }
 
+// ─── Streaming Markdown — throttles re-parsing to every 150ms ──────────────
+
+function StreamingMarkdown({ content }: { content: string }) {
+  const [rendered, setRendered] = useState(content);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestRef = useRef(content);
+  latestRef.current = content;
+
+  useEffect(() => {
+    // If no timer is pending, update immediately and start a cooldown
+    if (!timerRef.current) {
+      setRendered(content);
+      timerRef.current = setTimeout(() => {
+        timerRef.current = null;
+        // Flush any content that arrived during the cooldown
+        setRendered(latestRef.current);
+      }, 150);
+    }
+    // Cleanup on unmount
+    return () => {
+      if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+    };
+  }, [content]);
+
+  // On stream end (content stabilizes), ensure final flush
+  useEffect(() => {
+    return () => { setRendered(latestRef.current); };
+  }, []);
+
+  return <Markdown>{rendered}</Markdown>;
+}
+
+// ─── Message Bubble (memoized to avoid re-parsing Markdown on every delta) ──
+
+const MessageBubble = memo(function MessageBubble({ msg, streaming }: { msg: Message; streaming: boolean }) {
+  const isStreamingThis = streaming && msg.role === "assistant";
+
+  return (
+    <motion.div
+      key={msg.id}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: [0.25, 0.46, 0.45, 0.94] }}
+      className="flex gap-3 py-3"
+    >
+      <div className="shrink-0 mt-0.5">
+        {msg.role === "assistant" ? (
+          <img src={kentIcon} alt="Kent" className="w-6 h-6 rounded-md" />
+        ) : (
+          <div className="w-6 h-6 rounded-md bg-foreground/[0.08] flex items-center justify-center">
+            <User size={12} className="text-muted-foreground/60" />
+          </div>
+        )}
+      </div>
+
+      <div className="flex-1 min-w-0">
+        <span className="text-[11px] font-medium text-muted-foreground/40 uppercase tracking-wider">
+          {msg.role === "assistant" ? "Kent" : "You"}
+        </span>
+        <div className="mt-1">
+          {msg.role === "assistant" && !msg.content && streaming ? (
+            <div className="flex items-center gap-1.5 py-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 animate-pulse" style={{ animationDelay: "0ms" }} />
+              <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 animate-pulse" style={{ animationDelay: "150ms" }} />
+              <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 animate-pulse" style={{ animationDelay: "300ms" }} />
+            </div>
+          ) : (
+            <div className="prose-chat">
+              {isStreamingThis ? (
+                <StreamingMarkdown content={msg.content} />
+              ) : (
+                <Markdown>{msg.content}</Markdown>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+});
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 interface Message {
@@ -81,30 +186,75 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const nextIdRef = useRef(Date.now());
+  const abortRef = useRef<AbortController | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const pendingUpdateRef = useRef<((prev: Message[]) => Message[]) | null>(null);
 
   const genId = () => nextIdRef.current++;
 
-  const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  // Batched state update — coalesces rapid setMessages calls into one per frame
+  const scheduleUpdate = useCallback((updater: (prev: Message[]) => Message[]) => {
+    pendingUpdateRef.current = updater;
+    if (!rafRef.current) {
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = null;
+        if (pendingUpdateRef.current) {
+          setMessages(pendingUpdateRef.current);
+          pendingUpdateRef.current = null;
+        }
+      });
+    }
   }, []);
 
-  useEffect(() => { scrollToBottom(); }, [messages, scrollToBottom]);
+  const scrollToBottom = useCallback((instant?: boolean) => {
+    messagesEndRef.current?.scrollIntoView({ behavior: instant ? "instant" : "smooth" });
+  }, []);
 
-  // Load existing thread messages — but skip if we're actively streaming
+  useEffect(() => { scrollToBottom(streaming); }, [messages, scrollToBottom, streaming]);
+
+  const stopStreaming = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    setStreaming(false);
+  }, []);
+
+  // Escape key stops streaming
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && streaming) {
+        e.preventDefault();
+        stopStreaming();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [streaming, stopStreaming]);
+
+  // Load existing thread messages — abort streaming if thread changes
   const [threadStatus, setThreadStatus] = useState<string | null>(null);
 
   useEffect(() => {
-    if (streaming) {
-      if (initialThreadId) setThreadId(initialThreadId);
-      return;
-    }
+    // Skip if we're actively streaming on this exact thread (e.g. new thread
+    // was just created by the current stream — don't abort ourselves)
+    if (streaming && initialThreadId && initialThreadId === threadId) return;
+
+    // User navigated to a different thread — abort current stream
+    stopStreaming();
     setThreadId(initialThreadId);
     if (initialThreadId) {
       setLoadingHistory(true);
       fetch(`/api/threads/${initialThreadId}/messages`)
         .then((r) => r.json())
         .then((data) => {
-          setMessages(data.messages || []);
+          // Deduplicate consecutive messages with same role+content (agent can double-save)
+          const msgs: Message[] = (data.messages || []).filter((m: Message, i: number, arr: Message[]) => {
+            if (i === 0) return true;
+            const prev = arr[i - 1];
+            return !(m.role === prev.role && m.content === prev.content);
+          });
+          setMessages(msgs);
           setThreadStatus(data.thread?.status ?? null);
         })
         .catch(() => {})
@@ -113,7 +263,9 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
       setMessages([]);
       setThreadStatus(null);
     }
-  }, [initialThreadId, streaming]);
+    // Focus input whenever thread changes (new chat or switching threads)
+    setTimeout(() => inputRef.current?.focus(), 50);
+  }, [initialThreadId]);
 
   // Poll for new messages when viewing a running workflow thread
   useEffect(() => {
@@ -162,11 +314,15 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
     // Add initial empty assistant message
     setMessages((prev) => [...prev, { id: currentAssistantId, role: "assistant", content: "", created_at: Math.floor(Date.now() / 1000) }]);
 
+    const abort = new AbortController();
+    abortRef.current = abort;
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ threadId, message: text }),
+        signal: abort.signal,
       });
 
       if (!res.ok) throw new Error("Chat request failed");
@@ -195,6 +351,14 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
             if (parsed.threadId) {
               setThreadId(parsed.threadId);
               onThreadCreated(parsed.threadId);
+            }
+
+            if (parsed.error) {
+              // Error event from server
+              currentText += `\n\n**Error:** ${parsed.error}`;
+              const textNow = currentText;
+              const idNow = currentAssistantId;
+              setMessages((prev) => prev.map((m) => m.id === idNow ? { ...m, content: textNow } : m));
             }
 
             if (parsed.tool) {
@@ -247,7 +411,14 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
                   });
                 }
               } catch {
-                // Non-JSON stderr, ignore
+                // Non-JSON stderr — likely an agent crash/error message
+                const raw = parsed.tool.trim();
+                if (raw && (raw.includes("error") || raw.includes("Error") || raw.includes("fatal") || raw.includes("401") || raw.includes("403"))) {
+                  currentText += `\n\n**Error:** ${raw.slice(0, 500)}`;
+                  const textNow = currentText;
+                  const idNow = currentAssistantId;
+                  setMessages((prev) => prev.map((m) => m.id === idNow ? { ...m, content: textNow } : m));
+                }
               }
             }
 
@@ -255,28 +426,55 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
               currentText += parsed.delta;
               const textNow = currentText;
               const idNow = currentAssistantId;
-              setMessages((prev) => prev.map((m) => m.id === idNow ? { ...m, content: textNow } : m));
+              scheduleUpdate((prev) => prev.map((m) => m.id === idNow ? { ...m, content: textNow } : m));
             }
           } catch {}
         }
       }
+
+      // Flush any pending RAF update before final cleanup
+      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+      if (pendingUpdateRef.current) { setMessages(pendingUpdateRef.current); pendingUpdateRef.current = null; }
 
       // Clean up trailing empty assistant message
       if (!currentText.trim()) {
         const emptyId = currentAssistantId;
         setMessages((prev) => prev.filter((m) => m.id !== emptyId));
       }
-    } catch {
-      setMessages((prev) => {
-        const updated = [...prev];
-        const last = updated[updated.length - 1];
-        if (last?.role === "assistant") {
-          updated[updated.length - 1] = { ...last, content: "Something went wrong. Please try again." };
+    } catch (err: any) {
+      if (err?.name === "AbortError") {
+        // User cancelled — clean up empty trailing assistant message
+        if (!currentText.trim()) {
+          const emptyId = currentAssistantId;
+          setMessages((prev) => prev.filter((m) => m.id !== emptyId));
         }
-        return updated;
-      });
+      } else {
+        setMessages((prev) => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          if (last?.role === "assistant") {
+            updated[updated.length - 1] = { ...last, content: "Something went wrong. Please try again." };
+          }
+          return updated;
+        });
+      }
     } finally {
+      abortRef.current = null;
       setStreaming(false);
+
+      // Reload messages from DB to pick up system prompt + any agent-saved messages
+      if (threadId) {
+        try {
+          const res = await fetch(`/api/threads/${threadId}/messages`);
+          const data = await res.json();
+          const msgs: Message[] = (data.messages || []).filter((m: Message, i: number, arr: Message[]) => {
+            if (i === 0) return true;
+            const prev = arr[i - 1];
+            return !(m.role === prev.role && m.content === prev.content);
+          });
+          if (msgs.length > 0) setMessages(msgs);
+        } catch {}
+      }
     }
   };
 
@@ -289,6 +487,30 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
 
   const busy = streaming || threadStatus === "running";
   const isEmpty = messages.length === 0 && !loadingHistory;
+
+  // Fetch workflow names for suggestions
+  const [workflowNames, setWorkflowNames] = useState<string[]>([]);
+  useEffect(() => {
+    fetch("/api/workflows")
+      .then((r) => r.json())
+      .then((data) => {
+        const names = (data.workflows || [])
+          .filter((w: any) => w.is_active && !w.is_archived)
+          .map((w: any) => w.name as string);
+        setWorkflowNames(names);
+      })
+      .catch(() => {});
+  }, []);
+
+  const suggestions = [
+    "Create a workflow that ",
+    ...(workflowNames.length > 0
+      ? [`Edit my ${workflowNames[0]} workflow `]
+      : []),
+    "Update my identity.md ",
+    "Summarize my day so far ",
+    "What emails need a reply? ",
+  ];
 
   // ─── Render ─────────────────────────────────────────────────────────
 
@@ -320,13 +542,36 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
                 Ask about your emails, meetings, notes, or anything from your synced sources.
               </p>
             </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.3, duration: 0.4 }}
+              className="flex flex-wrap justify-center gap-2 mt-6 max-w-lg"
+            >
+              {suggestions.map((suggestion) => (
+                <button
+                  key={suggestion}
+                  onClick={() => {
+                    setInput(suggestion);
+                    inputRef.current?.focus();
+                  }}
+                  className="px-3 py-1.5 text-[12px] text-muted-foreground/60 bg-foreground/[0.03] border border-border/50 rounded-full hover:bg-foreground/[0.06] hover:text-muted-foreground/80 hover:border-border/70 transition-all cursor-pointer"
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </motion.div>
           </div>
         ) : (
           <div className="max-w-[900px] mx-auto px-6 py-8 space-y-1">
             <AnimatePresence initial={false}>
               {messages.map((msg) => {
-                // Tool messages — collapsible block
-                if (msg.role === "tool" || msg.role === "system") {
+                if (msg.role === "system") {
+                  return <SystemPromptBlock key={msg.id} content={msg.content} />;
+                }
+
+                if (msg.role === "tool") {
                   let meta: any = null;
                   if (msg.metadata) {
                     try { meta = JSON.parse(msg.metadata); } catch {}
@@ -334,44 +579,7 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
                   return <ToolCallBlock key={msg.id} content={msg.content} metadata={meta} />;
                 }
 
-                return (
-                  <motion.div
-                    key={msg.id}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.25, ease: [0.25, 0.46, 0.45, 0.94] }}
-                    className="flex gap-3 py-3"
-                  >
-                    <div className="shrink-0 mt-0.5">
-                      {msg.role === "assistant" ? (
-                        <img src={kentIcon} alt="Kent" className="w-6 h-6 rounded-md" />
-                      ) : (
-                        <div className="w-6 h-6 rounded-md bg-foreground/[0.08] flex items-center justify-center">
-                          <User size={12} className="text-muted-foreground/60" />
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <span className="text-[11px] font-medium text-muted-foreground/40 uppercase tracking-wider">
-                        {msg.role === "assistant" ? "Kent" : "You"}
-                      </span>
-                      <div className="mt-1">
-                        {msg.role === "assistant" && !msg.content && streaming ? (
-                          <div className="flex items-center gap-1.5 py-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 animate-pulse" style={{ animationDelay: "0ms" }} />
-                            <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 animate-pulse" style={{ animationDelay: "150ms" }} />
-                            <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 animate-pulse" style={{ animationDelay: "300ms" }} />
-                          </div>
-                        ) : (
-                          <div className="prose-chat">
-                            <Markdown>{msg.content}</Markdown>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </motion.div>
-                );
+                return <MessageBubble key={msg.id} msg={msg} streaming={streaming} />;
               })}
             </AnimatePresence>
             <div ref={messagesEndRef} />
@@ -398,7 +606,17 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
 
             <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between px-3 pb-3 pt-1">
               <div />
-              {busy ? (
+              {streaming ? (
+                <motion.button
+                  whileHover={{ scale: 1.08 }}
+                  whileTap={{ scale: 0.92 }}
+                  onClick={stopStreaming}
+                  title="Stop generating (Esc)"
+                  className="h-8 w-8 flex items-center justify-center rounded-lg bg-foreground/[0.06] hover:bg-foreground/[0.1] text-muted-foreground/60 hover:text-muted-foreground transition-all cursor-pointer"
+                >
+                  <StopCircle size={14} />
+                </motion.button>
+              ) : busy ? (
                 <div className="h-8 w-8 flex items-center justify-center">
                   <Loader2 size={14} className="text-muted-foreground/40 animate-spin" />
                 </div>
@@ -421,7 +639,7 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
           </div>
 
           <p className="text-[11px] text-muted-foreground/25 text-center mt-3">
-            Kent can search your synced data and run workflows
+            Search your data, run commands, manage workflows, and more
           </p>
         </div>
       </div>

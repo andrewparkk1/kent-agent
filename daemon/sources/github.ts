@@ -4,7 +4,7 @@
  * it as searchable items with repo, title, author, and URL metadata.
  */
 import { arch } from "os";
-import type { Source, SyncState, Item } from "./types";
+import type { Source, SyncState, SyncOptions, Item } from "./types";
 
 // Ensure brew-installed CLIs are discoverable
 function buildCliEnv(): Record<string, string> {
@@ -51,90 +51,135 @@ async function detectAccount(): Promise<string | null> {
 export const github: Source = {
   name: "github",
 
-  async fetchNew(state: SyncState): Promise<Item[]> {
-    try {
-      // Validate gh auth — replaces unreliable `which gh` check
-      const account = await detectAccount();
-      if (!account) {
-        console.warn("[github] gh CLI not installed or not authenticated, skipping");
-        return [];
-      }
-
-      const items: Item[] = [];
-
-      // Fetch notifications
-      const notifications = await runGhJson(["api", "notifications", "--paginate"]);
-      if (Array.isArray(notifications)) {
-        for (const n of notifications.slice(0, 50)) {
-          items.push({
-            source: "github",
-            externalId: `github-notif-${n.id}`,
-            content: `[${n.reason}] ${n.subject?.title || "Notification"}`,
-            metadata: {
-              type: "notification",
-              reason: n.reason,
-              repo: n.repository?.full_name,
-              subjectType: n.subject?.type,
-              subjectUrl: n.subject?.url,
-              unread: n.unread,
-            },
-            createdAt: n.updated_at
-              ? Math.floor(new Date(n.updated_at).getTime() / 1000)
-              : Math.floor(Date.now() / 1000),
-          });
-        }
-      }
-
-      // Fetch recent commits from repos the user has pushed to
-      const lastSync = state.getLastSync("github");
-      const sinceDate = lastSync > 0
-        ? new Date(lastSync * 1000).toISOString()
-        : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
-
-      // Get repos the user has recently pushed to
-      const repoRaw = await runGh([
-        "api", "user/repos",
-        "--jq", ".[].full_name",
-        "-q", "sort=pushed", "-q", "per_page=15", "-q", "type=owner",
-      ]);
-      const repoNames = repoRaw ? repoRaw.split("\n").filter(Boolean) : [];
-
-      for (const repo of repoNames.slice(0, 10)) {
-        const commits = await runGhJson([
-          "api", `repos/${repo}/commits?since=${sinceDate}&per_page=30&author=${account}`,
-        ]);
-        if (!Array.isArray(commits)) continue;
-
-        for (const c of commits) {
-          const commitDate = c?.commit?.committer?.date ?? c?.commit?.author?.date ?? "";
-          const when = new Date(commitDate);
-          if (!commitDate || Number.isNaN(when.getTime())) continue;
-          const message = (c?.commit?.message ?? "").split("\n")[0];
-          const sha = (c?.sha ?? "").slice(0, 7);
-          if (!sha || !message) continue;
-          items.push({
-            source: "github",
-            externalId: `github-commit-${c.sha}`,
-            content: `\`${sha}\` ${message} — ${repo}`,
-            metadata: {
-              type: "commit",
-              sha: c.sha,
-              repo,
-              date: commitDate,
-            },
-            createdAt: Math.floor(when.getTime() / 1000),
-          });
-        }
-      }
-
-      // Filter out items we've already synced
-      if (lastSync > 0) {
-        return items.filter((item) => item.createdAt > lastSync);
-      }
-      return items;
-    } catch (e) {
-      console.warn(`[github] Failed to fetch data: ${e}`);
-      return [];
+  async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
+    const account = await detectAccount();
+    if (!account) {
+      throw new Error("gh CLI not installed or not authenticated. Run: gh auth login");
     }
+
+    const items: Item[] = [];
+    const lastSync = state.getLastSync("github");
+    const defaultDays = options?.defaultDays ?? 365;
+    const sinceDate = lastSync > 0
+      ? new Date(lastSync * 1000).toISOString()
+      : defaultDays === 0
+        ? new Date(0).toISOString()
+        : new Date(Date.now() - defaultDays * 24 * 60 * 60 * 1000).toISOString();
+
+    // ── Notifications (all, paginated) ──────────────────────────────────
+    const notifications = await runGhJson(["api", "notifications", "--paginate"]);
+    if (Array.isArray(notifications)) {
+      for (const n of notifications) {
+        items.push({
+          source: "github",
+          externalId: `github-notif-${n.id}`,
+          content: `[${n.reason}] ${n.subject?.title || "Notification"} — ${n.repository?.full_name || ""}`,
+          metadata: {
+            type: "notification",
+            reason: n.reason,
+            repo: n.repository?.full_name,
+            subjectType: n.subject?.type,
+            subjectUrl: n.subject?.url,
+            unread: n.unread,
+          },
+          createdAt: n.updated_at
+            ? Math.floor(new Date(n.updated_at).getTime() / 1000)
+            : Math.floor(Date.now() / 1000),
+        });
+      }
+    }
+
+    // ── Get repos user has pushed to ────────────────────────────────────
+    const repoRaw = await runGh([
+      "api", "user/repos",
+      "--jq", ".[].full_name",
+      "-q", "sort=pushed", "-q", "per_page=30", "-q", "type=owner",
+    ]);
+    const repoNames = repoRaw ? repoRaw.split("\n").filter(Boolean) : [];
+
+    // ── Commits (100 per repo, all repos) ───────────────────────────────
+    for (const repo of repoNames) {
+      const commits = await runGhJson([
+        "api", `repos/${repo}/commits?since=${sinceDate}&per_page=100&author=${account}`,
+      ]);
+      if (!Array.isArray(commits)) continue;
+
+      for (const c of commits) {
+        const commitDate = c?.commit?.committer?.date ?? c?.commit?.author?.date ?? "";
+        const when = new Date(commitDate);
+        if (!commitDate || Number.isNaN(when.getTime())) continue;
+        const message = (c?.commit?.message ?? "").split("\n")[0];
+        const sha = (c?.sha ?? "").slice(0, 7);
+        if (!sha || !message) continue;
+        items.push({
+          source: "github",
+          externalId: `github-commit-${c.sha}`,
+          content: `\`${sha}\` ${message} — ${repo}`,
+          metadata: { type: "commit", sha: c.sha, repo, date: commitDate },
+          createdAt: Math.floor(when.getTime() / 1000),
+        });
+      }
+    }
+
+    // ── PRs authored by user ────────────────────────────────────────────
+    const prs = await runGhJson([
+      "api", "search/issues",
+      "-q", `q=author:${account} type:pr updated:>=${sinceDate.slice(0, 10)}`,
+      "-q", "per_page=100",
+      "--jq", ".items",
+    ]);
+    if (Array.isArray(prs)) {
+      for (const pr of prs) {
+        const repo = pr.repository_url?.split("/").slice(-2).join("/") ?? "";
+        items.push({
+          source: "github",
+          externalId: `github-pr-${pr.id}`,
+          content: `PR #${pr.number}: ${pr.title} — ${repo} [${pr.state}]`,
+          metadata: {
+            type: "pr",
+            number: pr.number,
+            repo,
+            state: pr.state,
+            url: pr.html_url,
+            labels: pr.labels?.map((l: any) => l.name) ?? [],
+            draft: pr.draft ?? false,
+          },
+          createdAt: Math.floor(new Date(pr.updated_at || pr.created_at).getTime() / 1000),
+        });
+      }
+    }
+
+    // ── Issues authored/assigned to user ────────────────────────────────
+    const issues = await runGhJson([
+      "api", "search/issues",
+      "-q", `q=involves:${account} type:issue updated:>=${sinceDate.slice(0, 10)}`,
+      "-q", "per_page=100",
+      "--jq", ".items",
+    ]);
+    if (Array.isArray(issues)) {
+      for (const issue of issues) {
+        const repo = issue.repository_url?.split("/").slice(-2).join("/") ?? "";
+        items.push({
+          source: "github",
+          externalId: `github-issue-${issue.id}`,
+          content: `Issue #${issue.number}: ${issue.title} — ${repo} [${issue.state}]`,
+          metadata: {
+            type: "issue",
+            number: issue.number,
+            repo,
+            state: issue.state,
+            url: issue.html_url,
+            labels: issue.labels?.map((l: any) => l.name) ?? [],
+          },
+          createdAt: Math.floor(new Date(issue.updated_at || issue.created_at).getTime() / 1000),
+        });
+      }
+    }
+
+    // Filter out items we've already synced
+    if (lastSync > 0) {
+      return items.filter((item) => item.createdAt > lastSync);
+    }
+    return items;
   },
 };

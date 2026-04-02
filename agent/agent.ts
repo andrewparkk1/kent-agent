@@ -5,7 +5,7 @@
  */
 import { Agent } from "@mariozechner/pi-agent-core";
 import { streamSimple, getModel } from "@mariozechner/pi-ai";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { allTools } from "./tools/index.ts";
@@ -16,8 +16,8 @@ import { getItemCount, createThread, addMessage } from "@shared/db.ts";
 const PROMPT = process.env.PROMPT ?? "";
 const THREAD_ID = process.env.THREAD_ID ?? "";
 const SKIP_USER_MESSAGE = process.env.SKIP_USER_MESSAGE === "1"; // Caller already stored user msg
-const MAX_TURNS = parseInt(process.env.MAX_TURNS ?? "20", 10);
 const MODEL_NAME = process.env.MODEL ?? "claude-sonnet-4-20250514";
+const CONVERSATION_HISTORY = process.env.CONVERSATION_HISTORY ?? "";
 
 // ─── Prompt assembly ────────────────────────────────────────────────────────
 
@@ -54,41 +54,29 @@ async function buildSystemPrompt(): Promise<string> {
   const tools = readPromptFile("TOOLS.md");
   const userTemplate = readPromptFile("USER.md");
 
-  // Load skills from nested dirs (skills/<name>/SKILL.md) with flat file fallback
-  const skillContents: string[] = [];
-  const seenSkills = new Set<string>();
-  for (const skillsDir of [join(USER_PROMPTS_DIR, "skills"), join(BUNDLED_PROMPTS_DIR, "skills")]) {
-    try {
-      for (const entry of readdirSync(skillsDir)) {
-        if (seenSkills.has(entry)) continue;
-        const entryPath = join(skillsDir, entry);
-        // Nested: skills/<name>/SKILL.md
-        if (statSync(entryPath).isDirectory()) {
-          const skillFile = join(entryPath, "SKILL.md");
-          if (existsSync(skillFile)) {
-            seenSkills.add(entry);
-            const content = readFileSync(skillFile, "utf-8");
-            if (content) skillContents.push(`# Skill: ${entry}\n\n${content}`);
-          }
-        // Legacy flat: skills/<name>.md
-        } else if (entry.endsWith(".md")) {
-          const name = entry.replace(/\.md$/, "");
-          seenSkills.add(name);
-          const content = readFileSync(entryPath, "utf-8");
-          if (content) skillContents.push(`# Skill: ${name}\n\n${content}`);
-        }
-      }
-    } catch {}
-  }
-
+  const tz = process.env.TIMEZONE || Intl.DateTimeFormat().resolvedOptions().timeZone;
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long", year: "numeric", month: "long", day: "numeric",
+    timeZone: tz,
+  });
+  const now = new Date().toLocaleTimeString("en-US", {
+    hour: "2-digit", minute: "2-digit", timeZone: tz, timeZoneName: "short",
   });
 
   const user = userTemplate.replace(/\{\{DATE\}\}/g, today).replace(/\{\{CONTEXT\}\}/g, await getContext());
-  const identityResolved = identity.replace(/\{\{DATE\}\}/g, today);
+  const identityResolved = identity
+    .replace(/\{\{DATE\}\}/g, today)
+    .replace(/\{\{TIME\}\}/g, now)
+    .replace(/\{\{TIMEZONE\}\}/g, tz);
 
-  return [identityResolved, soul, tools, ...skillContents, user].filter(Boolean).join("\n\n---\n\n");
+  const parts = [identityResolved, soul, tools, user].filter(Boolean);
+
+  // Inject prior conversation history so the agent has multi-turn context
+  if (CONVERSATION_HISTORY) {
+    parts.push(`## Conversation History\n\nBelow is the prior conversation in this thread. The user's latest message (your current task) follows as the user prompt. Pay close attention to the MOST RECENT messages — if the user is correcting, cancelling, or changing a previous request, follow their latest instructions.\n\n${CONVERSATION_HISTORY}`);
+  }
+
+  return parts.join("\n\n---\n\n");
 }
 
 // ─── Main ───────────────────────────────────────────────────────────────────
@@ -108,6 +96,10 @@ async function run(): Promise<void> {
   }
 
   const systemPrompt = await buildSystemPrompt();
+
+  // Always store the system prompt so it's visible in the UI
+  await addMessage(threadId, "system", systemPrompt);
+
   const model = getModel("anthropic", MODEL_NAME as any);
 
   const agent = new Agent({
@@ -120,7 +112,6 @@ async function run(): Promise<void> {
     },
   });
 
-  let turnCount = 0;
   let pendingText = ""; // Accumulated assistant text, flushed on tool start or agent end
   let currentToolName = "";
   let currentToolArgs: any = {};
@@ -132,14 +123,24 @@ async function run(): Promise<void> {
     }
   }
 
+  let hasOutput = false;
+  let agentError: string | null = null;
+
   const unsub = agent.subscribe((event) => {
     switch (event.type) {
       case "message_update": {
         const ame = event.assistantMessageEvent;
         if (ame.type === "text_delta") {
+          hasOutput = true;
           pendingText += ame.delta;
           process.stdout.write(ame.delta);
         }
+        break;
+      }
+
+      case "error": {
+        agentError = (event as any).error?.message || (event as any).message || String((event as any).error || "Unknown agent error");
+        console.error(JSON.stringify({ event: "agent_error", error: agentError }));
         break;
       }
 
@@ -184,11 +185,6 @@ async function run(): Promise<void> {
       }
 
       case "turn_end":
-        turnCount++;
-        if (turnCount >= MAX_TURNS) {
-          console.error(`\nMax turns (${MAX_TURNS}) reached, stopping.`);
-          agent.abort();
-        }
         break;
 
       case "agent_end":
@@ -205,6 +201,13 @@ async function run(): Promise<void> {
     unsub();
     // Safety flush in case agent_end didn't fire
     await flushText();
+  }
+
+  // If agent produced no output, something went wrong (e.g. bad API key)
+  if (!hasOutput) {
+    const msg = agentError || "Agent produced no output. Check your API key and model settings.";
+    console.error("Agent error:", msg);
+    process.exit(1);
   }
 }
 

@@ -66,12 +66,13 @@ export function searchItems(query: string, limit = 50, source?: string): Array<D
   return rows.map((r) => ({ ...r, metadata: JSON.parse(r.metadata) }));
 }
 
-export async function getItemsBySource(source: string, limit = 100): Promise<Array<DbItem & { id: number }>> {
+export async function getItemsBySource(source: string, limit = 100, offset = 0): Promise<Array<DbItem & { id: number }>> {
   const rows = await getDb()
     .selectFrom("items")
     .where("source", "=", source)
     .orderBy("created_at", "desc")
     .limit(limit)
+    .offset(offset)
     .selectAll()
     .execute();
 

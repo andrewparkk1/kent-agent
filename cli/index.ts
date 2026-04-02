@@ -29,7 +29,7 @@ Usage:
   kent                          Interactive REPL mode
   kent init                     Setup wizard
   kent daemon <start|stop|status>  Manage background daemon
-  kent sync [--source <name>]   Sync data sources
+  kent sync [--source <name>] [--full]  Sync data sources
   kent workflow <sub>           Manage scheduled workflows
   kent web                      Open web dashboard
 

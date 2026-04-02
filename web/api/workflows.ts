@@ -1,31 +1,45 @@
 /** GET /api/workflows — list workflows with run stats. */
 /** GET /api/activity — recent workflow runs. */
 /** POST /api/workflow/run — trigger a workflow run with streaming output. */
-import { getRawDb, updateWorkflow, deleteWorkflow, archiveWorkflow, unarchiveWorkflow, createThread, finishThread } from "../../shared/db.ts";
-import { loadConfig, KENT_DIR } from "../../shared/config.ts";
+import { getDb } from "../../shared/db/connection.ts";
+import { getWorkflow, updateWorkflow, deleteWorkflow, archiveWorkflow, unarchiveWorkflow } from "../../shared/db/workflows.ts";
+import { createThread, finishThread, addMessage } from "../../shared/db/threads.ts";
+import { loadConfig } from "../../shared/config.ts";
 import { resolve } from "node:path";
+import { sql } from "kysely";
 
-export function handleWorkflows() {
-  const db = getRawDb();
-  const workflows = db
-    .prepare("SELECT * FROM workflows ORDER BY updated_at DESC")
-    .all() as any[];
+export async function handleWorkflows() {
+  const db = getDb();
 
-  const runs = db
-    .prepare(
-      `SELECT workflow_id, COUNT(*) as run_count, MAX(started_at) as last_run_at
-       FROM threads WHERE type = 'workflow' AND workflow_id IS NOT NULL
-       GROUP BY workflow_id`
-    )
-    .all() as any[];
+  const workflows = await db
+    .selectFrom("workflows")
+    .orderBy("updated_at", "desc")
+    .selectAll()
+    .execute();
 
-  const runMap: Record<string, any> = {};
-  for (const r of runs) runMap[r.workflow_id] = r;
+  const runs = await db
+    .selectFrom("threads")
+    .where("type", "=", "workflow")
+    .where("workflow_id", "is not", null)
+    .groupBy("workflow_id")
+    .select([
+      "workflow_id",
+      sql<number>`COUNT(*)`.as("run_count"),
+      sql<number>`MAX(started_at)`.as("last_run_at"),
+    ])
+    .execute();
 
-  const totalRuns = db.prepare("SELECT COUNT(*) as count FROM threads WHERE type = 'workflow'").get() as any;
+  const runMap: Record<string, (typeof runs)[number]> = {};
+  for (const r of runs) runMap[r.workflow_id!] = r;
+
+  const totalRuns = await db
+    .selectFrom("threads")
+    .where("type", "=", "workflow")
+    .select(sql<number>`COUNT(*)`.as("count"))
+    .executeTakeFirst();
 
   return Response.json({
-    workflows: workflows.map((w: any) => ({
+    workflows: workflows.map((w) => ({
       ...w,
       enabled: !!w.enabled,
       runCount: runMap[w.id]?.run_count || 0,
@@ -35,25 +49,39 @@ export function handleWorkflows() {
   });
 }
 
-export function handleWorkflowDetail(req: Request) {
+export async function handleWorkflowDetail(req: Request) {
   const url = new URL(req.url);
   const id = url.searchParams.get("id");
   if (!id) return Response.json({ error: "id required" }, { status: 400 });
 
-  const db = getRawDb();
-  const workflow = db.prepare("SELECT * FROM workflows WHERE id = ? OR name = ?").get(id, id) as any;
+  const workflow = await getWorkflow(id);
   if (!workflow) return Response.json({ error: "not found" }, { status: 404 });
 
-  const runs = db
-    .prepare("SELECT * FROM threads WHERE type = 'workflow' AND workflow_id = ? ORDER BY started_at DESC LIMIT 50")
-    .all(workflow.id) as any[];
+  const db = getDb();
 
-  const enriched = runs.map((r: any) => {
-    const lastMsg = db
-      .prepare("SELECT content FROM messages WHERE thread_id = ? AND role = 'assistant' ORDER BY created_at DESC LIMIT 1")
-      .get(r.id) as any;
-    return { ...r, output: lastMsg?.content || null };
-  });
+  const runs = await db
+    .selectFrom("threads")
+    .where("type", "=", "workflow")
+    .where("workflow_id", "=", workflow.id)
+    .orderBy("started_at", "desc")
+    .limit(50)
+    .selectAll()
+    .execute();
+
+  // Get last assistant message for each run
+  const enriched = await Promise.all(
+    runs.map(async (r) => {
+      const lastMsg = await db
+        .selectFrom("messages")
+        .where("thread_id", "=", r.id)
+        .where("role", "=", "assistant")
+        .orderBy("created_at", "desc")
+        .limit(1)
+        .select("content")
+        .executeTakeFirst();
+      return { ...r, output: lastMsg?.content || null };
+    })
+  );
 
   return Response.json({
     workflow: { ...workflow, enabled: !!workflow.enabled },
@@ -66,8 +94,7 @@ export async function handleWorkflowRun(req: Request) {
   const { id } = body as { id: string };
   if (!id) return Response.json({ error: "id required" }, { status: 400 });
 
-  const db = getRawDb();
-  const workflow = db.prepare("SELECT * FROM workflows WHERE id = ? OR name = ?").get(id, id) as any;
+  const workflow = await getWorkflow(id);
   if (!workflow) return Response.json({ error: "not found" }, { status: 404 });
 
   const config = loadConfig();
@@ -85,7 +112,6 @@ export async function handleWorkflowRun(req: Request) {
     THREAD_ID: threadId,
     PROMPT: workflow.prompt,
     MODEL: config.agent.default_model,
-    MAX_TURNS: String(config.agent.max_turns),
   };
 
   const proc = Bun.spawn([bunPath, "run", agentPath], {
@@ -137,12 +163,26 @@ export async function handleWorkflowRun(req: Request) {
       }
 
       // Always finalize the thread, even if the stream was cancelled
+      const success = proc.exitCode === 0 || proc.exitCode === null;
       try {
-        await finishThread(threadId, (proc.exitCode === 0 || proc.exitCode === null) ? "done" : "error");
+        await finishThread(threadId, success ? "done" : "error");
       } catch {}
 
       try {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ status: proc.exitCode === 0 ? "done" : "error" })}\n\n`));
+        // If agent produced no output but had stderr, surface the error
+        if (!fullOutput.trim() && stderrOutput.trim()) {
+          const errMsg = stderrOutput.includes("401") || stderrOutput.includes("auth") || stderrOutput.includes("API key")
+            ? "Authentication failed. Check your Anthropic API key in Settings."
+            : `Agent error: ${stderrOutput.slice(0, 500)}`;
+          await addMessage(threadId, "assistant", errMsg);
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ delta: errMsg })}\n\n`));
+        } else if (!success && !fullOutput.trim()) {
+          const errMsg = "Agent exited with an error. Check your API key and try again.";
+          await addMessage(threadId, "assistant", errMsg);
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ delta: errMsg })}\n\n`));
+        }
+
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ status: success ? "done" : "error" })}\n\n`));
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         controller.close();
       } catch {
@@ -165,12 +205,11 @@ export async function handleWorkflowToggle(req: Request) {
   const { id } = body as { id: string };
   if (!id) return Response.json({ error: "id required" }, { status: 400 });
 
-  const db = getRawDb();
-  const workflow = db.prepare("SELECT * FROM workflows WHERE id = ? OR name = ?").get(id, id) as any;
+  const workflow = await getWorkflow(id);
   if (!workflow) return Response.json({ error: "not found" }, { status: 404 });
 
   const newEnabled = !workflow.enabled;
-  await updateWorkflow(workflow.id, { enabled: newEnabled ? 1 : 0 } as any);
+  await updateWorkflow(workflow.id, { enabled: newEnabled ? 1 : 0 });
   return Response.json({ enabled: newEnabled });
 }
 
@@ -202,10 +241,26 @@ export async function handleWorkflowDelete(req: Request) {
   return Response.json({ ok: true });
 }
 
-export function handleBrief(req: Request) {
+const BRIEF_WORKFLOW_NAMES = ["morning-briefing", "evening-recap"] as const;
+const BRIEF_THREAD_TITLES = ["workflow: morning-briefing", "workflow: evening-recap"] as const;
+
+/** Helper: get last assistant message for a thread */
+async function getLastAssistantContent(threadId: string): Promise<string | null> {
+  const msg = await getDb()
+    .selectFrom("messages")
+    .where("thread_id", "=", threadId)
+    .where("role", "=", "assistant")
+    .orderBy("created_at", "desc")
+    .limit(1)
+    .select("content")
+    .executeTakeFirst();
+  return msg?.content ?? null;
+}
+
+export async function handleBrief(req: Request) {
   const url = new URL(req.url);
   const dateParam = url.searchParams.get("date"); // YYYY-MM-DD
-  const db = getRawDb();
+  const db = getDb();
 
   // Calculate day boundaries (local timezone)
   let dayStart: number;
@@ -215,7 +270,6 @@ export function handleBrief(req: Request) {
     dayStart = Math.floor(d.getTime() / 1000);
     dayEnd = dayStart + 86400;
   } else {
-    // Default: today
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     dayStart = Math.floor(todayStart.getTime() / 1000);
@@ -223,79 +277,83 @@ export function handleBrief(req: Request) {
   }
 
   // Get all briefs for this day
-  // Match by workflow JOIN or by thread title (handles orphaned threads from re-init)
-  const threads = db
-    .prepare(
-      `SELECT t.*,
-              COALESCE(w.name, REPLACE(t.title, 'workflow: ', '')) as workflow_name,
-              COALESCE(w.description, '') as workflow_description
-       FROM threads t
-       LEFT JOIN workflows w ON w.id = t.workflow_id
-       WHERE t.type = 'workflow'
-         AND t.status = 'done'
-         AND t.started_at >= ? AND t.started_at < ?
-         AND (
-           w.name IN ('morning-briefing', 'evening-recap')
-           OR t.title IN ('workflow: morning-briefing', 'workflow: evening-recap')
-         )
-       ORDER BY t.started_at DESC`
+  const threads = await db
+    .selectFrom("threads as t")
+    .leftJoin("workflows as w", "w.id", "t.workflow_id")
+    .where("t.type", "=", "workflow")
+    .where("t.status", "=", "done")
+    .where("t.started_at", ">=", dayStart)
+    .where("t.started_at", "<", dayEnd)
+    .where((eb) =>
+      eb.or([
+        eb("w.name", "in", [...BRIEF_WORKFLOW_NAMES]),
+        eb("t.title", "in", [...BRIEF_THREAD_TITLES]),
+      ])
     )
-    .all(dayStart, dayEnd) as any[];
+    .orderBy("t.started_at", "desc")
+    .select([
+      "t.id", "t.title", "t.type", "t.workflow_id", "t.status",
+      "t.started_at", "t.finished_at", "t.created_at", "t.last_message_at",
+      sql<string>`COALESCE(w.name, REPLACE(t.title, 'workflow: ', ''))`.as("workflow_name"),
+      sql<string>`COALESCE(w.description, '')`.as("workflow_description"),
+    ])
+    .execute();
 
   // Get output for each brief
-  const briefs = threads.map((thread: any) => {
-    const lastMsg = db
-      .prepare("SELECT content FROM messages WHERE thread_id = ? AND role = 'assistant' ORDER BY created_at DESC LIMIT 1")
-      .get(thread.id) as any;
-    return { ...thread, output: lastMsg?.content || null };
-  }).filter((b: any) => b.output);
+  const briefs = (await Promise.all(
+    threads.map(async (thread) => {
+      const output = await getLastAssistantContent(thread.id);
+      return output ? { ...thread, output } : null;
+    })
+  )).filter(Boolean) as Array<(typeof threads)[number] & { output: string }>;
 
   // If no briefs for requested day and no date specified, find the most recent brief
   if (briefs.length === 0 && !dateParam) {
-    const latest = db
-      .prepare(
-        `SELECT t.*,
-                COALESCE(w.name, REPLACE(t.title, 'workflow: ', '')) as workflow_name,
-                COALESCE(w.description, '') as workflow_description
-         FROM threads t
-         LEFT JOIN workflows w ON w.id = t.workflow_id
-         WHERE t.type = 'workflow'
-           AND t.status = 'done'
-           AND (
-             w.name IN ('morning-briefing', 'evening-recap')
-             OR t.title IN ('workflow: morning-briefing', 'workflow: evening-recap')
-           )
-         ORDER BY t.started_at DESC
-         LIMIT 1`
+    const latest = await db
+      .selectFrom("threads as t")
+      .leftJoin("workflows as w", "w.id", "t.workflow_id")
+      .where("t.type", "=", "workflow")
+      .where("t.status", "=", "done")
+      .where((eb) =>
+        eb.or([
+          eb("w.name", "in", [...BRIEF_WORKFLOW_NAMES]),
+          eb("t.title", "in", [...BRIEF_THREAD_TITLES]),
+        ])
       )
-      .get() as any;
+      .orderBy("t.started_at", "desc")
+      .limit(1)
+      .select([
+        "t.id", "t.title", "t.type", "t.workflow_id", "t.status",
+        "t.started_at", "t.finished_at", "t.created_at", "t.last_message_at",
+        sql<string>`COALESCE(w.name, REPLACE(t.title, 'workflow: ', ''))`.as("workflow_name"),
+        sql<string>`COALESCE(w.description, '')`.as("workflow_description"),
+      ])
+      .executeTakeFirst();
 
     if (latest) {
-      const lastMsg = db
-        .prepare("SELECT content FROM messages WHERE thread_id = ? AND role = 'assistant' ORDER BY created_at DESC LIMIT 1")
-        .get(latest.id) as any;
-      if (lastMsg?.content) {
-        briefs.push({ ...latest, output: lastMsg.content });
+      const output = await getLastAssistantContent(latest.id);
+      if (output) {
+        briefs.push({ ...latest, output });
       }
     }
   }
 
-  // Get all dates that have briefs (for navigation)
-  const dates = db
-    .prepare(
-      `SELECT DISTINCT date(t.started_at, 'unixepoch', 'localtime') as date
-       FROM threads t
-       LEFT JOIN workflows w ON w.id = t.workflow_id
-       WHERE t.type = 'workflow'
-         AND t.status = 'done'
-         AND (
-           w.name IN ('morning-briefing', 'evening-recap')
-           OR t.title IN ('workflow: morning-briefing', 'workflow: evening-recap')
-         )
-       ORDER BY date DESC
-       LIMIT 90`
+  // Get all dates that have briefs (for navigation) — needs raw sql for date() function
+  const dates = await db
+    .selectFrom("threads as t")
+    .leftJoin("workflows as w", "w.id", "t.workflow_id")
+    .where("t.type", "=", "workflow")
+    .where("t.status", "=", "done")
+    .where((eb) =>
+      eb.or([
+        eb("w.name", "in", [...BRIEF_WORKFLOW_NAMES]),
+        eb("t.title", "in", [...BRIEF_THREAD_TITLES]),
+      ])
     )
-    .all() as Array<{ date: string }>;
+    .select(sql<string>`DISTINCT date(t.started_at, 'unixepoch', 'localtime')`.as("date"))
+    .orderBy(sql`date`, "desc")
+    .limit(90)
+    .execute();
 
   return Response.json({
     briefs,
@@ -303,26 +361,29 @@ export function handleBrief(req: Request) {
   });
 }
 
-export function handleActivity() {
-  const db = getRawDb();
-  const runs = db
-    .prepare(
-      `SELECT t.*, w.name as workflow_name
-       FROM threads t
-       LEFT JOIN workflows w ON w.id = t.workflow_id
-       WHERE t.type = 'workflow'
-       ORDER BY t.started_at DESC
-       LIMIT 100`
-    )
-    .all() as any[];
+export async function handleActivity() {
+  const db = getDb();
+
+  const runs = await db
+    .selectFrom("threads as t")
+    .leftJoin("workflows as w", "w.id", "t.workflow_id")
+    .where("t.type", "=", "workflow")
+    .orderBy("t.started_at", "desc")
+    .limit(100)
+    .select([
+      "t.id", "t.title", "t.type", "t.workflow_id", "t.status",
+      "t.started_at", "t.finished_at", "t.created_at", "t.last_message_at",
+      "w.name as workflow_name",
+    ])
+    .execute();
 
   // Attach last assistant message as output preview
-  const enriched = runs.map((r: any) => {
-    const lastMsg = db
-      .prepare("SELECT content FROM messages WHERE thread_id = ? AND role = 'assistant' ORDER BY created_at DESC LIMIT 1")
-      .get(r.id) as any;
-    return { ...r, output: lastMsg?.content || null };
-  });
+  const enriched = await Promise.all(
+    runs.map(async (r) => {
+      const output = await getLastAssistantContent(r.id);
+      return { ...r, output };
+    })
+  );
 
   return Response.json({ runs: enriched });
 }

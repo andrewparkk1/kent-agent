@@ -24,7 +24,10 @@ Bun.serve({
     "/api/threads/:id/messages": handleThreadMessages,
     "/api/identity":     handleIdentity,
     "/api/daemon-state": handleDaemonState,
-    "/api/settings":     handleSettings,
+    "/api/settings": {
+      GET: handleSettings,
+      POST: handleSettingsSave,
+    },
   },
 
   async fetch(req) {
@@ -68,11 +71,7 @@ Bun.serve({
       return handleChat(req);
     }
 
-    if (url.pathname === "/api/settings" && req.method === "POST") {
-      return handleSettingsSave(req);
-    }
-
-    if (url.pathname === "/api/sync" && req.method === "POST") {
+if (url.pathname === "/api/sync" && req.method === "POST") {
       return handleSync(req);
     }
 

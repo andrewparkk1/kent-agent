@@ -12,6 +12,10 @@ export interface RunResult {
   output: string;
   /** Map of filename → content for files the agent produced */
   files: Record<string, string>;
+  /** Captured stderr output (tool events + errors) */
+  stderr?: string;
+  /** Process exit code (null if killed) */
+  exitCode?: number | null;
 }
 
 export type StreamCallback = (chunk: string) => void;
@@ -37,7 +41,7 @@ export abstract class BaseRunner {
     prompt: string,
     workflowId?: string,
     streamCallback?: StreamCallback | TypedStreamCallback,
-    options?: { threadId?: string }
+    options?: { threadId?: string; conversationHistory?: string }
   ): Promise<RunResult>;
 
   /**

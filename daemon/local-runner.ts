@@ -11,6 +11,7 @@ import { KENT_DIR } from "@shared/config.ts";
 
 export class LocalRunner extends BaseRunner {
   private config: Config;
+  private proc: ReturnType<typeof Bun.spawn> | null = null;
 
   constructor(config: Config) {
     super();
@@ -45,10 +46,11 @@ export class LocalRunner extends BaseRunner {
       PROMPT: prompt,
       OUTPUT_DIR: outputDir,
       MODEL: this.config.agent.default_model,
-      MAX_TURNS: String(this.config.agent.max_turns),
+      TIMEZONE: this.config.core.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
       KENT_HOME: join(import.meta.dir, ".."),
       ...(workflowId ? { WORKFLOW_ID: workflowId } : {}),
       ...(options?.threadId ? { THREAD_ID: options.threadId, SKIP_USER_MESSAGE: "1" } : {}),
+      ...(options?.conversationHistory ? { CONVERSATION_HISTORY: options.conversationHistory } : {}),
     };
 
     const proc = Bun.spawn(["bun", "run", agentPath], {
@@ -57,8 +59,10 @@ export class LocalRunner extends BaseRunner {
       stderr: "pipe",
       cwd: join(import.meta.dir, ".."),
     });
+    this.proc = proc;
 
     let output = "";
+    let stderrOutput = "";
 
     // Detect if callback accepts typed args (2 params) or legacy (1 param)
     const emit = streamCallback
@@ -88,12 +92,14 @@ export class LocalRunner extends BaseRunner {
         const { done, value } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
+        stderrOutput += chunk;
         emit?.(chunk, "tool");
       }
     })();
 
     await Promise.all([stdoutReader, stderrReader]);
     await proc.exited;
+    const exitCode = proc.exitCode;
 
     // Collect output files
     const files: Record<string, string> = {};
@@ -107,10 +113,14 @@ export class LocalRunner extends BaseRunner {
       // No output files
     }
 
-    return { runId, output, files };
+    this.proc = null;
+    return { runId, output, files, stderr: stderrOutput, exitCode };
   }
 
   async kill(): Promise<void> {
-    // Nothing to clean up — subprocess exits when agent finishes
+    if (this.proc) {
+      this.proc.kill();
+      this.proc = null;
+    }
   }
 }

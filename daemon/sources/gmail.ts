@@ -6,7 +6,7 @@
  * Shells out to `gws` (https://github.com/googleworkspace/cli).
  * Falls back gracefully if `gws` is not installed or no accounts are authenticated.
  */
-import type { Source, SyncState, Item } from "./types";
+import type { Source, SyncState, SyncOptions, Item } from "./types";
 
 // Ensure brew-installed CLIs are discoverable
 function buildCliEnv(): Record<string, string> {
@@ -34,9 +34,9 @@ async function runGws(args: string[]): Promise<any | null> {
 
     if (exitCode !== 0) {
       if (stderr.includes("invalid_grant") || stderr.includes("Token has been expired or revoked")) {
-        console.warn("[gws] Token expired. Run: gws auth login -s gmail,calendar,tasks,drive");
+        throw new Error("Token expired. Run: gws auth login -s gmail,calendar,tasks,drive");
       }
-      return null;
+      throw new Error(stderr.trim().slice(0, 120) || `gws exited with code ${exitCode}`);
     }
 
     if (!stdout.trim()) return null;
@@ -45,24 +45,27 @@ async function runGws(args: string[]): Promise<any | null> {
     const jsonStart = stdout.search(/[{[]/);
     if (jsonStart < 0) return null;
     return JSON.parse(stdout.slice(jsonStart));
-  } catch {
-    return null;
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith("Token expired")) throw e;
+    throw e;
   }
 }
 
-async function checkGws(): Promise<boolean> {
+async function checkGws(): Promise<void> {
   const proc = Bun.spawn(["which", "gws"], {
     stdout: "pipe",
     stderr: "pipe",
     env: CLI_ENV,
   });
-  return (await proc.exited) === 0;
+  if ((await proc.exited) !== 0) {
+    throw new Error("gws CLI not found. Install: npm i -g @nicholasgasior/gws");
+  }
 }
 
-function daysBackFromLastSync(lastSync: number): number {
-  return lastSync > 0
-    ? Math.max(1, Math.ceil((Date.now() / 1000 - lastSync) / 86400))
-    : 90;
+function daysBackFromLastSync(lastSync: number, defaultDays = 365): number {
+  if (lastSync > 0) return Math.max(1, Math.ceil((Date.now() / 1000 - lastSync) / 86400));
+  if (defaultDays === 0) return 36500; // ~100 years = everything
+  return defaultDays;
 }
 
 // ─── Gmail ──────────────────────────────────────────────────────────────────
@@ -70,41 +73,61 @@ function daysBackFromLastSync(lastSync: number): number {
 export const gmail: Source = {
   name: "gmail",
 
-  async fetchNew(state: SyncState): Promise<Item[]> {
-    if (!(await checkGws())) return [];
+  async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
+    await checkGws();
 
     const lastSync = state.getLastSync("gmail");
-    const daysBack = daysBackFromLastSync(lastSync);
+    const daysBack = daysBackFromLastSync(lastSync, options?.defaultDays);
+    const maxMessages = options?.limit ?? 500;
 
-    // List message IDs
-    const listData = await runGws([
-      "gmail", "users", "messages", "list",
-      "--params", JSON.stringify({
+    // Paginate through message IDs
+    const allMessageIds: Array<{ id: string }> = [];
+    let pageToken: string | undefined;
+
+    while (allMessageIds.length < maxMessages) {
+      const batchSize = Math.min(100, maxMessages - allMessageIds.length);
+      const params: Record<string, any> = {
         userId: "me",
-        maxResults: 25,
+        maxResults: batchSize,
         q: `newer_than:${daysBack}d`,
-      }),
-    ]);
+      };
+      if (pageToken) params.pageToken = pageToken;
 
-    if (!listData?.messages || !Array.isArray(listData.messages)) return [];
+      const listData = await runGws([
+        "gmail", "users", "messages", "list",
+        "--params", JSON.stringify(params),
+      ]);
 
-    const messageIds = listData.messages.slice(0, 25);
+      if (!listData?.messages || !Array.isArray(listData.messages)) break;
+      allMessageIds.push(...listData.messages);
 
-    // Fetch metadata for each message concurrently
-    const details = await Promise.all(
-      messageIds.map(async (msg: any) => {
-        const detail = await runGws([
-          "gmail", "users", "messages", "get",
-          "--params", JSON.stringify({
-            userId: "me",
-            id: msg.id,
-            format: "metadata",
-            metadataHeaders: ["Subject", "From", "To", "Date"],
-          }),
-        ]);
-        return { msgId: msg.id, detail };
-      })
-    );
+      pageToken = listData.nextPageToken;
+      if (!pageToken) break;
+    }
+
+    if (allMessageIds.length === 0) return [];
+
+    // Fetch metadata concurrently in batches of 20 to avoid overwhelming the API
+    const details: Array<{ msgId: string; detail: any }> = [];
+    const BATCH = 20;
+    for (let i = 0; i < allMessageIds.length; i += BATCH) {
+      const batch = allMessageIds.slice(i, i + BATCH);
+      const batchResults = await Promise.all(
+        batch.map(async (msg) => {
+          const detail = await runGws([
+            "gmail", "users", "messages", "get",
+            "--params", JSON.stringify({
+              userId: "me",
+              id: msg.id,
+              format: "metadata",
+              metadataHeaders: ["Subject", "From", "To", "Date"],
+            }),
+          ]);
+          return { msgId: msg.id, detail };
+        })
+      );
+      details.push(...batchResults);
+    }
 
     const items: Item[] = [];
     for (const { msgId, detail } of details) {
@@ -167,11 +190,11 @@ export const gmail: Source = {
 export const gcal: Source = {
   name: "gcal",
 
-  async fetchNew(state: SyncState): Promise<Item[]> {
-    if (!(await checkGws())) return [];
+  async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
+    await checkGws();
 
     const lastSync = state.getLastSync("gcal");
-    const daysBack = daysBackFromLastSync(lastSync);
+    const daysBack = daysBackFromLastSync(lastSync, options?.defaultDays);
 
     const now = new Date();
     const from = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000);
@@ -239,8 +262,8 @@ export const gcal: Source = {
 export const gtasks: Source = {
   name: "gtasks",
 
-  async fetchNew(state: SyncState): Promise<Item[]> {
-    if (!(await checkGws())) return [];
+  async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
+    await checkGws();
 
     const lastSync = state.getLastSync("gtasks");
 
@@ -310,11 +333,11 @@ export const gtasks: Source = {
 export const gdrive: Source = {
   name: "gdrive",
 
-  async fetchNew(state: SyncState): Promise<Item[]> {
-    if (!(await checkGws())) return [];
+  async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
+    await checkGws();
 
     const lastSync = state.getLastSync("gdrive");
-    const daysBack = daysBackFromLastSync(lastSync);
+    const daysBack = daysBackFromLastSync(lastSync, options?.defaultDays);
 
     const cutoff = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
 

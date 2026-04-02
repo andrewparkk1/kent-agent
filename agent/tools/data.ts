@@ -1,7 +1,7 @@
 /** Data source tools — search/browse synced items. */
 import { Type } from "@sinclair/typebox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import { searchItems, getItemsBySource, getItemCount } from "@shared/db.ts";
+import { searchItems, getItemsBySource, getItemCount, getRecentThreads, getMessages } from "@shared/db.ts";
 import { json, err } from "./helpers.ts";
 
 const Empty = Type.Object({});
@@ -64,4 +64,46 @@ export const getStats: AgentTool<any> = {
   },
 };
 
-export const dataTools = [searchData, getRecent, getStats] as AgentTool[];
+export const getThreads: AgentTool<any> = {
+  name: "get_recent_threads",
+  label: "Getting recent threads...",
+  description: "Get recent conversation threads (chats and workflow runs). Use to review past conversations for context.",
+  parameters: Type.Object({
+    type: Type.Optional(Type.String({ description: "Filter by 'chat' or 'workflow'. Omit for all." })),
+    limit: Type.Optional(Type.Number({ description: "Max threads (default 10)" })),
+  }),
+  execute: async (_id, params) => {
+    try {
+      const threads = await getRecentThreads(params.limit ?? 10, params.type as any);
+      return json(threads.map((t) => ({
+        id: t.id, title: t.title, type: t.type, status: t.status,
+        created: new Date(t.created_at * 1000).toISOString(),
+      })));
+    } catch (e) {
+      return err(`get_recent_threads failed: ${e}`);
+    }
+  },
+};
+
+export const getThreadMessages: AgentTool<any> = {
+  name: "get_thread_messages",
+  label: "Getting thread messages...",
+  description: "Get all messages from a specific thread. Use to review past conversations for context about people, topics, or decisions.",
+  parameters: Type.Object({
+    thread_id: Type.String({ description: "Thread ID to load messages from" }),
+    limit: Type.Optional(Type.Number({ description: "Max messages (default 100)" })),
+  }),
+  execute: async (_id, params) => {
+    try {
+      const msgs = await getMessages(params.thread_id, params.limit ?? 100);
+      return json(msgs.map((m) => ({
+        role: m.role, content: m.content.slice(0, 500),
+        ...(m.metadata ? { metadata: JSON.parse(m.metadata) } : {}),
+      })));
+    } catch (e) {
+      return err(`get_thread_messages failed: ${e}`);
+    }
+  },
+};
+
+export const dataTools = [searchData, getRecent, getStats, getThreads, getThreadMessages] as AgentTool[];

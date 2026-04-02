@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Search, Globe, ChevronDown, RefreshCw, Calendar, Loader2, Settings2, X } from "lucide-react";
+import { Search, Globe, ChevronDown, ChevronRight, RefreshCw, Calendar, Loader2, Settings2, X, MessageCircle, Users, Download, Bookmark, History, SearchIcon } from "lucide-react";
 import { toast } from "sonner";
 import Markdown from "react-markdown";
 import { Stagger, StaggerItem } from "@/components/stagger";
@@ -277,10 +277,419 @@ function ItemRow({ item }: { item: Item }) {
   );
 }
 
-export function SourcesPage({ items, loading, filter, setFilter, query, setQuery, counts, sources, daemon, onRefresh }: {
+// ─── Conversation grouped view (iMessage / Signal) ────────────────────────
+
+interface Conversation {
+  id: string;
+  name: string;
+  isGroup: boolean;
+  lastMessage: Item;
+  messages: Item[];
+}
+
+function groupByConversation(items: Item[]): Conversation[] {
+  const map = new Map<string, Conversation>();
+  for (const item of items) {
+    const convId = item.metadata.conversationId || item.metadata.handle || "unknown";
+    const existing = map.get(convId);
+    if (existing) {
+      existing.messages.push(item);
+      if (item.created_at > existing.lastMessage.created_at) {
+        existing.lastMessage = item;
+      }
+    } else {
+      map.set(convId, {
+        id: convId,
+        name: item.metadata.contactName || convId,
+        isGroup: !!item.metadata.isGroup,
+        lastMessage: item,
+        messages: [item],
+      });
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => b.lastMessage.created_at - a.lastMessage.created_at);
+}
+
+function ConversationRow({ conv }: { conv: Conversation }) {
+  const [open, setOpen] = useState(false);
+  const preview = conv.lastMessage.content.slice(0, 80);
+  const isFromMe = conv.lastMessage.metadata.isFromMe;
+
+  return (
+    <div>
+      <motion.div
+        whileHover={{ x: 2 }}
+        transition={{ duration: 0.15 }}
+        onClick={() => setOpen(!open)}
+        className="group flex items-center gap-3 min-w-0 px-3 py-3 rounded-lg hover:bg-foreground/[0.03] transition-colors cursor-pointer"
+      >
+        <div className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center ${conv.isGroup ? "bg-blue-500/10" : "bg-emerald-500/10"}`}>
+          {conv.isGroup ? <Users size={16} className="text-blue-500/70" /> : <MessageCircle size={16} className="text-emerald-500/70" />}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-[13px] font-medium text-foreground truncate">{conv.name}</span>
+            {conv.isGroup && <span className="text-[10px] px-1.5 py-[1px] rounded bg-blue-500/8 text-blue-500/60">group</span>}
+          </div>
+          <span className="text-[12px] text-muted-foreground/50 truncate block mt-0.5">
+            {isFromMe ? "You: " : ""}{preview}
+          </span>
+        </div>
+        <div className="shrink-0 flex items-center gap-2">
+          <span className="text-[10px] font-mono text-muted-foreground/30 bg-foreground/[0.04] px-1.5 py-[2px] rounded tabular-nums">{conv.messages.length}</span>
+          <span className="text-[11px] font-mono text-muted-foreground/40 tabular-nums">{timeAgo(conv.lastMessage.created_at)}</span>
+          <ChevronRight size={12} className={`text-muted-foreground/30 transition-transform duration-200 ${open ? "rotate-90" : ""}`} />
+        </div>
+      </motion.div>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: [0.25, 0.46, 0.45, 0.94] }}
+            className="overflow-hidden"
+          >
+            <div className="mx-3 mb-2 px-4 py-3 rounded-lg bg-foreground/[0.02] border border-border/30 space-y-1 max-h-[400px] overflow-y-auto">
+              {conv.messages
+                .sort((a, b) => a.created_at - b.created_at)
+                .slice(-30)
+                .map((msg) => {
+                  const fromMe = msg.metadata.isFromMe;
+                  return (
+                    <div key={msg.id} className={`flex ${fromMe ? "justify-end" : "justify-start"}`}>
+                      <div className={`max-w-[75%] px-3 py-1.5 rounded-2xl text-[12px] leading-relaxed ${
+                        fromMe
+                          ? "bg-blue-500 text-white rounded-br-md"
+                          : "bg-foreground/[0.06] text-foreground/80 rounded-bl-md"
+                      }`}>
+                        {!fromMe && conv.isGroup && msg.metadata.handle && (
+                          <div className="text-[10px] font-medium mb-0.5 opacity-60">
+                            {msg.metadata.contactName !== conv.name ? msg.metadata.handle : msg.metadata.handle}
+                          </div>
+                        )}
+                        {msg.content}
+                        <div className={`text-[9px] mt-0.5 ${fromMe ? "text-white/50" : "text-muted-foreground/30"}`}>
+                          {new Date(msg.created_at * 1000).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function ConversationList({ items }: { items: Item[] }) {
+  const conversations = groupByConversation(items);
+  return (
+    <Stagger className="flex flex-col gap-0.5">
+      {conversations.map((conv) => (
+        <StaggerItem key={conv.id}>
+          <ConversationRow conv={conv} />
+        </StaggerItem>
+      ))}
+      {conversations.length === 0 && (
+        <StaggerItem>
+          <div className="text-center text-muted-foreground/50 py-20 text-[13px]">No conversations found</div>
+        </StaggerItem>
+      )}
+    </Stagger>
+  );
+}
+
+// ─── Chrome grouped view ───────────────────────────────────────────────────
+
+const CHROME_TYPE_META: Record<string, { icon: any; label: string; color: string; bg: string }> = {
+  history:  { icon: History,    label: "History",   color: "text-amber-600/70",  bg: "bg-amber-500/8" },
+  search:   { icon: SearchIcon, label: "Search",    color: "text-blue-500/70",   bg: "bg-blue-500/8" },
+  bookmark: { icon: Bookmark,   label: "Bookmark",  color: "text-violet-500/70", bg: "bg-violet-500/8" },
+  download: { icon: Download,   label: "Download",  color: "text-emerald-500/70", bg: "bg-emerald-500/8" },
+};
+
+function ChromeItemRow({ item }: { item: Item }) {
+  const [open, setOpen] = useState(false);
+  const typeMeta = CHROME_TYPE_META[item.metadata.type] || CHROME_TYPE_META.history;
+  const TypeIcon = typeMeta.icon;
+  const title = item.metadata.title || item.metadata.term || item.metadata.name || item.content.split("\n")[0]?.slice(0, 120);
+  const category = item.metadata.category;
+
+  let subtitle = "";
+  if (item.metadata.type === "search") {
+    subtitle = item.metadata.url ? (() => { try { return new URL(item.metadata.url).hostname; } catch { return ""; } })() : "";
+  } else if (item.metadata.type === "download") {
+    const path = item.metadata.targetPath || "";
+    subtitle = path.split("/").pop() || "";
+    if (item.metadata.totalBytes) {
+      const mb = (item.metadata.totalBytes / (1024 * 1024)).toFixed(1);
+      subtitle += ` · ${mb} MB`;
+    }
+  } else if (item.metadata.url) {
+    try { subtitle = new URL(item.metadata.url).hostname; } catch {}
+  }
+
+  return (
+    <div>
+      <motion.div
+        whileHover={{ x: 2 }}
+        transition={{ duration: 0.15 }}
+        onClick={() => setOpen(!open)}
+        className="group flex items-center gap-3 min-w-0 px-3 py-2.5 rounded-lg hover:bg-foreground/[0.03] transition-colors cursor-pointer"
+      >
+        <div className={`shrink-0 w-7 h-7 rounded-md ${typeMeta.bg} flex items-center justify-center`}>
+          <TypeIcon size={14} className={typeMeta.color} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <span className="text-[13px] text-foreground truncate block leading-snug">{title}</span>
+          {subtitle && <span className="text-[11px] text-muted-foreground/60 truncate block mt-0.5">{subtitle}</span>}
+        </div>
+        <div className="shrink-0 flex items-center gap-2">
+          <span className={`text-[10px] font-medium px-1.5 py-[2px] rounded ${typeMeta.bg} ${typeMeta.color}`}>{typeMeta.label}</span>
+          {category && category !== "other" && (
+            <span className="text-[10px] px-1.5 py-[2px] rounded bg-foreground/[0.04] text-muted-foreground/50">{category}</span>
+          )}
+          <span className="text-[11px] font-mono text-muted-foreground/40 tabular-nums">{timeAgo(item.created_at)}</span>
+          <ChevronDown size={12} className={`text-muted-foreground/30 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+        </div>
+      </motion.div>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: [0.25, 0.46, 0.45, 0.94] }}
+            className="overflow-hidden"
+          >
+            <ItemDetail item={item} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function ChromeTypeAccordion({ type, items }: { type: string; items: Item[] }) {
+  const [open, setOpen] = useState(type === "history");
+  const meta = CHROME_TYPE_META[type] || CHROME_TYPE_META.history;
+  const Icon = meta.icon;
+
+  return (
+    <div className="mb-2">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg hover:bg-foreground/[0.03] transition-colors cursor-pointer"
+      >
+        <div className={`shrink-0 w-7 h-7 rounded-md ${meta.bg} flex items-center justify-center`}>
+          <Icon size={14} className={meta.color} />
+        </div>
+        <span className="text-[13px] font-medium text-foreground">{meta.label}</span>
+        <span className="text-[11px] font-mono text-muted-foreground/40">{items.length}</span>
+        <div className="flex-1" />
+        <ChevronDown size={13} className={`text-muted-foreground/30 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: [0.25, 0.46, 0.45, 0.94] }}
+            className="overflow-hidden"
+          >
+            <div className="ml-3 border-l border-border/30 pl-2">
+              {items.map((item) => (
+                <ChromeItemRow key={item.id} item={item} />
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function ChromeList({ items }: { items: Item[] }) {
+  const grouped: Record<string, Item[]> = {};
+  for (const item of items) {
+    const type = item.metadata.type || "history";
+    (grouped[type] ||= []).push(item);
+  }
+  const typeOrder = ["history", "search", "bookmark", "download"];
+  const sortedTypes = typeOrder.filter((t) => grouped[t]?.length);
+  // Add any types not in typeOrder
+  for (const t of Object.keys(grouped)) {
+    if (!sortedTypes.includes(t)) sortedTypes.push(t);
+  }
+
+  if (sortedTypes.length === 0) {
+    return <div className="text-center text-muted-foreground/50 py-20 text-[13px]">No items found</div>;
+  }
+
+  return (
+    <div className="flex flex-col">
+      {sortedTypes.map((type) => (
+        <ChromeTypeAccordion key={type} type={type} items={grouped[type]!} />
+      ))}
+    </div>
+  );
+}
+
+// ─── Calendar grouped view (gcal events + gtasks tasks) ────────────────────
+
+function CalendarItemRow({ item }: { item: Item }) {
+  const [open, setOpen] = useState(false);
+  const isTask = item.source === "gtasks";
+  const title = item.metadata.summary || item.metadata.title || getTitle(item);
+  const meta = SOURCE_META[item.source] || { icon: Globe, label: item.source, color: "text-neutral-400", bg: "bg-neutral-500/8" };
+
+  let subtitle = "";
+  if (isTask) {
+    subtitle = item.metadata.listName || "";
+    if (item.metadata.due) {
+      try {
+        const d = new Date(item.metadata.due);
+        subtitle += (subtitle ? " · " : "") + d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      } catch {}
+    }
+    if (item.metadata.status === "completed") subtitle += " · Done";
+  } else {
+    const start = item.metadata.start || item.metadata.when || item.metadata.dtstart;
+    if (start) {
+      try {
+        const d = new Date(start);
+        subtitle = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+        if (start.includes("T")) subtitle += " · " + d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+      } catch {}
+    }
+    if (item.metadata.location) subtitle += (subtitle ? " · " : "") + item.metadata.location;
+  }
+
+  return (
+    <div>
+      <motion.div
+        whileHover={{ x: 2 }}
+        transition={{ duration: 0.15 }}
+        onClick={() => setOpen(!open)}
+        className="group flex items-center gap-3 min-w-0 px-3 py-2.5 rounded-lg hover:bg-foreground/[0.03] transition-colors cursor-pointer"
+      >
+        <div className={`shrink-0 w-7 h-7 rounded-md ${meta.bg} flex items-center justify-center`}>
+          <meta.icon size={14} className={meta.color} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <span className="text-[13px] text-foreground truncate block leading-snug">{title}</span>
+          {subtitle && <span className="text-[11px] text-muted-foreground/60 truncate block mt-0.5">{subtitle}</span>}
+        </div>
+        <div className="shrink-0 flex items-center gap-2">
+          <span className={`text-[10px] font-medium px-1.5 py-[2px] rounded ${isTask ? "bg-violet-500/8 text-violet-500/70" : "bg-blue-500/8 text-blue-500/70"}`}>
+            {isTask ? "Task" : "Event"}
+          </span>
+          <span className="text-[11px] font-mono text-muted-foreground/40 tabular-nums">{timeAgo(item.created_at)}</span>
+          <ChevronDown size={12} className={`text-muted-foreground/30 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+        </div>
+      </motion.div>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: [0.25, 0.46, 0.45, 0.94] }}
+            className="overflow-hidden"
+          >
+            <ItemDetail item={item} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function CalendarList({ items }: { items: Item[] }) {
+  return (
+    <Stagger className="flex flex-col gap-0.5">
+      {items.map((item) => (
+        <StaggerItem key={item.id}>
+          <CalendarItemRow item={item} />
+        </StaggerItem>
+      ))}
+      {items.length === 0 && (
+        <StaggerItem>
+          <div className="text-center text-muted-foreground/50 py-20 text-[13px]">No items found</div>
+        </StaggerItem>
+      )}
+    </Stagger>
+  );
+}
+
+// ─── Source-aware item list renderer ───────────────────────────────────────
+
+const CONVERSATION_SOURCES = ["imessage", "signal"];
+const CALENDAR_SOURCES = ["gcal", "gtasks"];
+
+function SourceAwareList({ items, filter }: { items: Item[]; filter: string | null }) {
+  if (filter && CONVERSATION_SOURCES.includes(filter)) {
+    return <ConversationList items={items} />;
+  }
+  if (filter === "chrome") {
+    return <ChromeList items={items} />;
+  }
+  if (filter && CALENDAR_SOURCES.includes(filter)) {
+    return <CalendarList items={items} />;
+  }
+  // Default flat list
+  return (
+    <Stagger className="flex flex-col gap-1">
+      {items.map((item) => (
+        <StaggerItem key={item.id}>
+          <ItemRow item={item} />
+        </StaggerItem>
+      ))}
+      {items.length === 0 && (
+        <StaggerItem>
+          <div className="text-center text-muted-foreground/50 py-20 text-[13px]">No items found</div>
+        </StaggerItem>
+      )}
+    </Stagger>
+  );
+}
+
+function Pagination({ page, hasMore, onPageChange }: { page: number; hasMore: boolean; onPageChange: (p: number) => void }) {
+  if (page === 0 && !hasMore) return null;
+  return (
+    <div className="flex items-center justify-center gap-3 mt-6 mb-2">
+      <button
+        onClick={() => onPageChange(page - 1)}
+        disabled={page === 0}
+        className="text-[12px] px-3 py-1.5 rounded-lg bg-foreground/[0.04] text-muted-foreground hover:text-foreground hover:bg-foreground/[0.07] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-default"
+      >
+        Previous
+      </button>
+      <span className="text-[11px] font-mono text-muted-foreground/50 tabular-nums">Page {page + 1}</span>
+      <button
+        onClick={() => onPageChange(page + 1)}
+        disabled={!hasMore}
+        className="text-[12px] px-3 py-1.5 rounded-lg bg-foreground/[0.04] text-muted-foreground hover:text-foreground hover:bg-foreground/[0.07] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-default"
+      >
+        Next
+      </button>
+    </div>
+  );
+}
+
+export function SourcesPage({ items, loading, filter, setFilter, query, setQuery, counts, sources, daemon, onRefresh, page, hasMore, onPageChange }: {
   items: Item[]; loading: boolean; filter: string | null; setFilter: (f: string | null) => void;
   query: string; setQuery: (q: string) => void; counts: Record<string, number>;
   sources: SourceInfo[]; daemon: DaemonInfo; onRefresh: () => void;
+  page: number; hasMore: boolean; onPageChange: (p: number) => void;
 }) {
   const sortedSources = Object.entries(counts).sort((a, b) => b[1] - a[1]);
   const now = useTick(1000);
@@ -419,18 +828,10 @@ export function SourcesPage({ items, loading, filter, setFilter, query, setQuery
           {[...Array(6)].map((_, i) => <div key={i} className="h-14 rounded-lg animate-shimmer" />)}
         </div>
       ) : (
-        <Stagger className="flex flex-col gap-1">
-          {items.map((item) => (
-            <StaggerItem key={item.id}>
-              <ItemRow item={item} />
-            </StaggerItem>
-          ))}
-          {items.length === 0 && (
-            <StaggerItem>
-              <div className="text-center text-muted-foreground/50 py-20 text-[13px]">No items found</div>
-            </StaggerItem>
-          )}
-        </Stagger>
+        <>
+          <SourceAwareList items={items} filter={filter} />
+          <Pagination page={page} hasMore={hasMore} onPageChange={onPageChange} />
+        </>
       )}
     </div>
   );

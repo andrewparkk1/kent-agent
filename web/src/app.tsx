@@ -60,14 +60,21 @@ export function App() {
     setPage("chat");
   }, []);
 
-  const fetchItems = useCallback(async () => {
+  const [itemsPage, setItemsPage] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const PAGE_SIZE = 50;
+
+  const fetchItems = useCallback(async (page = 0) => {
     const params = new URLSearchParams();
     if (filter) params.set("source", filter);
     if (query) params.set("q", query);
+    params.set("limit", String(PAGE_SIZE));
+    params.set("offset", String(page * PAGE_SIZE));
     try {
       const res = await fetch(`/api/items?${params}`);
       const data = await res.json();
       setItems(data.items);
+      setHasMore(data.hasMore ?? false);
     } catch {}
     setLoading(false);
   }, [filter, query]);
@@ -98,18 +105,21 @@ export function App() {
     } catch {}
   }, []);
 
+  // Reset page when filter/query changes
+  useEffect(() => { setItemsPage(0); }, [filter, query]);
+
   useEffect(() => {
     fetchCounts();
-    fetchItems();
+    fetchItems(itemsPage);
     fetchWorkflows();
     fetchSources();
     const interval = setInterval(() => {
-      fetchItems();
+      fetchItems(itemsPage);
       fetchCounts();
       fetchSources();
     }, 5000);
     return () => clearInterval(interval);
-  }, [fetchItems, fetchCounts, fetchWorkflows, fetchSources]);
+  }, [fetchItems, fetchCounts, fetchWorkflows, fetchSources, itemsPage]);
 
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
 
@@ -144,7 +154,7 @@ export function App() {
         {page === "activity" && <ActivityPage />}
         {page === "chat" && <ChatPage threadId={selectedThreadId} onThreadCreated={setSelectedThreadId} />}
         {page === "sources" && (
-          <SourcesPage items={items} loading={loading} filter={filter} setFilter={setFilter} query={query} setQuery={setQuery} counts={counts} sources={sources} daemon={daemon} onRefresh={() => { fetchItems(); fetchCounts(); fetchSources(); }} />
+          <SourcesPage items={items} loading={loading} filter={filter} setFilter={setFilter} query={query} setQuery={setQuery} counts={counts} sources={sources} daemon={daemon} onRefresh={() => { fetchItems(itemsPage); fetchCounts(); fetchSources(); }} page={itemsPage} hasMore={hasMore} onPageChange={setItemsPage} />
         )}
         {page === "identity" && <IdentityPage />}
         {page === "memories" && <MemoriesPage />}

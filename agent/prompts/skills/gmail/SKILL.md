@@ -2,52 +2,106 @@
 
 Use `run_command` to execute these. Requires `gws auth login` (already done).
 
-## List Messages
+## Triage (Inbox Summary)
 
 ```bash
-# List recent messages
-gws gmail messages list
-
-# List with a search query (same syntax as Gmail search)
-gws gmail messages list --query "from:alice@example.com"
-gws gmail messages list --query "subject:deployment after:2024/01/01"
-gws gmail messages list --query "is:unread"
-gws gmail messages list --query "label:important"
+# Show unread inbox summary (table format by default)
+gws gmail +triage
 
 # Limit results
-gws gmail messages list --maxResults 10
+gws gmail +triage --max 5
+
+# Custom query
+gws gmail +triage --query "from:boss"
+gws gmail +triage --query "is:unread after:2026/04/01"
+
+# Include label names
+gws gmail +triage --labels
+
+# JSON output
+gws gmail +triage --format json
 ```
 
 ## Read a Message
 
 ```bash
-# Get message by ID (from list output)
-gws gmail messages get --messageId <id>
+# Read message body (plain text, auto-converted from HTML)
+gws gmail +read --id <MESSAGE_ID>
+
+# Include headers (From, To, Subject, Date)
+gws gmail +read --id <MESSAGE_ID> --headers
+
+# JSON output
+gws gmail +read --id <MESSAGE_ID> --format json
 ```
 
-## Create a Draft
+## Send Email
 
 ```bash
-# Create a draft (does NOT send)
-gws gmail drafts create --to "alice@example.com" --subject "Subject" --body "Body text"
+# Send a plain text email
+gws gmail +send --to "alice@example.com" --subject "Hello" --body "Hi Alice!"
 
-# Create a reply draft
-gws gmail drafts create --to "alice@example.com" --subject "Re: Original" --body "Reply text" --threadId <id>
+# With CC/BCC
+gws gmail +send --to "alice@example.com" --subject "Hello" --body "Hi!" --cc "bob@example.com"
+
+# HTML body
+gws gmail +send --to "alice@example.com" --subject "Hello" --body "<b>Bold</b> text" --html
+
+# With attachment
+gws gmail +send --to "alice@example.com" --subject "Report" --body "See attached" -a report.pdf
+
+# Multiple attachments
+gws gmail +send --to "alice@example.com" --subject "Files" --body "Two files" -a a.pdf -a b.csv
+
+# Send from alias
+gws gmail +send --to "alice@example.com" --subject "Hello" --body "Hi!" --from alias@example.com
+```
+
+## Reply
+
+```bash
+# Reply to sender only
+gws gmail +reply --message-id <MESSAGE_ID> --body "Thanks, got it!"
+
+# Reply with CC
+gws gmail +reply --message-id <MESSAGE_ID> --body "Looping in Carol" --cc carol@example.com
+
+# Reply all
+gws gmail +reply-all --message-id <MESSAGE_ID> --body "Sounds good to me!"
+
+# Reply all but exclude someone
+gws gmail +reply-all --message-id <MESSAGE_ID> --body "Updated" --remove bob@example.com
+```
+
+## Forward
+
+```bash
+# Forward a message
+gws gmail +forward --message-id <MESSAGE_ID> --to "dave@example.com"
+
+# Forward with a note
+gws gmail +forward --message-id <MESSAGE_ID> --to "dave@example.com" --body "FYI see below"
+```
+
+## List Messages (Low-level)
+
+```bash
+# List messages (returns IDs — use +read to get content)
+gws gmail users messages list --params '{"q": "from:alice@example.com"}'
+gws gmail users messages list --params '{"q": "subject:deployment after:2026/04/01"}'
+gws gmail users messages list --params '{"maxResults": 10}'
 ```
 
 ## Labels
 
 ```bash
 # List all labels
-gws gmail labels list
-
-# Apply a label to a message
-gws gmail messages modify --messageId <id> --addLabelIds LABEL_ID
+gws gmail users labels list
 ```
 
 ## Search Syntax
 
-Gmail search operators work in the `--query` flag:
+Gmail search operators work in query strings:
 - `from:name` — sender
 - `to:name` — recipient
 - `subject:word` — subject line
@@ -61,6 +115,9 @@ Gmail search operators work in the `--query` flag:
 
 ## Tips
 
-- Always check the draft before asking to send. Create drafts, not sent messages.
-- Use `--query` with Gmail search syntax for filtering.
-- Message IDs from `list` are needed for `get` and `modify`.
+- Use `+triage` first to see inbox overview and get message IDs.
+- Use `+read` to get message content by ID.
+- Use `+send` to compose new emails, `+reply`/`+reply-all` for responses, `+forward` to forward.
+- Helper commands (`+send`, `+reply`, etc.) handle MIME encoding, threading, and attachments automatically.
+- Always confirm with the user before sending emails.
+- Use `--dry-run` to preview what would be sent without actually sending.

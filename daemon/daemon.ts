@@ -175,7 +175,6 @@ async function main(): Promise<void> {
           THREAD_ID: threadId,
           PROMPT: wf.prompt,
           MODEL: config.agent.default_model,
-          MAX_TURNS: String(config.agent.max_turns),
         };
 
         const proc = Bun.spawn([bunPath, "run", agentPath], {

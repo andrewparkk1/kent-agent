@@ -12,7 +12,14 @@ export interface SyncState {
   markSynced(source: string, highWaterMark?: number): void;
 }
 
+export interface SyncOptions {
+  /** Override the default days-back for first sync (default: 365). 0 = everything. */
+  defaultDays?: number;
+  /** Override per-batch row limit. */
+  limit?: number;
+}
+
 export interface Source {
   name: string;
-  fetchNew(state: SyncState): Promise<Item[]>;
+  fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]>;
 }

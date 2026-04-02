@@ -113,9 +113,10 @@ Execute a shell command on the user's Mac.
 6. Create or update memories as you learn new things about the user's world.
 7. When the user asks you to set up recurring tasks, use `create_workflow` with an appropriate cron schedule.
 
-# Skills Directory
+## Skill Tool
 
-Skills in `~/.kent/prompts/skills/` extend your capabilities. Each skill is a directory with a `SKILL.md` entry point:
-- `skills/github/SKILL.md` — `gh` CLI for GitHub: issues, PRs, notifications, search
-- `skills/gmail/SKILL.md` — `gws` CLI for Gmail: messages, drafts, labels, search
-- `skills/calendar/SKILL.md` — `gws` CLI for Google Calendar: events, availability
+### get_skill
+Load a skill reference on demand. Skills contain CLI syntax and usage guides for external tools.
+- `name` (string, optional): Skill name. Omit to list all available skills.
+
+**IMPORTANT:** Before using `gws` or `gh` CLI commands via `run_command`, ALWAYS call `get_skill` first to load the correct syntax. Do not guess CLI flags.

@@ -1,13 +1,16 @@
 /** GET /api/threads — list recent chat threads. */
 /** GET /api/threads/:id/messages — get messages for a thread. */
 /** DELETE /api/threads/:id — delete a thread and its messages. */
-import { getRawDb, getMessages } from "../../shared/db.ts";
+import { getDb } from "../../shared/db/connection.ts";
+import { getMessages, getThread } from "../../shared/db/threads.ts";
 
-export function handleThreads() {
-  const db = getRawDb();
-  const threads = db
-    .prepare("SELECT * FROM threads ORDER BY last_message_at DESC LIMIT 50")
-    .all() as any[];
+export async function handleThreads() {
+  const threads = await getDb()
+    .selectFrom("threads")
+    .orderBy("last_message_at", "desc")
+    .limit(50)
+    .selectAll()
+    .execute();
   return Response.json({ threads });
 }
 
@@ -16,8 +19,7 @@ export async function handleThreadMessages(req: Request) {
   if (!threadId) {
     return Response.json({ error: "Thread ID required" }, { status: 400 });
   }
-  const db = getRawDb();
-  const thread = db.prepare("SELECT type, status FROM threads WHERE id = ?").get(threadId) as any;
+  const thread = await getThread(threadId);
   const messages = await getMessages(threadId, 200);
   return Response.json({
     messages,
@@ -32,13 +34,13 @@ function extractThreadId(req: Request): string | null {
   return parts[3] || null;
 }
 
-export function handleDeleteThread(req: Request) {
+export async function handleDeleteThread(req: Request) {
   const threadId = extractThreadId(req);
   if (!threadId) {
     return Response.json({ error: "Thread ID required" }, { status: 400 });
   }
-  const db = getRawDb();
-  db.prepare("DELETE FROM messages WHERE thread_id = $id").run({ $id: threadId });
-  db.prepare("DELETE FROM threads WHERE id = $id").run({ $id: threadId });
+  const db = getDb();
+  await db.deleteFrom("messages").where("thread_id", "=", threadId).execute();
+  await db.deleteFrom("threads").where("id", "=", threadId).execute();
   return Response.json({ ok: true });
 }

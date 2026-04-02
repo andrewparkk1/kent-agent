@@ -9,8 +9,11 @@
   "homepage": "https://github.com/andrewparkk1/kent-agent",
   "module": "cli/index.ts",
   "type": "module",
+  "files": [
+    "dist/"
+  ],
   "bin": {
-    "kent": "./cli/index.ts"
+    "kent": "./dist/index.js"
   },
   "scripts": {
     "start": "bun run cli/index.ts",
@@ -21,6 +24,8 @@
     "daemon:stop": "bun run cli/index.ts daemon stop",
     "daemon:status": "bun run cli/index.ts daemon status",
     "sync": "bun run cli/index.ts sync",
+    "build": "bun build ./cli/index.ts --target bun --minify --outdir ./dist --entry-naming index.js --external react-devtools-core --banner '#!/usr/bin/env bun'",
+    "prepublishOnly": "bun run build",
     "typecheck": "tsc --noEmit",
     "cleanup": "rm -rf ~/.kent"
   },

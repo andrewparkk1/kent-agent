@@ -16,65 +16,104 @@ export async function handleChat(req: Request) {
   // Store user message here (agent will skip it via SKIP_USER_MESSAGE)
   await addMessage(threadId, "user", message);
 
-  // Build conversation context from history (includes the message we just added)
+  // Build prior conversation context (everything BEFORE the current message)
   const history = await getMessages(threadId, 50);
-  const fullPrompt = history
+  // Exclude the message we just added — it becomes the PROMPT
+  const priorMessages = history
     .filter((m) => m.role === "user" || m.role === "assistant")
-    .map((m) => `${m.role === "user" ? "Human" : "Assistant"}: ${m.content}`)
-    .join("\n\n");
+    .slice(0, -1); // Drop the last (current) user message
 
   const config = loadConfig();
   const runner = new LocalRunner(config);
 
   const encoder = new TextEncoder();
+  let cancelled = false;
+
+  /** Safe enqueue — no-ops if the client already disconnected. */
+  const safeSend = (controller: ReadableStreamDefaultController, data: string) => {
+    if (cancelled) return;
+    try { controller.enqueue(encoder.encode(data)); } catch {}
+  };
+
   const stream = new ReadableStream({
     async start(controller) {
-      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ threadId })}\n\n`));
+      safeSend(controller, `data: ${JSON.stringify({ threadId })}\n\n`);
 
       let stderrOutput = "";
       let textBuffer = "";
       let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
       const flushText = () => {
+        if (cancelled) return;
         if (textBuffer) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ delta: textBuffer })}\n\n`));
+          safeSend(controller, `data: ${JSON.stringify({ delta: textBuffer })}\n\n`);
           textBuffer = "";
         }
         if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
       };
 
       try {
-        const result = await runner.run(fullPrompt, undefined, (chunk: string, type: "text" | "tool") => {
+        // Pass prior conversation as context so the agent understands the thread
+        const conversationHistory = priorMessages.length > 0
+          ? priorMessages.map((m) => `${m.role === "user" ? "Human" : "Assistant"}: ${m.content}`).join("\n\n")
+          : "";
+
+        console.log("[chat] starting runner.run for thread:", threadId, "history msgs:", priorMessages.length);
+        const result = await runner.run(message, undefined, (chunk: string, type: "text" | "tool") => {
+          if (cancelled) return;
           if (type === "text") {
             textBuffer += chunk;
-            // Batch small chunks, flush every 30ms or when buffer is large
-            if (textBuffer.length > 100) {
+            // Flush immediately once we have any reasonable amount of text;
+            // the client already coalesces via requestAnimationFrame.
+            if (textBuffer.length > 1) {
               flushText();
             } else if (!flushTimer) {
-              flushTimer = setTimeout(flushText, 30);
+              flushTimer = setTimeout(flushText, 8);
             }
           } else {
-            flushText(); // Flush text before tool events
+            flushText();
             stderrOutput += chunk;
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ tool: chunk })}\n\n`));
+            safeSend(controller, `data: ${JSON.stringify({ tool: chunk })}\n\n`);
           }
-        }, { threadId });
+        }, { threadId, conversationHistory });
         flushText();
 
+        if (cancelled) return;
+
+        console.log("[chat] runner finished. exitCode:", result.exitCode);
+
         // Check if agent produced any output
-        if (!result.output?.trim() && stderrOutput) {
-          const errMsg = stderrOutput.includes("401") || stderrOutput.includes("auth")
-            ? "Agent authentication failed. Check your Anthropic API key."
-            : `Agent error: ${stderrOutput.slice(0, 300)}`;
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ delta: errMsg })}\n\n`));
+        if (!result.output?.trim() && (stderrOutput || result.exitCode !== 0)) {
+          const errSource = (stderrOutput || result.stderr || "Unknown error").trim();
+          let errMsg: string;
+          if (errSource.includes("401") || errSource.includes("auth") || errSource.includes("API key")) {
+            errMsg = "Authentication failed. Check your Anthropic API key in Settings.";
+          } else if (errSource.startsWith("Agent error:") || errSource.startsWith("Agent fatal error:")) {
+            errMsg = errSource;
+          } else {
+            errMsg = `Agent error: ${errSource.slice(0, 500)}`;
+          }
+          await addMessage(threadId, "assistant", errMsg);
+          safeSend(controller, `data: ${JSON.stringify({ delta: errMsg })}\n\n`);
         }
 
-        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        safeSend(controller, "data: [DONE]\n\n");
       } catch (e) {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: String(e) })}\n\n`));
+        if (!cancelled) {
+          console.error("[chat] catch error:", e);
+          safeSend(controller, `data: ${JSON.stringify({ error: String(e) })}\n\n`);
+          safeSend(controller, "data: [DONE]\n\n");
+        }
       } finally {
-        controller.close();
+        if (!cancelled) {
+          try { controller.close(); } catch {}
+        }
       }
+    },
+    cancel() {
+      console.log("[chat] client disconnected, killing subprocess");
+      cancelled = true;
+      runner.kill().catch(() => {});
     },
   });
 

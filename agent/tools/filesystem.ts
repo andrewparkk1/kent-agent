@@ -92,7 +92,11 @@ export const fsRunCommand: AgentTool<any> = {
       const stdout = await new Response(proc.stdout).text();
       const stderr = await new Response(proc.stderr).text();
       await proc.exited;
-      return ok([stdout ? `stdout:\n${stdout}` : "", stderr ? `stderr:\n${stderr}` : "", `exit code: ${proc.exitCode}`].filter(Boolean).join("\n"));
+      const output = [stdout ? `stdout:\n${stdout}` : "", stderr ? `stderr:\n${stderr}` : ""].filter(Boolean).join("\n");
+      if (proc.exitCode !== 0) {
+        return err(output || `Command failed with exit code ${proc.exitCode}`);
+      }
+      return ok(output || "(no output)");
     } catch (e) { return err(`run_command failed: ${e}`); }
   },
 };

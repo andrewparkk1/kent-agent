@@ -12,7 +12,7 @@ import {
   readFileSync,
   existsSync,
 } from "fs";
-import type { Source, SyncState, Item } from "./types";
+import type { Source, SyncState, SyncOptions, Item } from "./types";
 
 const GRANOLA_DIR = join(
   homedir(),
@@ -205,7 +205,7 @@ function getChapters(doc: any): string[] {
 export const granola: Source = {
   name: "granola",
 
-  async fetchNew(state: SyncState): Promise<Item[]> {
+  async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
     try {
       if (!existsSync(GRANOLA_DIR)) {
         console.warn("[granola] Granola directory not found, skipping");

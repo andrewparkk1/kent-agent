@@ -75,7 +75,6 @@ describe("DEFAULT_CONFIG", () => {
   test("agent has reasonable defaults", () => {
     expect(DEFAULT_CONFIG.agent.default_model).toBeString();
     expect(DEFAULT_CONFIG.agent.default_model.length).toBeGreaterThan(0);
-    expect(DEFAULT_CONFIG.agent.max_turns).toBeGreaterThan(0);
   });
 
   test("keys default to empty strings", () => {
@@ -141,7 +140,7 @@ describe("Config load/save", () => {
     const config: Config = {
       ...DEFAULT_CONFIG,
       sources: { ...DEFAULT_CONFIG.sources, github: true, chrome: true },
-      agent: { default_model: "custom-model", max_turns: 20 },
+      agent: { default_model: "custom-model" },
     };
     saveConfigTo(dir, configPath, config);
     const loaded = loadConfigFrom(dir, configPath);
@@ -149,7 +148,6 @@ describe("Config load/save", () => {
     expect(loaded.sources.github).toBe(true);
     expect(loaded.sources.chrome).toBe(true);
     expect(loaded.agent.default_model).toBe("custom-model");
-    expect(loaded.agent.max_turns).toBe(20);
   });
 
   test("saveConfig creates directory if it doesn't exist", () => {

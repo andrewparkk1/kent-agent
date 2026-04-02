@@ -12,6 +12,7 @@ import { join } from "node:path";
 export interface Config {
   core: {
     device_token: string;
+    timezone: string;
   };
   keys: {
     anthropic: string;
@@ -34,7 +35,6 @@ export interface Config {
   };
   agent: {
     default_model: string;
-    max_turns: number;
   };
 }
 
@@ -54,6 +54,7 @@ export const PLIST_PATH = join(
 export const DEFAULT_CONFIG: Config = {
   core: {
     device_token: "",
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   },
   keys: {
     anthropic: "",
@@ -76,7 +77,6 @@ export const DEFAULT_CONFIG: Config = {
   },
   agent: {
     default_model: "claude-sonnet-4-20250514",
-    max_turns: 10,
   },
 };
 

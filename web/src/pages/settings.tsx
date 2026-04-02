@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion } from "motion/react";
 import { Loader2, Check, Eye, EyeOff } from "lucide-react";
 
@@ -7,7 +7,7 @@ interface Config {
   keys: { anthropic: string; openai: string };
   sources: Record<string, boolean>;
   daemon: { sync_interval_minutes: number };
-  agent: { default_model: string; max_turns: number };
+  agent: { default_model: string };
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -59,11 +59,10 @@ export function SettingsPage() {
   const [config, setConfig] = useState<Config | null>(null);
   const [rawKeys, setRawKeys] = useState<{ anthropic: string; openai: string }>({ anthropic: "", openai: "" });
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [showAnthropicKey, setShowAnthropicKey] = useState(false);
   const [showOpenaiKey, setShowOpenaiKey] = useState(false);
-  const [keyEdited, setKeyEdited] = useState<{ anthropic: boolean; openai: boolean }>({ anthropic: false, openai: false });
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchConfig = useCallback(async () => {
     try {
@@ -77,35 +76,21 @@ export function SettingsPage() {
 
   useEffect(() => { fetchConfig(); }, [fetchConfig]);
 
-  const save = async () => {
-    if (!config) return;
-    setSaving(true);
-
-    const toSave = {
-      ...config,
-      keys: {
-        anthropic: keyEdited.anthropic ? rawKeys.anthropic : undefined,
-        openai: keyEdited.openai ? rawKeys.openai : undefined,
-      },
-    };
-    // Remove undefined keys so they don't overwrite
-    if (!keyEdited.anthropic) delete (toSave.keys as any).anthropic;
-    if (!keyEdited.openai) delete (toSave.keys as any).openai;
-
-    try {
-      await fetch("/api/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ config: toSave }),
-      });
-      setSaved(true);
-      setKeyEdited({ anthropic: false, openai: false });
-      setTimeout(() => setSaved(false), 2000);
-      // Re-fetch to get fresh masked keys
-      fetchConfig();
-    } catch {}
-    setSaving(false);
-  };
+  const autoSave = useCallback((updatedConfig: Config, updatedKeys: { anthropic: string; openai: string }) => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      const toSave = { ...updatedConfig, keys: updatedKeys };
+      try {
+        await fetch("/api/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ config: toSave }),
+        });
+        setSaved(true);
+        setTimeout(() => setSaved(false), 1500);
+      } catch {}
+    }, 500);
+  }, []);
 
   if (loading) {
     return (
@@ -126,18 +111,17 @@ export function SettingsPage() {
       >
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-[32px] font-display tracking-tight">Settings</h1>
-          <button
-            onClick={save}
-            disabled={saving}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-foreground text-background text-[13px] font-medium hover:bg-foreground/90 transition-colors cursor-pointer disabled:opacity-50"
-          >
-            {saving ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : saved ? (
+          {saved && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex items-center gap-1.5 text-[12px] text-emerald-500"
+            >
               <Check size={14} />
-            ) : null}
-            {saved ? "Saved" : "Save changes"}
-          </button>
+              Saved
+            </motion.div>
+          )}
         </div>
 
         {/* API Keys */}
@@ -149,10 +133,11 @@ export function SettingsPage() {
               <div className="relative">
                 <input
                   type={showAnthropicKey ? "text" : "password"}
-                  value={keyEdited.anthropic ? rawKeys.anthropic : config.keys.anthropic}
+                  value={rawKeys.anthropic}
                   onChange={(e) => {
-                    setRawKeys((k) => ({ ...k, anthropic: e.target.value }));
-                    setKeyEdited((k) => ({ ...k, anthropic: true }));
+                    const newKeys = { ...rawKeys, anthropic: e.target.value };
+                    setRawKeys(newKeys);
+                    if (config) autoSave(config, newKeys);
                   }}
                   placeholder="sk-ant-..."
                   className="w-full bg-foreground/[0.03] border border-border/50 rounded-lg px-3 py-2 text-[13px] font-mono pr-10 outline-none focus:border-border"
@@ -170,10 +155,11 @@ export function SettingsPage() {
               <div className="relative">
                 <input
                   type={showOpenaiKey ? "text" : "password"}
-                  value={keyEdited.openai ? rawKeys.openai : config.keys.openai}
+                  value={rawKeys.openai}
                   onChange={(e) => {
-                    setRawKeys((k) => ({ ...k, openai: e.target.value }));
-                    setKeyEdited((k) => ({ ...k, openai: true }));
+                    const newKeys = { ...rawKeys, openai: e.target.value };
+                    setRawKeys(newKeys);
+                    if (config) autoSave(config, newKeys);
                   }}
                   placeholder="sk-..."
                   className="w-full bg-foreground/[0.03] border border-border/50 rounded-lg px-3 py-2 text-[13px] font-mono pr-10 outline-none focus:border-border"
@@ -197,7 +183,11 @@ export function SettingsPage() {
               <label className="text-[12px] text-muted-foreground/60 mb-1 block">Default Model</label>
               <select
                 value={config.agent.default_model}
-                onChange={(e) => setConfig({ ...config, agent: { ...config.agent, default_model: e.target.value } })}
+                onChange={(e) => {
+                  const updated = { ...config, agent: { ...config.agent, default_model: e.target.value } };
+                  setConfig(updated);
+                  autoSave(updated, rawKeys);
+                }}
                 className="w-full bg-foreground/[0.03] border border-border/50 rounded-lg px-3 py-2 text-[13px] outline-none focus:border-border cursor-pointer appearance-none"
               >
                 {MODEL_OPTIONS.map((m) => (
@@ -208,17 +198,6 @@ export function SettingsPage() {
                   <option value={config.agent.default_model}>{config.agent.default_model}</option>
                 )}
               </select>
-            </div>
-            <div>
-              <label className="text-[12px] text-muted-foreground/60 mb-1 block">Max Turns</label>
-              <input
-                type="number"
-                min={1}
-                max={50}
-                value={config.agent.max_turns}
-                onChange={(e) => setConfig({ ...config, agent: { ...config.agent, max_turns: parseInt(e.target.value) || 10 } })}
-                className="w-24 bg-foreground/[0.03] border border-border/50 rounded-lg px-3 py-2 text-[13px] outline-none focus:border-border"
-              />
             </div>
           </div>
         </div>
@@ -234,7 +213,11 @@ export function SettingsPage() {
                   <span className="text-[13px] text-foreground/80">{SOURCE_LABELS[key] || key}</span>
                   <Toggle
                     checked={enabled}
-                    onChange={(v) => setConfig({ ...config, sources: { ...config.sources, [key]: v } })}
+                    onChange={(v) => {
+                      const updated = { ...config, sources: { ...config.sources, [key]: v } };
+                      setConfig(updated);
+                      autoSave(updated, rawKeys);
+                    }}
                   />
                 </div>
               ))}
@@ -251,7 +234,11 @@ export function SettingsPage() {
               min={1}
               max={60}
               value={config.daemon.sync_interval_minutes}
-              onChange={(e) => setConfig({ ...config, daemon: { ...config.daemon, sync_interval_minutes: parseInt(e.target.value) || 5 } })}
+              onChange={(e) => {
+                const updated = { ...config, daemon: { ...config.daemon, sync_interval_minutes: parseInt(e.target.value) || 5 } };
+                setConfig(updated);
+                autoSave(updated, rawKeys);
+              }}
               className="w-24 bg-foreground/[0.03] border border-border/50 rounded-lg px-3 py-2 text-[13px] outline-none focus:border-border"
             />
           </div>

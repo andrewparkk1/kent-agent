@@ -9,7 +9,7 @@ import { join } from "path";
 import { homedir, tmpdir } from "os";
 import { existsSync, copyFileSync, mkdirSync } from "fs";
 import { gunzipSync } from "zlib";
-import type { Source, SyncState, Item } from "./types";
+import type { Source, SyncState, SyncOptions, Item } from "./types";
 
 // ---------------------------------------------------------------------------
 // HTML → Markdown converter (for Apple Notes HTML)
@@ -673,7 +673,7 @@ async function fetchViaSqlite(state: SyncState): Promise<Item[]> {
         AND (n.ZISPASSWORDPROTECTED IS NULL OR n.ZISPASSWORDPROTECTED = 0)
         AND n.ZMODIFICATIONDATE1 > ?
       ORDER BY n.ZMODIFICATIONDATE1 DESC
-      LIMIT 500`
+      LIMIT 5000`
     )
     .all(lastSyncCoreData) as Array<{
     id: number;
@@ -733,7 +733,7 @@ async function fetchViaSqlite(state: SyncState): Promise<Item[]> {
 export const appleNotes: Source = {
   name: "apple-notes",
 
-  async fetchNew(state: SyncState): Promise<Item[]> {
+  async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
     const lastSync = state.getLastSync("apple-notes");
 
     // Try AppleScript first (gives us rich HTML with all formatting)

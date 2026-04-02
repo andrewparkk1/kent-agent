@@ -975,24 +975,36 @@ function App({
           }
 
           const assistantContent = output || result.output;
-          conversationRef.current.push({
-            role: "assistant",
-            content: assistantContent,
-          });
 
-          if (threadIdRef.current && assistantContent) {
-            await dbAddMessage(threadIdRef.current, "assistant", assistantContent);
+          // Check if agent failed with no output
+          if (!assistantContent?.trim() && result.exitCode !== 0 && result.stderr) {
+            const errMsg = result.stderr.includes("401") || result.stderr.includes("auth")
+              ? "Agent authentication failed. Check your Anthropic API key (`kent init` or edit ~/.kent/config.json)."
+              : `Agent error: ${result.stderr.slice(0, 500)}`;
+            setCurrentStreamText("");
+            setActiveTools([]);
+            addMessage("system", errMsg);
+            toolCallsRef.current = [];
+          } else {
+            conversationRef.current.push({
+              role: "assistant",
+              content: assistantContent,
+            });
+
+            if (threadIdRef.current && assistantContent) {
+              await dbAddMessage(threadIdRef.current, "assistant", assistantContent);
+            }
+
+            const duration = (Date.now() - startTimeRef.current) / 1000;
+
+            setCurrentStreamText("");
+            setActiveTools([]);
+            addMessage("assistant", assistantContent || "[no response]", {
+              toolCalls: toolCallsRef.current.length > 0 ? toolCallsRef.current : undefined,
+              duration,
+            });
+            toolCallsRef.current = [];
           }
-
-          const duration = (Date.now() - startTimeRef.current) / 1000;
-
-          setCurrentStreamText("");
-          setActiveTools([]);
-          addMessage("assistant", assistantContent || "[no response]", {
-            toolCalls: toolCallsRef.current.length > 0 ? toolCallsRef.current : undefined,
-            duration,
-          });
-          toolCallsRef.current = [];
         }
       } catch (err) {
         if (!cancelled) {

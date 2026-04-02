@@ -25,7 +25,7 @@ import {
 } from "fs";
 import { execFileSync } from "child_process";
 import { pbkdf2Sync, createDecipheriv } from "crypto";
-import type { Source, SyncState, Item } from "./types";
+import type { Source, SyncState, SyncOptions, Item } from "./types";
 
 const SIGNAL_BASE = join(homedir(), "Library/Application Support/Signal");
 const SIGNAL_DB = join(SIGNAL_BASE, "sql/db.sqlite");
@@ -147,7 +147,7 @@ function querySignalDb(sql: string): any[] | null {
 export const signal: Source = {
   name: "signal",
 
-  async fetchNew(state: SyncState): Promise<Item[]> {
+  async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
     try {
       if (!existsSync(SIGNAL_DB)) {
         console.warn("[signal] Signal database not found, skipping");
@@ -188,7 +188,7 @@ export const signal: Source = {
         WHERE m.sent_at > ${lastSyncMs}
           AND m.body IS NOT NULL AND m.body != ''
         ORDER BY m.sent_at DESC
-        LIMIT 5000;
+        LIMIT ${options?.limit ?? 10000};
       `);
 
       if (!rows) {

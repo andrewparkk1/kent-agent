@@ -12,7 +12,7 @@ import { Database } from "bun:sqlite";
 import { join } from "path";
 import { homedir } from "os";
 import { existsSync, readdirSync } from "fs";
-import type { Source, SyncState, Item } from "./types";
+import type { Source, SyncState, SyncOptions, Item } from "./types";
 
 const APPLE_EPOCH_OFFSET = 978307200;
 const DB_PATH = join(homedir(), "Library/Messages/chat.db");
@@ -175,7 +175,7 @@ function extractFromAttributedBody(buf: Buffer | Uint8Array): string | null {
 export const imessage: Source = {
   name: "imessage",
 
-  async fetchNew(state: SyncState): Promise<Item[]> {
+  async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
     try {
       if (!existsSync(DB_PATH)) {
         console.warn("[imessage] chat.db not found, skipping");
@@ -183,13 +183,19 @@ export const imessage: Source = {
       }
 
       const db = new Database(DB_PATH, { readonly: true });
+      const limit = options?.limit ?? 10000;
 
       const lastSync = state.getLastSync("imessage");
-      // Convert lastSync (unix seconds) to Apple nanosecond timestamp
-      const cutoffAppleTime =
-        lastSync > 0
-          ? (lastSync - APPLE_EPOCH_OFFSET) * 1_000_000_000
-          : 0;
+      // If first sync and defaultDays is set, calculate cutoff from that
+      let cutoffAppleTime: number;
+      if (lastSync > 0) {
+        cutoffAppleTime = (lastSync - APPLE_EPOCH_OFFSET) * 1_000_000_000;
+      } else if (options?.defaultDays && options.defaultDays > 0) {
+        const cutoffUnix = Math.floor(Date.now() / 1000) - options.defaultDays * 86400;
+        cutoffAppleTime = (cutoffUnix - APPLE_EPOCH_OFFSET) * 1_000_000_000;
+      } else {
+        cutoffAppleTime = 0;
+      }
 
       // Build group chat participant names for chats without display_name
       const groupParticipantNames = new Map<string, string>();
@@ -243,7 +249,7 @@ export const imessage: Source = {
           LEFT JOIN chat c ON cmj.chat_id = c.ROWID
           WHERE m.date > ?
           ORDER BY m.date DESC
-          LIMIT 5000
+          LIMIT ${limit}
           `
         )
         .all(cutoffAppleTime) as Array<{

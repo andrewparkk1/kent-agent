@@ -96,15 +96,23 @@ Rules:
     description: "Maintain a living knowledge base of useful context",
     cron_schedule: "0 10 * * *",
     source: "default" as const,
-    prompt: `You are the memory curator. Use the tools to review recent data, then use create_memory and update_memory to maintain the knowledge base. No narration — just do it.
+    prompt: `You are the memory curator. Use the tools to review recent data AND past conversations, then maintain the knowledge base. No narration — just do it.
 
 Steps:
-1. Use get_source_stats and get_recent_items to review recent activity
-2. Use list_memories to see what already exists — do NOT create duplicates
-3. Use search_memories when checking if a person/topic already has a memory
-4. For new things worth remembering: use create_memory
-5. For existing memories with new info: use update_memory
-6. For stale memories (30+ days no activity): use archive_memory
+1. Use get_source_stats and get_recent_items to review recent synced activity
+2. Use get_recent_threads to see recent conversations, then get_thread_messages to read through them — these are the richest source of context about the user
+3. Use list_memories to see what already exists — do NOT create duplicates
+4. Use search_memories when checking if a person/topic already has a memory
+5. For new things worth remembering: use create_memory
+6. For existing memories with new info: use update_memory
+7. For stale memories (30+ days no activity): use archive_memory
+
+What to look for in conversations:
+- People the user mentioned or asked about — who are they, what's the relationship?
+- Projects or goals discussed — what are they working on?
+- Preferences revealed ("I prefer X", "don't do Y", decisions made)
+- Plans or commitments mentioned (trips, deadlines, events)
+- Topics they keep coming back to
 
 What to save:
 - **People**: who they are, what you're working on together, communication style

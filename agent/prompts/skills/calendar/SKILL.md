@@ -2,44 +2,110 @@
 
 Use `run_command` to execute these. Requires `gws auth login` (already done).
 
-## List Events
+## View Agenda (Preferred)
+
+```bash
+# Upcoming events across all calendars
+gws calendar +agenda
+
+# Today's events
+gws calendar +agenda --today
+
+# This week
+gws calendar +agenda --week
+
+# Next N days
+gws calendar +agenda --days 3
+
+# Filter to a specific calendar
+gws calendar +agenda --calendar 'Work'
+
+# Table format for readable output
+gws calendar +agenda --today --format table
+
+# Override timezone
+gws calendar +agenda --today --timezone America/New_York
+```
+
+## Create Events (Preferred)
+
+```bash
+# Simple event
+gws calendar +insert --summary 'Standup' --start '2026-04-05T09:00:00-07:00' --end '2026-04-05T09:30:00-07:00'
+
+# With location and description
+gws calendar +insert --summary 'Team Meeting' --start '2026-04-05T10:00:00-07:00' --end '2026-04-05T11:00:00-07:00' --location 'Conference Room A' --description 'Weekly sync'
+
+# With attendees
+gws calendar +insert --summary 'Review' --start '2026-04-05T10:00:00-07:00' --end '2026-04-05T11:00:00-07:00' --attendee alice@example.com --attendee bob@example.com
+
+# With Google Meet link
+gws calendar +insert --summary 'Remote Sync' --start '2026-04-05T10:00:00-07:00' --end '2026-04-05T11:00:00-07:00' --meet
+
+# Different calendar
+gws calendar +insert --calendar 'Work' --summary 'Focus Time' --start '2026-04-05T14:00:00-07:00' --end '2026-04-05T16:00:00-07:00'
+```
+
+## List Events (Low-level)
 
 ```bash
 # List upcoming events (default: next 7 days)
 gws calendar events list
 
-# List events for a specific date range
-gws calendar events list --timeMin "2024-01-15T00:00:00Z" --timeMax "2024-01-22T00:00:00Z"
+# Date range
+gws calendar events list --params '{"timeMin": "2026-04-01T00:00:00Z", "timeMax": "2026-04-07T00:00:00Z"}'
 
-# List events from a specific calendar
-gws calendar events list --calendarId "primary"
+# From a specific calendar
+gws calendar events list --params '{"calendarId": "primary"}'
 
 # Limit results
-gws calendar events list --maxResults 5
+gws calendar events list --params '{"maxResults": 5}'
 
 # Search events by text
-gws calendar events list --q "standup"
+gws calendar events list --params '{"q": "standup"}'
+```
+
+## Quick Add (Natural Language)
+
+```bash
+gws calendar events quickAdd --params '{"calendarId": "primary", "text": "Lunch with Alice tomorrow at noon"}'
 ```
 
 ## Get Event Details
 
 ```bash
-# Get a specific event by ID
-gws calendar events get --calendarId "primary" --eventId <id>
+gws calendar events get --params '{"calendarId": "primary", "eventId": "<EVENT_ID>"}'
+```
+
+## Update Events
+
+```bash
+# Patch (partial update) — only send fields you want to change
+gws calendar events patch --params '{"calendarId": "primary", "eventId": "<EVENT_ID>"}' --json '{
+  "summary": "Updated Title",
+  "location": "New Location"
+}'
+```
+
+## Delete Events
+
+```bash
+gws calendar events delete --params '{"calendarId": "primary", "eventId": "<EVENT_ID>"}'
 ```
 
 ## List Calendars
 
 ```bash
-# List all calendars the user has access to
 gws calendar calendarList list
 ```
 
 ## Tips
 
-- Dates use ISO 8601 format with timezone: `2024-01-15T09:00:00-08:00`
-- The default calendar ID is `"primary"`.
-- Use `--q` for text search within events (title, description, location).
-- Event IDs from `list` are needed for `get`.
-- To check availability, list events for the time range and look for gaps.
-- Meeting notes from Granola are in the memory system, not in calendar — use `search_semantic` for meeting content.
+- **Prefer `+agenda` over `events list`** — it queries all calendars and formats output nicely.
+- **Prefer `+insert` over `events insert`** — simpler flags, no JSON needed.
+- For raw API calls: `--params '<JSON>'` for query parameters, `--json '<JSON>'` for request body. Do NOT use `--body`.
+- Dates use ISO 8601: `2026-04-05T09:00:00-07:00` (with timezone) or `2026-04-05` (all-day).
+- Default calendar ID is `"primary"`.
+- Get event IDs from `+agenda` or `events list` output — needed for `get`, `patch`, `delete`.
+- Use `--format table` for human-readable output.
+- Meeting notes from Granola are in the memory system, not calendar — use `search_memory` for meeting content.

@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "bun --hot ../web/server.ts & vite",
+    "dev": "lsof -ti:3456 | xargs kill 2>/dev/null; bun --hot ../web/server.ts & vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
