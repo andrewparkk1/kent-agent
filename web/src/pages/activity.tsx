@@ -4,9 +4,10 @@ import { Activity } from "lucide-react";
 import { Stagger, StaggerItem } from "@/components/stagger";
 import { WorkflowRunRow, type WorkflowRun } from "@/components/workflow-run-row";
 
-export function ActivityPage({ openChat }: { openChat?: (threadId: string) => void }) {
+export function ActivityPage({ openChat, onSeen }: { openChat?: (threadId: string) => void; onSeen?: () => void }) {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [loading, setLoading] = useState(true);
+  const [markedSeen, setMarkedSeen] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -21,6 +22,14 @@ export function ActivityPage({ openChat }: { openChat?: (threadId: string) => vo
     const interval = setInterval(load, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  // Mark all as seen once the page is opened and data has loaded
+  useEffect(() => {
+    if (!loading && !markedSeen && runs.length > 0) {
+      setMarkedSeen(true);
+      fetch("/api/activity/seen", { method: "POST" }).then(() => onSeen?.()).catch(() => {});
+    }
+  }, [loading, markedSeen, runs.length]);
 
   return (
     <div className="max-w-[900px] mx-auto px-8 py-10">

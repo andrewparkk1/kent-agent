@@ -53,7 +53,7 @@ function NavButton({ item, active, onClick, badge }: { item: { id: Page; icon: t
   );
 }
 
-export function Sidebar({ page, setPage, openChat, selectedThreadId, workflowCount, runCount, refreshKey }: {
+export function Sidebar({ page, setPage, openChat, selectedThreadId, workflowCount, runCount, refreshKey, unreadActivityCount }: {
   page: Page;
   setPage: (p: Page) => void;
   openChat: (threadId?: string) => void;
@@ -61,6 +61,7 @@ export function Sidebar({ page, setPage, openChat, selectedThreadId, workflowCou
   workflowCount?: number;
   runCount?: number;
   refreshKey?: number;
+  unreadActivityCount?: number;
 }) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [showAllThreads, setShowAllThreads] = useState(false);
@@ -107,7 +108,11 @@ export function Sidebar({ page, setPage, openChat, selectedThreadId, workflowCou
               item={item}
               active={page === item.id}
               onClick={() => setPage(item.id)}
-              badge={undefined}
+              badge={item.id === "activity" && unreadActivityCount ? (
+                <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-blue-500 text-white text-[10px] font-medium px-1 tabular-nums">
+                  {unreadActivityCount > 99 ? "99+" : unreadActivityCount}
+                </span>
+              ) : undefined}
             />
           ))}
         </div>

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
-import { ArrowLeft, Clock, Play, Loader2, Trash2 } from "lucide-react";
+import { ArrowLeft, Clock, Play, Loader2, Trash2, Pencil } from "lucide-react";
 import Markdown from "react-markdown";
 import { type Workflow, cronToHuman, timeAgo } from "@/lib/types";
 import { WorkflowRunRow, type WorkflowRun } from "@/components/workflow-run-row";
@@ -17,7 +17,7 @@ export function WorkflowDetailPage({
 }: {
   workflowId: string;
   onBack: () => void;
-  openChat: (threadId: string) => void;
+  openChat: (threadId?: string, prefill?: string) => void;
 }) {
   const [data, setData] = useState<WorkflowDetail | null>(null);
   const [running, setRunning] = useState(false);
@@ -145,6 +145,15 @@ export function WorkflowDetailPage({
           </div>
 
           <div className="flex items-center gap-1.5">
+            {/* Edit */}
+            <button
+              onClick={() => openChat(undefined, `Edit this workflow: ${wf.name} `)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium border border-border/50 text-muted-foreground/50 hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer"
+              title="Edit workflow"
+            >
+              <Pencil size={13} />
+            </button>
+
             {/* Delete */}
             <button
               onClick={deleteWorkflow}

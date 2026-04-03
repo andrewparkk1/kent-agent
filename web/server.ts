@@ -1,6 +1,6 @@
 /** Kent API server — routes requests to handler modules. */
 import { handleCounts, handleItems } from "./api/items.ts";
-import { handleWorkflows, handleWorkflowDetail, handleWorkflowRun, handleWorkflowToggle, handleWorkflowArchive, handleWorkflowUnarchive, handleWorkflowDelete, handleActivity, handleBrief } from "./api/workflows.ts";
+import { handleWorkflows, handleWorkflowDetail, handleWorkflowRun, handleWorkflowToggle, handleWorkflowArchive, handleWorkflowUnarchive, handleWorkflowDelete, handleActivity, handleActivitySeen, handleUnreadCount, handleBrief } from "./api/workflows.ts";
 import { handleSources, handleDaemonState } from "./api/sources.ts";
 import { handleMemories } from "./api/memories.ts";
 import { handleIdentity, handleIdentitySave } from "./api/identity.ts";
@@ -17,6 +17,7 @@ Bun.serve({
     "/api/workflows":    handleWorkflows,
     "/api/workflow":     handleWorkflowDetail,
     "/api/activity":     handleActivity,
+    "/api/activity/unread": handleUnreadCount,
     "/api/brief":        handleBrief,
     "/api/sources":      handleSources,
     "/api/memories":     handleMemories,
@@ -41,6 +42,10 @@ Bun.serve({
     // DELETE /api/threads/:id
     if (url.pathname.match(/^\/api\/threads\/[^/]+$/) && req.method === "DELETE") {
       return handleDeleteThread(req);
+    }
+
+    if (url.pathname === "/api/activity/seen" && req.method === "POST") {
+      return handleActivitySeen();
     }
 
     if (url.pathname === "/api/workflow/run" && req.method === "POST") {

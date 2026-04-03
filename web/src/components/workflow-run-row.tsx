@@ -24,6 +24,7 @@ export interface WorkflowRun {
   error: string | null;
   started_at: number;
   finished_at: number | null;
+  is_new?: boolean;
 }
 
 function statusIcon(s: WorkflowRun["status"]) {
@@ -53,7 +54,12 @@ export function WorkflowRunRow({
       transition={{ duration: 0.15 }}
       className={`flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-foreground/[0.03] transition-colors ${onClick ? "cursor-pointer" : ""}`}
     >
-      {statusIcon(run.status)}
+      <div className="relative">
+        {statusIcon(run.status)}
+        {run.is_new && (
+          <span className="absolute -top-0.5 -right-0.5 w-[7px] h-[7px] rounded-full bg-blue-500 ring-2 ring-background" />
+        )}
+      </div>
       <div className="flex-1 min-w-0">
         {showName && run.workflow_name && (
           <span className="text-[13px] text-foreground truncate block">{run.workflow_name}</span>

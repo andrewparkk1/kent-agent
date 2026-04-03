@@ -12,8 +12,9 @@ import {
 
 // ─── Chat Page ──────────────────────────────────────────────────────────────
 
-export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
+export function ChatPage({ threadId: initialThreadId, initialInput: initialInputProp, onThreadCreated }: {
   threadId: string | null;
+  initialInput?: string;
   onThreadCreated: (id: string) => void;
 }) {
   const [threadId, setThreadId] = useState<string | null>(initialThreadId);
@@ -92,6 +93,9 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
       setMessages([]);
       setThreadStatus(null);
       setWorkflowName(null);
+    }
+    if (!initialThreadId && initialInputProp) {
+      setInput(initialInputProp);
     }
     setTimeout(() => inputRef.current?.focus(), 50);
   }, [initialThreadId]);
@@ -278,18 +282,9 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
 
             if (parsed.delta) {
               currentText += parsed.delta;
-              // Skip rendering if this is a duplicate of any already-finalized text
-              const trimmedSoFar = currentText.trim();
-              const isDuplicatePrefix = allFinalizedTexts.size > 0 && Array.from(allFinalizedTexts).some(
-                (ft) => ft.startsWith(trimmedSoFar) || ft === trimmedSoFar
-              );
-              if (isDuplicatePrefix) {
-                // Still accumulating a duplicate — don't render
-              } else {
-                const textNow = currentText;
-                const idNow = currentAssistantId;
-                setMessages((prev) => prev.map((m) => m.id === idNow ? { ...m, content: textNow } : m));
-              }
+              const textNow = currentText;
+              const idNow = currentAssistantId;
+              setMessages((prev) => prev.map((m) => m.id === idNow ? { ...m, content: textNow } : m));
             }
           } catch {}
         }
@@ -507,7 +502,7 @@ export function ChatPage({ threadId: initialThreadId, onThreadCreated }: {
           >
             <textarea
               ref={inputRef}
-              className="w-full bg-transparent text-[14px] outline-none! ring-0! border-none! shadow-none! placeholder:text-muted-foreground/30 resize-none leading-[1.5] max-h-[160px] px-5 py-3.5 pb-12 focus:outline-none! focus-visible:outline-none! focus-visible:ring-0!"
+              className="w-full bg-transparent text-[14px] outline-none! ring-0! border-none! shadow-none! placeholder:text-muted-foreground/30 resize-none leading-normal max-h-[160px] px-5 py-3 focus:outline-none! focus-visible:outline-none! focus-visible:ring-0!"
               placeholder={busy ? (queued.length > 0 ? `${queued.length} queued · Message Kent...` : "Kent is working... type to queue") : "Message Kent..."}
               rows={1}
               value={input}

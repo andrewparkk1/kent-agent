@@ -4,12 +4,12 @@
  */
 
 export const DEFAULT_WORKFLOWS = [
-  {
-    name: "morning-briefing",
-    description: "Daily morning briefing — calendar, emails, to-dos",
-    cron_schedule: "0 8 * * *",
-    source: "default" as const,
-    prompt: `You are writing a morning briefing. Use the tools to gather data, then output ONLY the briefing. No preamble, no "let me check", no narration of what you're doing. Just the briefing.
+   {
+      name: "morning-briefing",
+      description: "Daily morning briefing — calendar, emails, to-dos",
+      cron_schedule: "0 8 * * *",
+      source: "default" as const,
+      prompt: `You are writing a morning briefing. Use the tools to gather data, then output ONLY the briefing. No preamble, no "let me check", no narration of what you're doing. Just the briefing.
 
 Steps:
 1. Use get_source_stats, then get_recent_items for each active source
@@ -22,7 +22,7 @@ Steps:
    - Notes: use read_file to check specific files if referenced in messages
 5. Output the briefing using EXACTLY these headings:
 
-## Today
+## Todaydisk
 One sentence on what's happening today. Meetings, events, or "clear day." Mention prereads or docs if attached.
 
 ## Prep
@@ -50,13 +50,13 @@ Rules:
 - Do NOT repeat items from previous briefings unless there is genuinely new information
 - If something looks completed (confirmation email, reservation made), do not list it as a to-do
 - Warm, short, direct. Like a friend catching you up over coffee.`,
-  },
-  {
-    name: "evening-recap",
-    description: "End-of-day recap — what happened, what's tomorrow",
-    cron_schedule: "0 19 * * *",
-    source: "default" as const,
-    prompt: `You are writing an evening recap. Use the tools to gather today's data, then output ONLY the recap. No preamble, no narration. Just the recap.
+   },
+   {
+      name: "evening-recap",
+      description: "End-of-day recap — what happened, what's tomorrow",
+      cron_schedule: "0 19 * * *",
+      source: "default" as const,
+      prompt: `You are writing an evening recap. Use the tools to gather today's data, then output ONLY the recap. No preamble, no narration. Just the recap.
 
 Steps:
 1. Use get_source_stats, then get_recent_items for each active source
@@ -90,13 +90,13 @@ Rules:
 - Deduplicate: if two items refer to the same task, merge into one bullet
 - Do NOT carry forward stale to-dos. Only include items with fresh evidence they are pending.
 - Short, warm, direct.`,
-  },
-  {
-    name: "memory-curator",
-    description: "Maintain a living knowledge base of useful context",
-    cron_schedule: "0 10 * * *",
-    source: "default" as const,
-    prompt: `You are the memory curator. Your system prompt already contains ALL active memories. Use that to avoid duplicates. No narration — just do it.
+   },
+   {
+      name: "memory-curator",
+      description: "Maintain a living knowledge base of useful context",
+      cron_schedule: "0 10 * * *",
+      source: "default" as const,
+      prompt: `You are the memory curator. Your system prompt already contains ALL active memories. Use that to avoid duplicates. No narration — just do it.
 
 Steps:
 1. Review your system prompt's "Known Memories" section — this is the authoritative list of what already exists
@@ -132,13 +132,13 @@ Rules:
 - Use search_memories as a fallback check if you're unsure whether a memory exists (e.g. searching by alias or nickname)
 - DO NOT save: browsing patterns, judgmental observations, obvious calendar/inbox info
 - DO NOT narrate your process. Just do the work and report what changed.`,
-  },
-  {
-    name: "workflow-suggestor",
-    description: "Suggest new automations based on actual patterns",
-    cron_schedule: "30 9 * * *",
-    source: "default" as const,
-    prompt: `You analyze the user's data to find patterns and create genuinely useful workflow suggestions. Your goal is to understand what matters most to this person and build automations around their real priorities.
+   },
+   {
+      name: "workflow-suggestor",
+      description: "Suggest new automations based on actual patterns",
+      cron_schedule: "30 9 * * *",
+      source: "default" as const,
+      prompt: `You analyze the user's data to find patterns and create genuinely useful workflow suggestions. Your goal is to understand what matters most to this person and build automations around their real priorities.
 
 Steps:
 1. Use get_source_stats to understand what data sources are active
@@ -176,5 +176,5 @@ For each workflow:
 - **name** — what it does, why it matters for THIS person specifically, and what pattern you observed that led to the suggestion
 
 Be specific. "You message Grace almost daily but sometimes go 2-3 days without responding" is useful. "You communicate with people" is not.`,
-  },
+   },
 ];

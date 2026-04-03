@@ -89,6 +89,13 @@ export type MemoryUpdate = Updateable<MemoriesTable>;
 
 export type MemoryType = Memory["type"];
 
+// ─── Key-Value ─────────────────────────────────────────────────────────────
+
+export interface KvTable {
+  key: string;
+  value: string;
+}
+
 // ─── Database ───────────────────────────────────────────────────────────────
 
 export interface Database {
@@ -97,4 +104,5 @@ export interface Database {
   messages: MessagesTable;
   workflows: WorkflowsTable;
   memories: MemoriesTable;
+  kv: KvTable;
 }

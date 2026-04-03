@@ -56,8 +56,12 @@ export function App() {
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
   const [threadRefreshKey, setThreadRefreshKey] = useState(0);
 
-  const openChat = useCallback((threadId?: string) => {
+  const [initialInput, setInitialInput] = useState("");
+  const [unreadActivityCount, setUnreadActivityCount] = useState(0);
+
+  const openChat = useCallback((threadId?: string, prefill?: string) => {
     setSelectedThreadId(threadId ?? null);
+    setInitialInput(prefill ?? "");
     setPage("chat");
   }, []);
 
@@ -112,6 +116,14 @@ export function App() {
     } catch {}
   }, []);
 
+  const fetchUnreadCount = useCallback(async () => {
+    try {
+      const res = await fetch("/api/activity/unread");
+      const data = await res.json();
+      setUnreadActivityCount(data.count);
+    } catch {}
+  }, []);
+
   // Reset page when filter/query changes
   useEffect(() => { setItemsPage(0); }, [filter, query]);
 
@@ -120,13 +132,15 @@ export function App() {
     fetchItems(itemsPage);
     fetchWorkflows();
     fetchSources();
+    fetchUnreadCount();
     const interval = setInterval(() => {
       fetchItems(itemsPage);
       fetchCounts();
       fetchSources();
+      fetchUnreadCount();
     }, 5000);
     return () => clearInterval(interval);
-  }, [fetchItems, fetchCounts, fetchWorkflows, fetchSources, itemsPage]);
+  }, [fetchItems, fetchCounts, fetchWorkflows, fetchSources, fetchUnreadCount, itemsPage]);
 
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
 
@@ -140,6 +154,7 @@ export function App() {
         workflowCount={workflows.length}
         runCount={totalRuns}
         refreshKey={threadRefreshKey}
+        unreadActivityCount={unreadActivityCount}
       />
 
       {/* Spacer for fixed sidebar */}
@@ -163,8 +178,8 @@ export function App() {
             openChat={openChat}
           />
         )}
-        {page === "activity" && <ActivityPage openChat={openChat} />}
-        {page === "chat" && <ChatPage threadId={selectedThreadId} onThreadCreated={(id) => { setSelectedThreadId(id); setThreadRefreshKey((k) => k + 1); }} />}
+        {page === "activity" && <ActivityPage openChat={openChat} onSeen={fetchUnreadCount} />}
+        {page === "chat" && <ChatPage threadId={selectedThreadId} initialInput={initialInput} onThreadCreated={(id) => { setSelectedThreadId(id); setThreadRefreshKey((k) => k + 1); }} />}
         {page === "sources" && (
           <SourcesPage items={items} loading={loading} filter={filter} setFilter={setFilter} query={query} setQuery={setQuery} counts={counts} sources={sources} daemon={daemon} onRefresh={() => { fetchItems(itemsPage); fetchCounts(); fetchSources(); }} page={itemsPage} hasMore={hasMore} totalPages={totalItems > 0 ? Math.ceil(totalItems / (filter && ["imessage", "signal"].includes(filter) ? CONVO_PAGE_SIZE : PAGE_SIZE)) : undefined} onPageChange={setItemsPage} />
         )}

@@ -364,6 +364,13 @@ export async function handleBrief(req: Request) {
 export async function handleActivity() {
   const db = getDb();
 
+  const lastSeenRow = await db
+    .selectFrom("kv")
+    .where("key", "=", "activity_last_seen_at")
+    .select("value")
+    .executeTakeFirst();
+  const lastSeenAt = lastSeenRow ? Number(lastSeenRow.value) : 0;
+
   const runs = await db
     .selectFrom("threads as t")
     .leftJoin("workflows as w", "w.id", "t.workflow_id")
@@ -381,9 +388,39 @@ export async function handleActivity() {
   const enriched = await Promise.all(
     runs.map(async (r) => {
       const output = await getLastAssistantContent(r.id);
-      return { ...r, output };
+      return { ...r, output, is_new: (r.started_at ?? 0) > lastSeenAt };
     })
   );
 
-  return Response.json({ runs: enriched });
+  return Response.json({ runs: enriched, last_seen_at: lastSeenAt });
+}
+
+export async function handleActivitySeen() {
+  const db = getDb();
+  const now = Math.floor(Date.now() / 1000);
+  await db
+    .insertInto("kv")
+    .values({ key: "activity_last_seen_at", value: String(now) })
+    .onConflict((oc) => oc.column("key").doUpdateSet({ value: String(now) }))
+    .execute();
+  return Response.json({ ok: true });
+}
+
+export async function handleUnreadCount() {
+  const db = getDb();
+  const lastSeenRow = await db
+    .selectFrom("kv")
+    .where("key", "=", "activity_last_seen_at")
+    .select("value")
+    .executeTakeFirst();
+  const lastSeenAt = lastSeenRow ? Number(lastSeenRow.value) : 0;
+
+  const result = await db
+    .selectFrom("threads")
+    .where("type", "=", "workflow")
+    .where("started_at", ">", lastSeenAt)
+    .select(sql<number>`COUNT(*)`.as("count"))
+    .executeTakeFirst();
+
+  return Response.json({ count: result?.count ?? 0 });
 }
