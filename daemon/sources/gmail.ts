@@ -68,6 +68,40 @@ function daysBackFromLastSync(lastSync: number, defaultDays = 365): number {
   return defaultDays;
 }
 
+/** Extract plain-text body from a Gmail message payload (MIME structure). */
+function extractBody(payload: any): string {
+  if (!payload) return "";
+
+  // Simple message with body data directly on payload
+  if (payload.mimeType === "text/plain" && payload.body?.data) {
+    return decodeBase64Url(payload.body.data);
+  }
+
+  // Multipart — recurse into parts, prefer text/plain
+  if (payload.parts && Array.isArray(payload.parts)) {
+    // First pass: look for text/plain
+    for (const part of payload.parts) {
+      if (part.mimeType === "text/plain" && part.body?.data) {
+        return decodeBase64Url(part.body.data);
+      }
+    }
+    // Second pass: recurse into nested multipart
+    for (const part of payload.parts) {
+      if (part.mimeType?.startsWith("multipart/") || part.parts) {
+        const nested = extractBody(part);
+        if (nested) return nested;
+      }
+    }
+  }
+
+  return "";
+}
+
+function decodeBase64Url(data: string): string {
+  const base64 = data.replace(/-/g, "+").replace(/_/g, "/");
+  return atob(base64);
+}
+
 // ─── Gmail ──────────────────────────────────────────────────────────────────
 
 export const gmail: Source = {
@@ -133,8 +167,7 @@ export const gmail: Source = {
               "--params", JSON.stringify({
                 userId: "me",
                 id: msg.id,
-                format: "metadata",
-                metadataHeaders: ["Subject", "From", "To", "Date"],
+                format: "full",
               }),
             ]);
             return { msgId: msg.id, detail };
@@ -159,6 +192,7 @@ export const gmail: Source = {
       const from = getHeader("From");
       const to = getHeader("To");
       const date = getHeader("Date") || "";
+      const body = extractBody(detail.payload);
       const snippet = detail.snippet ?? "";
       const labels: string[] = detail.labelIds ?? [];
 
@@ -176,7 +210,7 @@ export const gmail: Source = {
           subject ? `Subject: ${subject}` : "",
           from ? `From: ${from}` : "",
           to ? `To: ${to}` : "",
-          snippet,
+          body || snippet,
         ]
           .filter(Boolean)
           .join("\n"),
