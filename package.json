@@ -24,7 +24,7 @@
     "daemon:stop": "bun run cli/index.ts daemon stop",
     "daemon:status": "bun run cli/index.ts daemon status",
     "sync": "bun run cli/index.ts sync",
-    "build": "bun build ./cli/index.ts --target bun --minify --outdir ./dist --entry-naming index.js --external react-devtools-core --banner '#!/usr/bin/env bun'",
+    "build": "bun build ./cli/index.ts --target bun --minify --outdir ./dist --entry-naming index.js --external react-devtools-core",
     "prepublishOnly": "bun run build",
     "typecheck": "tsc --noEmit",
     "cleanup": "rm -rf ~/.kent"
@@ -47,6 +47,7 @@
     "kysely": "^0.28.15",
     "kysely-bun-sqlite": "^0.4.0",
     "react": "^19.2.4",
+    "react-devtools-core": "^7.0.1",
     "react-dom": "^19.2.4",
     "remark-gfm": "^4.0.1",
     "yaml": "^2.8.3",
