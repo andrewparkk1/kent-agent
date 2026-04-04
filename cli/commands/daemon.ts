@@ -11,14 +11,18 @@
 import { existsSync, readFileSync, writeFileSync, unlinkSync, watchFile, unwatchFile } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
-import { PID_PATH, PLIST_PATH, LOG_PATH, DAEMON_STATE_PATH, ensureKentDir } from "@shared/config.ts";
+import { PID_PATH, PLIST_PATH, WEB_PLIST_PATH, LOG_PATH, DAEMON_STATE_PATH, KENT_DIR, ensureKentDir } from "@shared/config.ts";
+import { stopWeb, installWebLaunchd, uninstallWebLaunchd } from "./web.ts";
 
 const VALID_SUBCOMMANDS = ["start", "stop", "status"] as const;
 
 function generatePlist(): string {
-  const projectRoot = resolve(import.meta.dir, "../..");
+  const projectRoot = resolve(import.meta.dir, import.meta.dir.endsWith("dist") ? ".." : "../..");
   const daemonScript = resolve(projectRoot, "daemon/daemon.ts");
   const bunPath = execFileSync("which", ["bun"], { encoding: "utf-8" }).trim();
+
+  // Capture current PATH so launchd has access to user-installed tools (gh, gws, etc.)
+  const userPath = process.env.PATH || "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -34,6 +38,13 @@ function generatePlist(): string {
   </array>
   <key>WorkingDirectory</key>
   <string>${projectRoot}</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>${userPath}</string>
+    <key>HOME</key>
+    <string>${process.env.HOME || ""}</string>
+  </dict>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
@@ -66,66 +77,73 @@ export async function daemonStart(): Promise<void> {
     try { unlinkSync(PID_PATH); } catch {}
   }
 
-  // Spawn daemon as a fully detached background process
-  const projectRoot = resolve(import.meta.dir, "../..");
-  const daemonScript = resolve(projectRoot, "daemon/daemon.ts");
-  const bunPath = execFileSync("which", ["bun"], { encoding: "utf-8" }).trim();
+  // Install launchd plist so daemon survives sleep/reboot
+  const plistContent = generatePlist();
+  writeFileSync(PLIST_PATH, plistContent, "utf-8");
 
-  const proc = Bun.spawn(["bash", "-c", `nohup "${bunPath}" run "${daemonScript}" > /dev/null 2>&1 &`], {
-    cwd: projectRoot,
-    stdout: "ignore",
-    stderr: "ignore",
-    stdin: "ignore",
-  });
-  await proc.exited;
+  // Unload first in case there's a stale registration
+  const uid = process.getuid!();
+  try { execFileSync("launchctl", ["bootout", `gui/${uid}`, PLIST_PATH], { stdio: "pipe", timeout: 5000 }); } catch {}
+
+  // Bootstrap the service
+  try {
+    execFileSync("launchctl", ["bootstrap", `gui/${uid}`, PLIST_PATH], { stdio: "pipe", timeout: 5000 });
+  } catch {
+    // Fallback to legacy load command
+    try {
+      execFileSync("launchctl", ["load", "-w", PLIST_PATH], { stdio: "pipe", timeout: 5000 });
+    } catch {}
+  }
 
   // Wait briefly for PID file to appear
-  const deadline = Date.now() + 3000;
+  const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
     if (existsSync(PID_PATH)) {
       const pid = readFileSync(PID_PATH, "utf-8").trim();
-      console.log(`Daemon started (PID ${pid})`);
+      console.log(`Daemon started via launchd (PID ${pid})`);
+      console.log("Service will auto-restart on sleep/reboot.");
       return;
     }
     await new Promise((r) => setTimeout(r, 200));
   }
 
-  console.log("Daemon started");
+  console.log("Daemon started via launchd");
+  console.log("Service will auto-restart on sleep/reboot.");
 }
 
 async function daemonStop(): Promise<void> {
-  if (!existsSync(PID_PATH)) {
-    console.log("Daemon is not running");
-    return;
-  }
+  const uid = process.getuid!();
 
-  const pid = Number(readFileSync(PID_PATH, "utf-8").trim());
-
-  // Unload from launchctl if a plist exists (clean up legacy installs)
+  // Unload daemon launchd service
   if (existsSync(PLIST_PATH)) {
-    try { execFileSync("launchctl", ["bootout", `gui/${process.getuid!()}`, PLIST_PATH], { stdio: "pipe", timeout: 3000 }); } catch {}
+    try { execFileSync("launchctl", ["bootout", `gui/${uid}`, PLIST_PATH], { stdio: "pipe", timeout: 5000 }); } catch {}
     try { execFileSync("launchctl", ["unload", PLIST_PATH], { stdio: "pipe", timeout: 3000 }); } catch {}
     try { unlinkSync(PLIST_PATH); } catch {}
   }
 
-  // Kill the process
-  if (isProcessAlive(pid)) {
-    try { process.kill(pid, "SIGTERM"); } catch {}
-    // Brief wait for graceful shutdown
-    const deadline = Date.now() + 2000;
-    while (Date.now() < deadline && isProcessAlive(pid)) {
-      await new Promise((r) => setTimeout(r, 100));
-    }
-    // Force kill if still alive
+  // Kill daemon process if still alive
+  if (existsSync(PID_PATH)) {
+    const pid = Number(readFileSync(PID_PATH, "utf-8").trim());
     if (isProcessAlive(pid)) {
-      try { process.kill(pid, "SIGKILL"); } catch {}
+      try { process.kill(pid, "SIGTERM"); } catch {}
+      const deadline = Date.now() + 2000;
+      while (Date.now() < deadline && isProcessAlive(pid)) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      if (isProcessAlive(pid)) {
+        try { process.kill(pid, "SIGKILL"); } catch {}
+      }
     }
   }
 
   try { unlinkSync(PID_PATH); } catch {}
   try { unlinkSync(DAEMON_STATE_PATH); } catch {}
 
-  console.log("Daemon stopped");
+  // Also stop web services (both launchd and processes)
+  await uninstallWebLaunchd();
+  await stopWeb();
+
+  console.log("All services stopped");
 }
 
 // ─── Live Status Dashboard ──────────────────────────────────────────────────

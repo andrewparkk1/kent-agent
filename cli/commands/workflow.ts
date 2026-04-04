@@ -175,7 +175,7 @@ async function workflowRun(args: string[]): Promise<void> {
   const threadId = await createThread(`workflow: ${wf.name}`, { type: "workflow", workflow_id: wf.id });
   await updateWorkflow(wf.id, { last_run_at: Math.floor(Date.now() / 1000) });
 
-  const projectRoot = resolve(import.meta.dir, "../..");
+  const projectRoot = resolve(import.meta.dir, import.meta.dir.endsWith("dist") ? ".." : "../..");
   const agentPath = resolve(projectRoot, "agent", "agent.ts");
   const bunPath = process.execPath || "bun";
 

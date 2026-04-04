@@ -50,6 +50,12 @@ export const PLIST_PATH = join(
   "LaunchAgents",
   "sh.kent.daemon.plist",
 );
+export const WEB_PLIST_PATH = join(
+  homedir(),
+  "Library",
+  "LaunchAgents",
+  "sh.kent.web.plist",
+);
 
 export const DEFAULT_CONFIG: Config = {
   core: {

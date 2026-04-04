@@ -7,8 +7,11 @@ if [ -f ~/.kent/daemon.pid ]; then
   kill "$PID" 2>/dev/null && echo "Stopped daemon (PID $PID)" || echo "Daemon not running"
 fi
 
-# Remove LaunchAgent plist
+# Unload and remove LaunchAgent plists
+launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/sh.kent.daemon.plist 2>/dev/null
+launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/sh.kent.web.plist 2>/dev/null
 rm -f ~/Library/LaunchAgents/sh.kent.daemon.plist 2>/dev/null
+rm -f ~/Library/LaunchAgents/sh.kent.web.plist 2>/dev/null
 
 # Nuke everything
 rm -rf ~/.kent

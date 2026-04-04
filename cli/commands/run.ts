@@ -1,19 +1,24 @@
-/** `kent run` — starts the daemon + web dashboard in one command. */
+/** `kent run` — starts the daemon + web dashboard as persistent launchd services. */
 import { daemonStart } from "./daemon.ts";
-import { handleWeb } from "./web.ts";
+import { installWebLaunchd } from "./web.ts";
 
 export async function handleRun(): Promise<void> {
-  // Start daemon
+  // Start daemon via launchd
   try {
     await daemonStart();
-    console.log("Daemon started");
-  } catch {
-    console.log("Daemon already running");
+  } catch (e) {
+    console.log(`Daemon: ${e}`);
   }
 
-  // Start web + open browser
-  await handleWeb();
-
-  // Bun.spawn refs keep the event loop alive — exit explicitly
-  process.exit(0);
+  // Start web supervisor via launchd
+  try {
+    installWebLaunchd();
+    console.log("Web dashboard started via launchd");
+    console.log("Dashboard: http://localhost:5173");
+    console.log("API:       http://localhost:3456");
+    console.log("\nAll services will auto-restart on sleep/reboot.");
+    console.log("Stop with: kent daemon stop");
+  } catch (e) {
+    console.log(`Web: ${e}`);
+  }
 }
