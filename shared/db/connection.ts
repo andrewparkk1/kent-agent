@@ -187,5 +187,8 @@ function initSchema(db: BunDatabase): void {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    -- Suggested workflows must never be enabled
+    UPDATE workflows SET enabled = 0 WHERE source = 'suggested' AND enabled = 1;
   `);
 }

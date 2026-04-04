@@ -209,7 +209,12 @@ export async function handleWorkflowToggle(req: Request) {
   if (!workflow) return Response.json({ error: "not found" }, { status: 404 });
 
   const newEnabled = !workflow.enabled;
-  await updateWorkflow(workflow.id, { enabled: newEnabled ? 1 : 0 });
+  const updates: Parameters<typeof updateWorkflow>[1] = { enabled: newEnabled ? 1 : 0 };
+  // Promote suggested → user when enabling
+  if (newEnabled && workflow.source === "suggested") {
+    updates.source = "user";
+  }
+  await updateWorkflow(workflow.id, updates);
   return Response.json({ enabled: newEnabled });
 }
 

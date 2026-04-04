@@ -47,7 +47,7 @@ export async function getWorkflow(idOrName: string): Promise<Workflow | undefine
 
 export async function updateWorkflow(
   id: string,
-  fields: Partial<Pick<Workflow, "name" | "description" | "prompt" | "cron_schedule" | "enabled" | "last_run_at" | "next_run_at">>,
+  fields: Partial<Pick<Workflow, "name" | "description" | "prompt" | "cron_schedule" | "enabled" | "source" | "last_run_at" | "next_run_at">>,
 ): Promise<void> {
   if (Object.keys(fields).length === 0) return;
   await getDb()
@@ -91,6 +91,7 @@ export async function getDueWorkflows(): Promise<Workflow[]> {
     .selectFrom("workflows")
     .where("enabled", "=", 1)
     .where("is_archived", "=", 0)
+    .where("source", "!=", "suggested")
     .where("cron_schedule", "is not", null)
     .selectAll()
     .execute();
