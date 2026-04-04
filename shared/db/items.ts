@@ -79,6 +79,16 @@ export async function getItemsBySource(source: string, limit = 100, offset = 0):
   return rows.map((r) => ({ ...r, metadata: JSON.parse(r.metadata) }));
 }
 
+/** Get the most recent created_at timestamp for a given source from the DB. */
+export async function getLatestItemTimestamp(source: string): Promise<number> {
+  const row = await getDb()
+    .selectFrom("items")
+    .where("source", "=", source)
+    .select(sql<number>`MAX(created_at)`.as("latest"))
+    .executeTakeFirst();
+  return row?.latest ?? 0;
+}
+
 export async function getItemCount(): Promise<Record<string, number>> {
   const rows = await getDb()
     .selectFrom("items")

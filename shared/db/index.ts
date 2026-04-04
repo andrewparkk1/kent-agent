@@ -9,7 +9,7 @@ export type { Thread, Message } from "./threads.ts";
 export type { Workflow } from "./workflows.ts";
 export type { Memory, MemoryType } from "./memories.ts";
 
-export { upsertItems, searchItems, getItemsBySource, getItemCount } from "./items.ts";
+export { upsertItems, searchItems, getItemsBySource, getItemCount, getLatestItemTimestamp } from "./items.ts";
 export { createThread, finishThread, getRecentThreads, getWorkflowRuns, getThread, addMessage, getMessages } from "./threads.ts";
 export { createWorkflow, listWorkflows, getWorkflow, updateWorkflow, deleteWorkflow, archiveWorkflow, unarchiveWorkflow, getDueWorkflows } from "./workflows.ts";
 export { createMemory, updateMemory, archiveMemory, getMemory, listMemories, searchMemories, deleteMemory } from "./memories.ts";

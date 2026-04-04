@@ -90,7 +90,8 @@ function SyncButton({ sourceId, onSynced }: { sourceId: string; onSynced: () => 
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -4, scale: 0.95 }}
             transition={{ duration: 0.15 }}
-            className="absolute right-0 top-full mt-1 z-50 bg-background border border-border rounded-lg p-3 shadow-xl ring-1 ring-black/5 min-w-[200px]"
+            className="absolute right-0 top-full mt-1 z-50 border border-border rounded-lg p-3 shadow-xl ring-1 ring-black/5 min-w-[200px]"
+            style={{ backgroundColor: "hsl(40 24% 97%)" }}
           >
             <p className="text-[11px] text-muted-foreground/60 mb-2">Sync {label} from:</p>
             <input

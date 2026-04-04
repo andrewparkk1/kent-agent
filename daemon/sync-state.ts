@@ -71,4 +71,10 @@ export class FileSyncState implements SyncState {
     this.data.lastSync[source] = Math.max(prev, next);
     this.save();
   }
+
+  /** Force-set the sync cursor to an earlier timestamp (e.g. to re-fetch gaps). */
+  resetSync(source: string, timestamp: number): void {
+    this.data.lastSync[source] = timestamp;
+    this.save();
+  }
 }

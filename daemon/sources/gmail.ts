@@ -250,12 +250,12 @@ export const gcal: Source = {
 
     const now = new Date();
     const from = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000);
-    const to = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const to = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
     // Use updatedMin to only get events modified since last sync
     const params: Record<string, any> = {
       calendarId: "primary",
-      maxResults: 50,
+      maxResults: 200,
       timeMin: from.toISOString(),
       timeMax: to.toISOString(),
       singleEvents: true,

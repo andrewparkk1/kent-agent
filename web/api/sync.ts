@@ -49,8 +49,7 @@ export async function handleSync(req: Request): Promise<Response> {
   // so the source fetches from that point
   const originalLastSync = syncState.getLastSync(source.name);
   if (since !== undefined) {
-    // Write the override directly — markSynced will restore the high water mark after
-    syncState.markSynced(source.name, since);
+    syncState.resetSync(source.name, since);
   }
 
   try {

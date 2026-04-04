@@ -38,7 +38,21 @@ async function runGhJson(args: string[]): Promise<any | null> {
   try {
     return JSON.parse(raw);
   } catch {
-    return null;
+    // --paginate can produce concatenated JSON arrays like [...]\n[...]
+    // Try to parse each line and merge arrays
+    try {
+      const results: any[] = [];
+      for (const line of raw.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) results.push(...parsed);
+        else results.push(parsed);
+      }
+      return results.length > 0 ? results : null;
+    } catch {
+      return null;
+    }
   }
 }
 
@@ -89,18 +103,25 @@ export const github: Source = {
       }
     }
 
-    // ── Get repos user has pushed to ────────────────────────────────────
-    const repoRaw = await runGh([
-      "api", "user/repos",
+    // ── Get repos user has pushed to (owned + contributed) ──────────────
+    const ownedRaw = await runGh([
+      "api", "user/repos?sort=pushed&per_page=100&type=owner", "--paginate",
       "--jq", ".[].full_name",
-      "-q", "sort=pushed", "-q", "per_page=30", "-q", "type=owner",
     ]);
-    const repoNames = repoRaw ? repoRaw.split("\n").filter(Boolean) : [];
+    const contribRaw = await runGh([
+      "api", `users/${account}/repos?sort=pushed&per_page=100&type=member`, "--paginate",
+      "--jq", ".[].full_name",
+    ]);
+    const repoSet = new Set<string>();
+    for (const raw of [ownedRaw, contribRaw]) {
+      if (raw) raw.split("\n").filter(Boolean).forEach((r) => repoSet.add(r));
+    }
+    const repoNames = [...repoSet];
 
-    // ── Commits (100 per repo, all repos) ───────────────────────────────
+    // ── Commits (paginated, all repos) ──────────────────────────────────
     for (const repo of repoNames) {
       const commits = await runGhJson([
-        "api", `repos/${repo}/commits?since=${sinceDate}&per_page=100&author=${account}`,
+        "api", `repos/${repo}/commits?since=${sinceDate}&per_page=100&author=${account}`, "--paginate",
       ]);
       if (!Array.isArray(commits)) continue;
 
@@ -123,9 +144,7 @@ export const github: Source = {
 
     // ── PRs authored by user ────────────────────────────────────────────
     const prs = await runGhJson([
-      "api", "search/issues",
-      "-q", `q=author:${account} type:pr updated:>=${sinceDate.slice(0, 10)}`,
-      "-q", "per_page=100",
+      "api", `search/issues?q=author:${account}+type:pr+updated:>=${sinceDate.slice(0, 10)}&per_page=100`, "--paginate",
       "--jq", ".items",
     ]);
     if (Array.isArray(prs)) {
@@ -151,9 +170,7 @@ export const github: Source = {
 
     // ── Issues authored/assigned to user ────────────────────────────────
     const issues = await runGhJson([
-      "api", "search/issues",
-      "-q", `q=involves:${account} type:issue updated:>=${sinceDate.slice(0, 10)}`,
-      "-q", "per_page=100",
+      "api", `search/issues?q=involves:${account}+type:issue+updated:>=${sinceDate.slice(0, 10)}&per_page=100`, "--paginate",
       "--jq", ".items",
     ]);
     if (Array.isArray(issues)) {

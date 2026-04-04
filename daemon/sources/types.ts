@@ -10,6 +10,7 @@ export interface Item {
 export interface SyncState {
   getLastSync(source: string): number;
   markSynced(source: string, highWaterMark?: number): void;
+  resetSync(source: string, timestamp: number): void;
 }
 
 export interface SyncOptions {
