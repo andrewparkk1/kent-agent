@@ -8,7 +8,7 @@ Ask it what to focus on today. Get a daily brief of your meetings, emails, and P
 
 ```bash
 # requires macOS and Bun (https://bun.sh)
-bun install -g kent-agent
+bun install -g meet-kent
 kent init
 ```
 
