@@ -17,9 +17,15 @@ kent init
 ## Quick start
 
 ```bash
-kent                          # interactive chat
-kent run                      # start daemon + web dashboard
-kent web                      # open web dashboard
+kent init                     # setup wizard — connect sources, add API keys
+kent run                      # start daemon + web dashboard (persistent)
+```
+
+After `kent run`, the daemon and web dashboard run as macOS system services. They'll stay running through sleep, reboot, and terminal closes. Check on them anytime:
+
+```bash
+kent status                   # check if everything is running
+kent logs -f                  # stream daemon logs
 ```
 
 ## What it does
@@ -28,21 +34,24 @@ kent web                      # open web dashboard
 
 **Answers questions with your context.** The agent has tools to search across all your synced data, so it can answer things like "what did Sarah say about the launch?" or "summarize my unread GitHub notifications."
 
-**Runs workflows on a schedule.** Workflows are prompts that run on a cron schedule. Kent ships with defaults (morning briefing, evening recap, memory curator) and you can create your own.
+**Runs workflows on a schedule.** Workflows are prompts that run on a cron schedule. Kent ships with defaults (morning briefing, evening recap, memory curator) and you can create your own from the CLI or web dashboard.
 
 **Remembers things.** The agent maintains a persistent knowledge base — people, projects, preferences, events — that it references across conversations.
+
+**Runs as a system service.** The daemon and web dashboard run as macOS launchd services that auto-restart on sleep, reboot, or crash. Once started, Kent is always on.
 
 ## Architecture
 
 ```
 ┌──────────────────────────────────────────┐
-│  CLI / TUI / Web Dashboard               │
+│  CLI / Web Dashboard                     │
 ├──────────────────────────────────────────┤
-│  Daemon (background process)             │
+│  Daemon (launchd service)                │
 │  ├─ Sync loop → sources every N min      │
-│  └─ Cron loop → run due workflows        │
+│  ├─ Cron loop → run due workflows        │
+│  └─ Backfill  → catch up missed runs     │
 ├──────────────────────────────────────────┤
-│  Agent (subprocess, pi-agent-core)       │
+│  Agent (subprocess per run)              │
 │  ├─ Claude API                           │
 │  └─ Tools: data, memory, workflow, fs    │
 ├──────────────────────────────────────────┤
@@ -53,51 +62,42 @@ kent web                      # open web dashboard
 
 ## Sources
 
-| Source | Status | Notes |
-|--------|--------|-------|
-| iMessage | Stable | Reads `chat.db`. Requires Full Disk Access. |
-| Gmail | Stable | Via `gws` CLI. Also syncs Google Calendar and Tasks. |
-| GitHub | Stable | Via `gh` CLI. Notifications, PRs, issues. |
-| Chrome | Stable | History, bookmarks, downloads, search terms. |
-| Granola | Stable | Meeting transcripts from local JSON files. |
-| Apple Notes | Stable | Reads `NoteStore.sqlite`. Requires Full Disk Access. |
-| Signal | Stable | Reads encrypted DB. Needs `brew install sqlcipher` and Signal Desktop. |
+| Source | Notes |
+|--------|-------|
+| iMessage | Reads `chat.db`. Requires Full Disk Access. |
+| Gmail | Via `gws` CLI. Also syncs Google Calendar and Google Tasks. |
+| GitHub | Via `gh` CLI. Notifications, PRs, issues. |
+| Chrome | History, bookmarks, downloads, search terms. |
+| Granola | Meeting transcripts from local JSON files. |
+| Apple Notes | Reads `NoteStore.sqlite`. Requires Full Disk Access. |
+| Signal | Reads encrypted DB. Needs `brew install sqlcipher` and Signal Desktop. |
 
 ## Workflows
 
-Kent ships with default workflows:
+Workflows are prompts that run on a cron schedule. They live in the database and are managed via the CLI or web dashboard — no config files needed.
+
+### Default workflows
 
 | Workflow | Schedule | What it does |
 |----------|----------|--------------|
 | Morning briefing | 8am daily | Calendar, emails, to-dos, action items |
-| Evening recap | 6pm daily | Today's summary, highlights, tomorrow preview |
-| Memory curator | 10am daily | Reviews data, updates memories, archives stale ones |
+| Evening recap | 7pm daily | Today's summary, highlights, tomorrow preview |
+| Memory curator | 10am daily | Reviews data, updates knowledge base, archives stale memories |
 | Workflow suggestor | 9:30am daily | Analyzes patterns, suggests new automations |
 
-### Custom workflows
+### Managing workflows
 
 ```bash
-kent workflow create
+kent workflow list                   # list all workflows
+kent workflow create <name>          # create a new workflow
+kent workflow run <name>             # manually trigger a workflow
+kent workflow enable <name>          # enable a workflow
+kent workflow disable <name>         # disable a workflow
+kent workflow delete <name>          # delete a workflow
+kent workflow history <name>         # show recent runs
 ```
 
-Or create a YAML file in `~/.kent/workflows/`:
-
-```yaml
-name: standup-prep
-description: Draft my standup update
-prompt: >
-  Based on my activity in the last 24 hours, draft my standup update.
-  Format: what I did yesterday, what I'm doing today, any blockers.
-cron_schedule: "0 9 * * 1-5"
-```
-
-### Run manually
-
-```bash
-kent workflow run morning-briefing
-kent workflow list
-kent workflow history
-```
+You can also create, edit, enable/disable, and run workflows from the web dashboard.
 
 ## Web dashboard
 
@@ -105,39 +105,51 @@ kent workflow history
 kent web
 ```
 
-Opens a local React dashboard with pages for:
+Opens a local React dashboard at `http://localhost:5173` with pages for:
 
 - **Home** — feed of recent workflow runs and briefs
 - **Chat** — multi-turn conversations with the agent
+- **Activity** — live stream of workflow runs with output previews
 - **Workflows** — manage, enable/disable, run, view history
-- **Sources** — sync status, item counts, manual sync
+- **Sources** — sync status, item counts
 - **Memories** — browse and search the knowledge base
-- **Identity** — set your name, role, goals for better context
-- **Settings** — configure sources, API keys, daemon
+- **Identity** — set your name, role, goals for better agent context
+- **Settings** — configure sources, API keys, daemon interval
 
 ## CLI reference
 
 ```bash
 kent                              # interactive REPL
-kent init                         # setup wizard (+ first sync + daemon + web)
-kent run                          # start daemon + web dashboard
-kent web                          # open web dashboard
-kent daemon start|stop|status     # manage background daemon
+kent init                         # setup wizard (first sync + daemon + web)
+kent run                          # start daemon + web as persistent services
+kent status                       # check if all services are running
+kent logs [source] [-f]           # view logs (daemon|api|vite|web)
+kent daemon start                 # start background daemon via launchd
+kent daemon stop                  # stop daemon + web services
+kent daemon status                # live daemon status dashboard
 kent sync                         # sync all sources now
 kent sync --source imessage       # sync one source
+kent sync --full                  # full re-sync (not incremental)
 kent workflow list                # list workflows
-kent workflow run <name>          # run a workflow
-kent workflow create              # create a workflow
+kent workflow create <name>       # create a workflow
+kent workflow run <name>          # manually run a workflow
+kent workflow enable <name>       # enable a disabled workflow
+kent workflow disable <name>      # disable a workflow
+kent workflow delete <name>       # delete a workflow
+kent workflow history <name>      # show recent runs for a workflow
+kent web                          # start web dashboard supervisor
+kent --version                    # print version
+kent --help                       # show help
 ```
 
-## Security
+## Data and security
 
-Kent uses BYOK (Bring Your Own Keys). Your API keys are encrypted with AES-256-GCM and never leave your machine in plaintext.
+All data stays on your machine. Kent stores everything locally:
 
-- `kent init` generates a device token and salt, stored locally at `~/.kent/`
-- Keys are encrypted at rest using PBKDF2-derived keys (600k iterations)
-- The agent decrypts keys on-demand before execution
-- All data lives locally in SQLite — nothing is sent to external servers unless you configure it
+- `~/.kent/kent.db` — SQLite database (synced items, threads, workflows, memories)
+- `~/.kent/config.json` — API keys, source toggles, daemon settings
+- `~/.kent/daemon.log` — daemon activity log
+- `~/.kent/prompts/` — agent system prompt files
 
 **Required keys:**
 
@@ -146,41 +158,16 @@ Kent uses BYOK (Bring Your Own Keys). Your API keys are encrypted with AES-256-G
 | Anthropic API key | Yes | Agent LLM (Claude) |
 | OpenAI API key | Optional | Alternative LLM |
 
-## Development
-
-```bash
-git clone https://github.com/andrewparkk1/kent-agent.git
-cd kent-cli
-bun install
-bun run cli/index.ts --help
-```
-
-Run tests:
-
-```bash
-bun test
-```
-
-### Project structure
+## Project structure
 
 ```
 cli/          CLI entry point and commands
 daemon/       Background sync daemon and source adapters
 agent/        Agent subprocess, tools, prompts
 shared/       Database, config, shared types
-web/          React web dashboard
+web/          React web dashboard (Vite + React)
 tests/        Test suite
 ```
-
-## Contributing
-
-1. Fork the repo
-2. Create a branch (`git checkout -b feature/my-feature`)
-3. Make your changes
-4. Run tests (`bun test`)
-5. Open a PR
-
-Contributions welcome: new source adapters, workflow templates, agent tools, bug fixes.
 
 ## License
 
