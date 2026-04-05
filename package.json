@@ -45,6 +45,7 @@
     "build:web": "cd web && bunx vite build --emptyOutDir",
     "build:cli": "bun build ./cli/index.ts --target bun --minify --outdir ./dist --entry-naming index.js --external react-devtools-core",
     "build": "bun run build:web && bun run build:cli",
+    "prepublishOnly": "cd web && bun install --frozen-lockfile 2>/dev/null || cd web && bun install && bunx vite build --emptyOutDir",
     "postinstall": "cd web && bun install --frozen-lockfile 2>/dev/null || cd web && bun install",
     "typecheck": "tsc --noEmit",
     "uninstall": "bash uninstall.sh"

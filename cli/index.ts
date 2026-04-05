@@ -35,6 +35,7 @@ Usage:
   kent status                   Check if all services are up
   kent logs [source] [-f]       View logs (daemon|api|vite|web)
   kent web                      Open web dashboard
+  kent uninstall                Stop all services and remove ~/.kent
 
 Flags:
   --version     Print version
@@ -97,6 +98,11 @@ async function main(): Promise<void> {
     case "web": {
       const { handleWeb } = await import("./commands/web.ts");
       await handleWeb();
+      break;
+    }
+    case "uninstall": {
+      const { handleUninstall } = await import("./commands/uninstall.ts");
+      await handleUninstall();
       break;
     }
     default:

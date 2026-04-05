@@ -460,7 +460,7 @@ const SOURCES: SourceInfo[] = [
     check: async () => {
       const dbPath = join(homedir(), "Library/Group Containers/group.com.apple.notes/NoteStore.sqlite");
       if (existsSync(dbPath)) return { ok: true, message: "NoteStore.sqlite found" };
-      return { ok: false, message: "Apple Notes DB not found. Grant Full Disk Access to your terminal." };
+      return { ok: false, message: "Apple Notes DB not found. Grant Full Disk Access to your terminal in System Settings > Privacy & Security." };
     },
   },
 ];
@@ -483,6 +483,26 @@ export async function handleInit(): Promise<void> {
   }
 
   const config: Config = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+
+  // ------------------------------------------------------------------
+  // Pre-flight: Full Disk Access check
+  // ------------------------------------------------------------------
+  const imessageDb = join(homedir(), "Library/Messages/chat.db");
+  const appleNotesDb = join(homedir(), "Library/Group Containers/group.com.apple.notes/NoteStore.sqlite");
+  const needsFDA = !existsSync(imessageDb) || !existsSync(appleNotesDb);
+
+  if (needsFDA) {
+    console.log(`${YELLOW}${BOLD}  ⚠ Full Disk Access required${NC}\n`);
+    info("Kent reads iMessage and Apple Notes databases, which require");
+    info("Full Disk Access for your terminal app.\n");
+    info(`${BOLD}To grant access:${NC}`);
+    info(`  1. Open ${BOLD}System Settings > Privacy & Security > Full Disk Access${NC}`);
+    info(`  2. Add your terminal app (Terminal, iTerm2, Warp, etc.)`);
+    info("  3. Restart your terminal\n");
+    info(`${DIM}You can continue setup now and grant access later — Kent will`);
+    info(`skip iMessage/Apple Notes until access is granted.${NC}\n`);
+  }
+
   const TOTAL_STEPS = 4;
 
   // ------------------------------------------------------------------
