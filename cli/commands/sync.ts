@@ -51,6 +51,9 @@ interface SourceStatus {
 // Render state — all repaints go through a single coalesced timer
 let _firstRender = true;
 let _renderTimer: ReturnType<typeof setTimeout> | null = null;
+let _spinnerFrame = 0;
+let _spinnerInterval: ReturnType<typeof setInterval> | null = null;
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 function repaint(statuses: SourceStatus[]): void {
   const maxName = Math.max(...statuses.map((s) => s.name.length));
@@ -72,6 +75,12 @@ function renderProgress(statuses: SourceStatus[]): void {
       frame += `\x1b[2K${formatLine(s, maxName)}\n`;
     }
     process.stdout.write(frame);
+
+    // Start spinner animation
+    _spinnerInterval = setInterval(() => {
+      _spinnerFrame++;
+      repaint(statuses);
+    }, 80);
     return;
   }
 
@@ -95,6 +104,10 @@ function flushRender(statuses: SourceStatus[]): void {
 }
 
 function finishProgress(statuses: SourceStatus[]): void {
+  if (_spinnerInterval) {
+    clearInterval(_spinnerInterval);
+    _spinnerInterval = null;
+  }
   flushRender(statuses);
   process.stdout.write("\x1b[?25h");
   _firstRender = true;
@@ -109,7 +122,8 @@ function formatLine(s: SourceStatus, maxName: number): string {
       const elapsed = s.startMs > 0 ? formatTime(performance.now() - s.startMs) : "";
       const progress = s.progress > 0 ? ` ${s.progress.toLocaleString()} items` : "";
       const time = elapsed ? ` \x1b[90m(${elapsed})\x1b[0m` : "";
-      return `  \x1b[33m${name}  ⠋${progress || " syncing..."}${time}\x1b[0m`;
+      const frame = SPINNER_FRAMES[_spinnerFrame % SPINNER_FRAMES.length];
+      return `  \x1b[33m${name}  ${frame}${progress || " syncing..."}${time}\x1b[0m`;
     }
     case "saving":
       return `  \x1b[33m${name}  ${s.items.toLocaleString()} items, saving...\x1b[0m`;
