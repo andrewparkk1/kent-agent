@@ -4,7 +4,6 @@ import { installWebLaunchd } from "./web.ts";
 import { execFileSync } from "node:child_process";
 
 const API_PORT = 3456;
-const VITE_PORT = 5173;
 
 async function waitForPort(port: number, timeoutMs = 20000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
@@ -37,24 +36,19 @@ export async function handleRun(): Promise<void> {
     return;
   }
 
-  // Wait for services to be ready
+  // Wait for API server to be ready (serves both API + static frontend)
   console.log("Starting web services...");
-  const [apiReady, viteReady] = await Promise.all([
-    waitForPort(API_PORT),
-    waitForPort(VITE_PORT),
-  ]);
+  const apiReady = await waitForPort(API_PORT);
 
-  if (apiReady && viteReady) {
-    console.log(`Dashboard: http://localhost:${VITE_PORT}`);
-    console.log(`API:       http://localhost:${API_PORT}`);
+  if (apiReady) {
+    console.log(`Dashboard: http://localhost:${API_PORT}`);
     console.log("\nAll services will auto-restart on sleep/reboot.");
     console.log("Stop with: kent daemon stop");
 
     // Open browser now that everything is ready
-    try { execFileSync("open", [`http://localhost:${VITE_PORT}`]); } catch {}
+    try { execFileSync("open", [`http://localhost:${API_PORT}`]); } catch {}
   } else {
-    if (!apiReady) console.log("Warning: API server didn't start — check: kent logs api");
-    if (!viteReady) console.log("Warning: Dashboard didn't start — check: kent logs vite");
+    console.log("Warning: API server didn't start — check: kent logs api");
     console.log("\nServices are managed by launchd and may still be starting.");
     console.log("Check with: kent status");
   }

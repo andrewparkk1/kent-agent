@@ -140,37 +140,46 @@ function spawnVite(): Subprocess {
 // ─── Supervisor ───────────────────────────────────────────────────────────
 
 export async function handleWeb(): Promise<void> {
-  // Kill any stale processes on our ports
-  await Promise.all([
-    killStaleProcess(API_PORT, API_PID_PATH),
-    killStaleProcess(VITE_PORT, VITE_PID_PATH),
-  ]);
+  const root = getProjectRoot();
+  const staticDir = resolve(root, "web", "dist");
+  const hasStaticBuild = existsSync(resolve(staticDir, "index.html"));
+
+  // In production mode (static build exists), only run API server on port 3456
+  // which serves both API routes and the pre-built frontend.
+  // In dev mode, also run Vite dev server on port 5173 for HMR.
+  const devMode = !hasStaticBuild;
+  const dashboardPort = devMode ? VITE_PORT : API_PORT;
+
+  // Kill stale processes
+  await killStaleProcess(API_PORT, API_PID_PATH);
+  if (devMode) await killStaleProcess(VITE_PORT, VITE_PID_PATH);
 
   let apiProc = spawnApi();
-  let viteProc = spawnVite();
+  let viteProc: Subprocess | null = devMode ? spawnVite() : null;
   let shuttingDown = false;
 
   console.log(`Starting Kent web supervisor (PID ${process.pid})...`);
+  if (!devMode) console.log("Serving pre-built frontend from web/dist/");
 
-  // Wait for both to be healthy
-  const [apiReady, viteReady] = await Promise.all([
-    waitForHealthy(API_PORT),
-    waitForHealthy(VITE_PORT),
-  ]);
-
+  // Wait for services to be healthy
+  const apiReady = await waitForHealthy(API_PORT);
   if (!apiReady) console.log("Warning: API server may not have started — check ~/.kent/web-api.log");
-  if (!viteReady) console.log("Warning: Vite dev server may not have started — check ~/.kent/web-vite.log");
+
+  if (devMode) {
+    const viteReady = await waitForHealthy(VITE_PORT);
+    if (!viteReady) console.log("Warning: Vite dev server may not have started — check ~/.kent/web-vite.log");
+  }
 
   // Only open browser when run interactively (not from launchd)
   if (process.stdout.isTTY) {
     try {
-      execFileSync("open", [`http://localhost:${VITE_PORT}`]);
+      execFileSync("open", [`http://localhost:${dashboardPort}`]);
     } catch {
-      console.log(`Open http://localhost:${VITE_PORT} in your browser`);
+      console.log(`Open http://localhost:${dashboardPort} in your browser`);
     }
   }
 
-  console.log(`Dashboard: http://localhost:${VITE_PORT}`);
+  console.log(`Dashboard: http://localhost:${dashboardPort}`);
   console.log(`API:       http://localhost:${API_PORT}`);
   console.log("Supervisor running — Ctrl+C to stop\n");
 
@@ -181,9 +190,8 @@ export async function handleWeb(): Promise<void> {
     shuttingDown = true;
     console.log("\nShutting down...");
 
-    // Kill children
     try { apiProc.kill(); } catch {}
-    try { viteProc.kill(); } catch {}
+    if (viteProc) try { viteProc.kill(); } catch {}
 
     removePid(API_PID_PATH);
     removePid(VITE_PID_PATH);
@@ -220,34 +228,36 @@ export async function handleWeb(): Promise<void> {
       const ok = await waitForHealthy(API_PORT, 10000);
       if (ok) {
         console.log("API server restarted successfully.");
-        apiRestarts = Math.max(0, apiRestarts - 1); // Decay restart counter on success
+        apiRestarts = Math.max(0, apiRestarts - 1);
       } else {
         console.log("API server failed to restart — will retry...");
       }
     } else {
-      apiRestarts = Math.max(0, apiRestarts - 1); // Decay when healthy
+      apiRestarts = Math.max(0, apiRestarts - 1);
     }
 
-    // Check Vite
-    if (viteProc.exitCode !== null || !(await isPortHealthy(VITE_PORT))) {
-      if (viteRestarts >= MAX_RESTARTS) {
-        console.log(`Vite server failed ${MAX_RESTARTS} times — giving up. Check ~/.kent/web-vite.log`);
-        continue;
-      }
-      viteRestarts++;
-      console.log(`Vite server died — restarting (attempt ${viteRestarts})...`);
-      try { viteProc.kill(); } catch {}
-      await killStaleProcess(VITE_PORT, VITE_PID_PATH);
-      viteProc = spawnVite();
-      const ok = await waitForHealthy(VITE_PORT, 10000);
-      if (ok) {
-        console.log("Vite server restarted successfully.");
-        viteRestarts = Math.max(0, viteRestarts - 1);
+    // Check Vite (dev mode only)
+    if (devMode && viteProc) {
+      if (viteProc.exitCode !== null || !(await isPortHealthy(VITE_PORT))) {
+        if (viteRestarts >= MAX_RESTARTS) {
+          console.log(`Vite server failed ${MAX_RESTARTS} times — giving up. Check ~/.kent/web-vite.log`);
+          continue;
+        }
+        viteRestarts++;
+        console.log(`Vite server died — restarting (attempt ${viteRestarts})...`);
+        try { viteProc.kill(); } catch {}
+        await killStaleProcess(VITE_PORT, VITE_PID_PATH);
+        viteProc = spawnVite();
+        const ok = await waitForHealthy(VITE_PORT, 10000);
+        if (ok) {
+          console.log("Vite server restarted successfully.");
+          viteRestarts = Math.max(0, viteRestarts - 1);
+        } else {
+          console.log("Vite server failed to restart — will retry...");
+        }
       } else {
-        console.log("Vite server failed to restart — will retry...");
+        viteRestarts = Math.max(0, viteRestarts - 1);
       }
-    } else {
-      viteRestarts = Math.max(0, viteRestarts - 1);
     }
   }
 }

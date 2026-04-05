@@ -1,4 +1,6 @@
-/** Kent API server — routes requests to handler modules. */
+/** Kent API server — routes requests to handler modules + serves static frontend. */
+import { resolve, join, extname } from "node:path";
+import { existsSync } from "node:fs";
 import { handleCounts, handleItems } from "./api/items.ts";
 import { handleWorkflows, handleWorkflowDetail, handleWorkflowRun, handleWorkflowToggle, handleWorkflowArchive, handleWorkflowUnarchive, handleWorkflowDelete, handleActivity, handleActivitySeen, handleUnreadCount, handleBrief } from "./api/workflows.ts";
 import { handleSources, handleDaemonState } from "./api/sources.ts";
@@ -8,6 +10,8 @@ import { handleThreads, handleThreadMessages, handleDeleteThread } from "./api/t
 import { handleChat } from "./api/chat.ts";
 import { handleSync } from "./api/sync.ts";
 import { handleSettings, handleSettingsSave } from "./api/settings.ts";
+
+const STATIC_DIR = resolve(import.meta.dir, "dist");
 
 Bun.serve({
   port: 3456,
@@ -78,6 +82,23 @@ Bun.serve({
 
 if (url.pathname === "/api/sync" && req.method === "POST") {
       return handleSync(req);
+    }
+
+    // Serve static frontend from web/dist/ (pre-built Vite output)
+    if (existsSync(STATIC_DIR)) {
+      const filePath = join(STATIC_DIR, url.pathname === "/" ? "index.html" : url.pathname);
+      const file = Bun.file(filePath);
+      if (await file.exists()) {
+        return new Response(file);
+      }
+      // SPA fallback — serve index.html for client-side routes
+      const ext = extname(url.pathname);
+      if (!ext || ext === ".html") {
+        const index = Bun.file(join(STATIC_DIR, "index.html"));
+        if (await index.exists()) {
+          return new Response(index);
+        }
+      }
     }
 
     return new Response("Not Found", { status: 404 });

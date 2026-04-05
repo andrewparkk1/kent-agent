@@ -12,7 +12,6 @@ const YELLOW = "\x1b[33m";
 const NC = "\x1b[0m";
 
 const API_PORT = 3456;
-const VITE_PORT = 5173;
 
 function isProcessAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch { return false; }
@@ -79,23 +78,14 @@ export async function handleStatus(): Promise<void> {
     } catch {}
   }
 
-  // ─── Web API ───────────────────────────────────────────────────────
+  // ─── Web (API + Dashboard) ──────────────────────────────────────────
   const apiUp = await isPortUp(API_PORT);
   const apiIcon = apiUp ? `${GREEN}●${NC}` : `${RED}●${NC}`;
   const apiStatus = apiUp
     ? `${GREEN}running${NC} ${DIM}(port ${API_PORT})${NC}`
     : `${RED}stopped${NC}`;
-  console.log(`\n  ${apiIcon} API:        ${apiStatus}`);
+  console.log(`\n  ${apiIcon} Web:        ${apiStatus}`);
 
-  // ─── Web Frontend ──────────────────────────────────────────────────
-  const viteUp = await isPortUp(VITE_PORT);
-  const viteIcon = viteUp ? `${GREEN}●${NC}` : `${RED}●${NC}`;
-  const viteStatus = viteUp
-    ? `${GREEN}running${NC} ${DIM}(port ${VITE_PORT})${NC}`
-    : `${RED}stopped${NC}`;
-  console.log(`  ${viteIcon} Dashboard:  ${viteStatus}`);
-
-  // ─── Web Launchd ───────────────────────────────────────────────────
   const webLaunchd = checkLaunchd("sh.kent.web");
   const webPersist = webLaunchd === "loaded"
     ? `${GREEN}launchd${NC}`
@@ -103,7 +93,7 @@ export async function handleStatus(): Promise<void> {
   console.log(`    ${DIM}Persistence:${NC} ${webPersist}`);
 
   // ─── Summary ───────────────────────────────────────────────────────
-  const allUp = daemonAlive && apiUp && viteUp;
+  const allUp = daemonAlive && apiUp;
   const allPersistent = daemonLaunchd === "loaded" && webLaunchd === "loaded";
 
   console.log(`\n${DIM}  ${"─".repeat(50)}${NC}`);
