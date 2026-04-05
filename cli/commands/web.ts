@@ -97,14 +97,21 @@ async function killStaleProcess(port: number, pidPath: string): Promise<void> {
 
 // ─── Process spawning ─────────────────────────────────────────────────────
 
-const projectRoot = resolve(import.meta.dir, import.meta.dir.endsWith("dist") ? ".." : "../..");
-const webDir = resolve(projectRoot, "web");
-const bunPath = execFileSync("which", ["bun"], { encoding: "utf-8" }).trim();
+function getProjectRoot(): string {
+  return resolve(import.meta.dir, import.meta.dir.endsWith("dist") ? ".." : "../..");
+}
+
+function getBunPath(): string {
+  return process.execPath || execFileSync("which", ["bun"], { encoding: "utf-8" }).trim();
+}
 
 function spawnApi(): Subprocess {
+  const root = getProjectRoot();
+  const webDir = resolve(root, "web");
   const serverScript = resolve(webDir, "server.ts");
   const logFile = resolve(KENT_DIR, "web-api.log");
-  const proc = Bun.spawn([bunPath, "run", serverScript], {
+  const bun = getBunPath();
+  const proc = Bun.spawn([bun, "run", serverScript], {
     cwd: webDir,
     stdout: Bun.file(logFile),
     stderr: Bun.file(logFile),
@@ -115,7 +122,10 @@ function spawnApi(): Subprocess {
 }
 
 function spawnVite(): Subprocess {
-  const bunxPath = execFileSync("which", ["bunx"], { encoding: "utf-8" }).trim();
+  const root = getProjectRoot();
+  const webDir = resolve(root, "web");
+  const bun = getBunPath();
+  const bunxPath = resolve(bun, "..", "bunx");
   const logFile = resolve(KENT_DIR, "web-vite.log");
   const proc = Bun.spawn([bunxPath, "vite", "--port", String(VITE_PORT)], {
     cwd: webDir,
@@ -252,7 +262,9 @@ export async function stopWeb(): Promise<void> {
 // ─── Launchd support ─────────────────────────────────────────────────────
 
 function generateWebPlist(): string {
-  const webScript = resolve(projectRoot, "cli/index.ts");
+  const root = getProjectRoot();
+  const bun = getBunPath();
+  const webScript = resolve(root, "cli/index.ts");
   const userPath = process.env.PATH || "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
 
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -263,13 +275,13 @@ function generateWebPlist(): string {
   <string>sh.kent.web</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${bunPath}</string>
+    <string>${bun}</string>
     <string>run</string>
     <string>${webScript}</string>
     <string>web</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>${projectRoot}</string>
+  <string>${root}</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>

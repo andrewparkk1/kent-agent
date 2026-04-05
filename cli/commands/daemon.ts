@@ -19,7 +19,7 @@ const VALID_SUBCOMMANDS = ["start", "stop", "status"] as const;
 function generatePlist(): string {
   const projectRoot = resolve(import.meta.dir, import.meta.dir.endsWith("dist") ? ".." : "../..");
   const daemonScript = resolve(projectRoot, "daemon/daemon.ts");
-  const bunPath = execFileSync("which", ["bun"], { encoding: "utf-8" }).trim();
+  const bunPath = process.execPath || execFileSync("which", ["bun"], { encoding: "utf-8" }).trim();
 
   // Capture current PATH so launchd has access to user-installed tools (gh, gws, etc.)
   const userPath = process.env.PATH || "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
