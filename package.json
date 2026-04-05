@@ -47,7 +47,7 @@
     "build": "bun run build:web && bun run build:cli",
     "postinstall": "cd web && bun install --frozen-lockfile 2>/dev/null || cd web && bun install",
     "typecheck": "tsc --noEmit",
-    "cleanup": "rm -rf ~/.kent"
+    "uninstall": "bash uninstall.sh"
   },
   "devDependencies": {
     "@types/bun": "latest",
