@@ -10,10 +10,27 @@
   "module": "cli/index.ts",
   "type": "module",
   "files": [
-    "dist/"
+    "cli/",
+    "daemon/",
+    "agent/",
+    "shared/",
+    "web/api/",
+    "web/src/",
+    "web/public/",
+    "web/index.html",
+    "web/server.ts",
+    "web/vite.config.ts",
+    "web/package.json",
+    "web/tsconfig.json",
+    "web/tsconfig.app.json",
+    "web/tsconfig.node.json",
+    "web/components.json",
+    "web/bun.lock",
+    "index.ts",
+    "tsconfig.json"
   ],
   "bin": {
-    "kent": "dist/index.js"
+    "kent": "cli/index.ts"
   },
   "scripts": {
     "start": "bun run cli/index.ts",
@@ -25,7 +42,7 @@
     "daemon:status": "bun run cli/index.ts daemon status",
     "sync": "bun run cli/index.ts sync",
     "build": "bun build ./cli/index.ts --target bun --minify --outdir ./dist --entry-naming index.js --external react-devtools-core",
-    "prepublishOnly": "bun run build",
+    "postinstall": "cd web && bun install --frozen-lockfile 2>/dev/null || cd web && bun install",
     "typecheck": "tsc --noEmit",
     "cleanup": "rm -rf ~/.kent"
   },

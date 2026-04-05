@@ -21,7 +21,6 @@ import {
 } from "@shared/config.ts";
 import { createWorkflow, listWorkflows } from "@shared/db.ts";
 import { DEFAULT_WORKFLOWS } from "@shared/default-workflows.ts";
-import { daemonStart } from "./daemon.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -577,7 +576,7 @@ export async function handleInit(): Promise<void> {
   // ------------------------------------------------------------------
   // Step 4: Start Daemon
   // ------------------------------------------------------------------
-  step(4, TOTAL_STEPS, "Start Daemon");
+  step(4, TOTAL_STEPS, "Initial Sync");
 
   // Save config first
   saveConfig(config);
@@ -585,15 +584,6 @@ export async function handleInit(): Promise<void> {
 
   // Seed default workflows
   await seedDefaultWorkflows();
-
-  // Install and start launchd daemon
-  try {
-    await daemonStart();
-    success("Daemon started");
-  } catch (e) {
-    warn(`Daemon setup failed: ${e}`);
-    info("Start manually: kent daemon start");
-  }
 
   // Run initial sync in-process so output streams live
   info("Running initial sync...\n");
@@ -612,16 +602,6 @@ export async function handleInit(): Promise<void> {
     warn(`Sync failed: ${e instanceof Error ? e.message : e}. Run 'kent sync' to retry.`);
   }
 
-  // Start web dashboard
-  info("Starting web dashboard...\n");
-  try {
-    const { handleWeb } = await import("./web.ts");
-    await handleWeb();
-  } catch (e) {
-    warn(`Web dashboard failed: ${e}`);
-    info("Start manually: kent web");
-  }
-
   // ------------------------------------------------------------------
   // Done
   // ------------------------------------------------------------------
@@ -630,17 +610,19 @@ export async function handleInit(): Promise<void> {
   console.log(`
 ${GREEN}${BOLD}  Setup complete!${NC}
 
-  ${BOLD}Commands:${NC}
-    kent                    ${DIM}# interactive REPL${NC}
+  ${BOLD}Next step:${NC}
     kent run                ${DIM}# start daemon + web dashboard${NC}
+
+  ${BOLD}Other commands:${NC}
+    kent status             ${DIM}# check if services are running${NC}
+    kent logs -f            ${DIM}# stream daemon logs${NC}
     kent sync               ${DIM}# manual sync${NC}
-    kent web                ${DIM}# open web dashboard${NC}
-    kent daemon status      ${DIM}# check daemon${NC}
-    kent workflow list       ${DIM}# see scheduled workflows${NC}
+    kent workflow list      ${DIM}# see scheduled workflows${NC}
 
   ${DIM}Config:  ~/.kent/config.json${NC}
   ${DIM}Data:    ~/.kent/kent.db${NC}
-  ${DIM}Prompts: ~/.kent/prompts/${NC}
   ${DIM}Logs:    ~/.kent/daemon.log${NC}
 `);
+
+  process.exit(0);
 }
