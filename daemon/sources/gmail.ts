@@ -114,41 +114,51 @@ export const gmail: Source = {
     const daysBack = daysBackFromLastSync(lastSync, options?.defaultDays);
     const maxMessages = options?.limit ?? 500;
 
-    // Fetch both inbox and sent mail so we capture the user's own messages
+    // Fetch both inbox and sent mail in parallel
     const queries = [
       `newer_than:${daysBack}d in:inbox`,
       `newer_than:${daysBack}d in:sent`,
     ];
 
-    const allMessageIds: Array<{ id: string }> = [];
-    const seenIds = new Set<string>();
+    const perQueryLimit = Math.ceil(maxMessages / queries.length);
 
-    for (const q of queries) {
-      let pageToken: string | undefined;
-      while (allMessageIds.length < maxMessages) {
-        const batchSize = Math.min(100, maxMessages - allMessageIds.length);
-        const params: Record<string, any> = {
-          userId: "me",
-          maxResults: batchSize,
-          q,
-        };
-        if (pageToken) params.pageToken = pageToken;
+    const queryResults = await Promise.all(
+      queries.map(async (q) => {
+        const msgs: Array<{ id: string }> = [];
+        let pageToken: string | undefined;
+        while (msgs.length < perQueryLimit) {
+          const batchSize = Math.min(100, perQueryLimit - msgs.length);
+          const params: Record<string, any> = {
+            userId: "me",
+            maxResults: batchSize,
+            q,
+          };
+          if (pageToken) params.pageToken = pageToken;
 
-        const listData = await runGws([
-          "gmail", "users", "messages", "list",
-          "--params", JSON.stringify(params),
-        ]);
+          const listData = await runGws([
+            "gmail", "users", "messages", "list",
+            "--params", JSON.stringify(params),
+          ]);
 
-        if (!listData?.messages || !Array.isArray(listData.messages)) break;
-        for (const msg of listData.messages) {
-          if (!seenIds.has(msg.id)) {
-            seenIds.add(msg.id);
-            allMessageIds.push(msg);
-          }
+          if (!listData?.messages || !Array.isArray(listData.messages)) break;
+          msgs.push(...listData.messages);
+
+          pageToken = listData.nextPageToken;
+          if (!pageToken) break;
         }
+        return msgs;
+      })
+    );
 
-        pageToken = listData.nextPageToken;
-        if (!pageToken) break;
+    // Dedupe across inbox + sent
+    const seenIds = new Set<string>();
+    const allMessageIds: Array<{ id: string }> = [];
+    for (const msgs of queryResults) {
+      for (const msg of msgs) {
+        if (!seenIds.has(msg.id)) {
+          seenIds.add(msg.id);
+          allMessageIds.push(msg);
+        }
       }
     }
 

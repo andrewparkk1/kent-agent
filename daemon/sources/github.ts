@@ -80,8 +80,13 @@ export const github: Source = {
         ? new Date(0).toISOString()
         : new Date(Date.now() - defaultDays * 24 * 60 * 60 * 1000).toISOString();
 
-    // ── Notifications (all, paginated) ──────────────────────────────────
-    const notifications = await runGhJson(["api", "notifications", "--paginate"]);
+    // -- Phase 1: Notifications + repo list in parallel ------------------
+    const [notifications, ownedRaw, contribRaw] = await Promise.all([
+      runGhJson(["api", "notifications", "--paginate"]),
+      runGh(["api", "user/repos?sort=pushed&per_page=100&type=owner", "--paginate", "--jq", ".[].full_name"]),
+      runGh(["api", `users/${account}/repos?sort=pushed&per_page=100&type=member`, "--paginate", "--jq", ".[].full_name"]),
+    ]);
+
     if (Array.isArray(notifications)) {
       for (const n of notifications) {
         items.push({
@@ -103,50 +108,54 @@ export const github: Source = {
       }
     }
 
-    // ── Get repos user has pushed to (owned + contributed) ──────────────
-    const ownedRaw = await runGh([
-      "api", "user/repos?sort=pushed&per_page=100&type=owner", "--paginate",
-      "--jq", ".[].full_name",
-    ]);
-    const contribRaw = await runGh([
-      "api", `users/${account}/repos?sort=pushed&per_page=100&type=member`, "--paginate",
-      "--jq", ".[].full_name",
-    ]);
     const repoSet = new Set<string>();
     for (const raw of [ownedRaw, contribRaw]) {
       if (raw) raw.split("\n").filter(Boolean).forEach((r) => repoSet.add(r));
     }
     const repoNames = [...repoSet];
 
-    // ── Commits (paginated, all repos) ──────────────────────────────────
-    for (const repo of repoNames) {
-      const commits = await runGhJson([
-        "api", `repos/${repo}/commits?since=${sinceDate}&per_page=100&author=${account}`, "--paginate",
-      ]);
-      if (!Array.isArray(commits)) continue;
-
-      for (const c of commits) {
-        const commitDate = c?.commit?.committer?.date ?? c?.commit?.author?.date ?? "";
-        const when = new Date(commitDate);
-        if (!commitDate || Number.isNaN(when.getTime())) continue;
-        const message = (c?.commit?.message ?? "").split("\n")[0];
-        const sha = (c?.sha ?? "").slice(0, 7);
-        if (!sha || !message) continue;
-        items.push({
-          source: "github",
-          externalId: `github-commit-${c.sha}`,
-          content: `\`${sha}\` ${message} — ${repo}`,
-          metadata: { type: "commit", sha: c.sha, repo, date: commitDate },
-          createdAt: Math.floor(when.getTime() / 1000),
-        });
+    // -- Phase 2: Commits in parallel batches of 10 ----------------------
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < repoNames.length; i += BATCH_SIZE) {
+      const batch = repoNames.slice(i, i + BATCH_SIZE);
+      const results = await Promise.all(
+        batch.map((repo) =>
+          runGhJson(["api", `repos/${repo}/commits?since=${sinceDate}&per_page=100&author=${account}`, "--paginate"])
+            .then((commits) => ({ repo, commits }))
+        )
+      );
+      for (const { repo, commits } of results) {
+        if (!Array.isArray(commits)) continue;
+        for (const c of commits) {
+          const commitDate = c?.commit?.committer?.date ?? c?.commit?.author?.date ?? "";
+          const when = new Date(commitDate);
+          if (!commitDate || Number.isNaN(when.getTime())) continue;
+          const message = (c?.commit?.message ?? "").split("\n")[0];
+          const sha = (c?.sha ?? "").slice(0, 7);
+          if (!sha || !message) continue;
+          items.push({
+            source: "github",
+            externalId: `github-commit-${c.sha}`,
+            content: `\`${sha}\` ${message} — ${repo}`,
+            metadata: { type: "commit", sha: c.sha, repo, date: commitDate },
+            createdAt: Math.floor(when.getTime() / 1000),
+          });
+        }
       }
     }
 
-    // ── PRs authored by user ────────────────────────────────────────────
-    const prs = await runGhJson([
-      "api", `search/issues?q=author:${account}+type:pr+updated:>=${sinceDate.slice(0, 10)}&per_page=100`, "--paginate",
-      "--jq", ".items",
+    // -- Phase 3: PRs + Issues in parallel --------------------------------
+    const [prs, issues] = await Promise.all([
+      runGhJson([
+        "api", `search/issues?q=author:${account}+type:pr+updated:>=${sinceDate.slice(0, 10)}&per_page=100`, "--paginate",
+        "--jq", ".items",
+      ]),
+      runGhJson([
+        "api", `search/issues?q=involves:${account}+type:issue+updated:>=${sinceDate.slice(0, 10)}&per_page=100`, "--paginate",
+        "--jq", ".items",
+      ]),
     ]);
+
     if (Array.isArray(prs)) {
       for (const pr of prs) {
         const repo = pr.repository_url?.split("/").slice(-2).join("/") ?? "";
@@ -168,11 +177,6 @@ export const github: Source = {
       }
     }
 
-    // ── Issues authored/assigned to user ────────────────────────────────
-    const issues = await runGhJson([
-      "api", `search/issues?q=involves:${account}+type:issue+updated:>=${sinceDate.slice(0, 10)}&per_page=100`, "--paginate",
-      "--jq", ".items",
-    ]);
     if (Array.isArray(issues)) {
       for (const issue of issues) {
         const repo = issue.repository_url?.split("/").slice(-2).join("/") ?? "";
