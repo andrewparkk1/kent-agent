@@ -161,11 +161,13 @@ export async function handleWeb(): Promise<void> {
   if (!apiReady) console.log("Warning: API server may not have started — check ~/.kent/web-api.log");
   if (!viteReady) console.log("Warning: Vite dev server may not have started — check ~/.kent/web-vite.log");
 
-  // Open browser
-  try {
-    execFileSync("open", [`http://localhost:${VITE_PORT}`]);
-  } catch {
-    console.log(`Open http://localhost:${VITE_PORT} in your browser`);
+  // Only open browser when run interactively (not from launchd)
+  if (process.stdout.isTTY) {
+    try {
+      execFileSync("open", [`http://localhost:${VITE_PORT}`]);
+    } catch {
+      console.log(`Open http://localhost:${VITE_PORT} in your browser`);
+    }
   }
 
   console.log(`Dashboard: http://localhost:${VITE_PORT}`);
