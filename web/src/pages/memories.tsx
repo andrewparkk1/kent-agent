@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
-import { Brain, User, FolderOpen, Hash, CalendarDays, Heart, MapPin, Search } from "lucide-react";
+import { Brain, User, FolderOpen, Hash, CalendarDays, Heart, MapPin, Search, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import { Stagger, StaggerItem } from "@/components/stagger";
 import { timeAgo } from "@/lib/types";
@@ -9,6 +9,7 @@ interface Memory {
   id: string;
   type: "person" | "project" | "topic" | "event" | "preference" | "place";
   title: string;
+  summary: string;
   body: string;
   sources: string[];
   aliases: string[];
@@ -25,7 +26,7 @@ const TYPE_META: Record<string, { icon: typeof Brain; label: string; color: stri
   place:      { icon: MapPin,       label: "Place",      color: "text-orange-500/80",  bg: "bg-orange-500/8" },
 };
 
-export function MemoriesPage() {
+export function MemoriesPage({ onSelect }: { onSelect?: (id: string) => void }) {
   const [memories, setMemories] = useState<Memory[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string | null>(null);
@@ -77,7 +78,7 @@ export function MemoriesPage() {
         animate={{ opacity: 1 }}
         transition={{ delay: 0.1, duration: 0.3 }}
       >
-        Knowledge base of people, projects, and topics Kent has learned.
+        A living wiki of people, projects, and topics Kent has learned about.
       </motion.p>
 
       <motion.div
@@ -147,20 +148,23 @@ export function MemoriesPage() {
             {filtered.map((memory) => {
               const meta = TYPE_META[memory.type] || { icon: Brain, label: memory.type, color: "text-neutral-400", bg: "bg-neutral-500/8" };
               const Icon = meta.icon;
+              // Show summary if available, otherwise fall back to body preview
+              const preview = memory.summary || memory.body;
               return (
                 <StaggerItem key={memory.id}>
                   <motion.div
                     whileHover={{ x: 2 }}
                     transition={{ duration: 0.15 }}
                     className="flex items-start gap-3 px-3 py-3 rounded-lg hover:bg-foreground/[0.03] transition-colors cursor-pointer"
+                    onClick={() => onSelect?.(memory.id)}
                   >
                     <div className={`shrink-0 w-7 h-7 rounded-md ${meta.bg} flex items-center justify-center mt-0.5`}>
                       <Icon size={14} className={meta.color} />
                     </div>
                     <div className="min-w-0 flex-1">
                       <span className="text-[13px] text-foreground leading-snug">{memory.title}</span>
-                      {memory.body && (
-                        <span className="text-[12px] text-muted-foreground/50 line-clamp-2 block mt-0.5 leading-relaxed whitespace-pre-line">{memory.body}</span>
+                      {preview && (
+                        <span className="text-[12px] text-muted-foreground/50 line-clamp-2 block mt-0.5 leading-relaxed whitespace-pre-line">{preview}</span>
                       )}
                     </div>
                     <div className="shrink-0 flex items-center gap-2 mt-0.5">

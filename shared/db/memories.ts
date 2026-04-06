@@ -1,13 +1,16 @@
-/** Memories — persistent knowledge base for the agent. */
+/** Memories — persistent wiki-style knowledge base for the agent. */
 import { sql } from "kysely";
 import { getDb } from "./connection.ts";
-import type { Memory, MemoryType } from "./schema.ts";
+import type { Memory, MemoryType, MemoryLink } from "./schema.ts";
 
-export type { Memory, MemoryType };
+export type { Memory, MemoryType, MemoryLink };
+
+// ─── Memory CRUD ───────────────────────────────────────────────────────────
 
 export async function createMemory(opts: {
   type: MemoryType;
   title: string;
+  summary?: string;
   body: string;
   sources?: string[];
   aliases?: string[];
@@ -19,6 +22,7 @@ export async function createMemory(opts: {
       id,
       type: opts.type,
       title: opts.title,
+      summary: opts.summary ?? "",
       body: opts.body,
       sources: JSON.stringify(opts.sources ?? []),
       aliases: JSON.stringify(opts.aliases ?? []),
@@ -29,7 +33,7 @@ export async function createMemory(opts: {
 
 export async function updateMemory(
   id: string,
-  fields: Partial<Pick<Memory, "title" | "body" | "type" | "is_archived"> & { sources: string[]; aliases: string[] }>,
+  fields: Partial<Pick<Memory, "title" | "summary" | "body" | "type" | "is_archived"> & { sources: string[]; aliases: string[] }>,
 ): Promise<void> {
   const update: Record<string, any> = { updated_at: sql`unixepoch()` };
   for (const [key, value] of Object.entries(fields)) {
@@ -64,6 +68,7 @@ export async function searchMemories(query: string): Promise<Memory[]> {
     .where("is_archived", "=", 0)
     .where((eb) => eb.or([
       eb("title", "like", pattern),
+      eb("summary", "like", pattern),
       eb("body", "like", pattern),
       eb("aliases", "like", pattern),
     ]))
@@ -76,4 +81,67 @@ export async function searchMemories(query: string): Promise<Memory[]> {
 export async function deleteMemory(id: string): Promise<boolean> {
   const result = await getDb().deleteFrom("memories").where("id", "=", id).execute();
   return result.length > 0 && Number(result[0]?.numDeletedRows) > 0;
+}
+
+// ─── Memory Links ──────────────────────────────────────────────────────────
+
+export async function linkMemories(fromId: string, toId: string, label = ""): Promise<void> {
+  await getDb()
+    .insertInto("memory_links")
+    .values({ from_id: fromId, to_id: toId, label })
+    .onConflict((oc) => oc.columns(["from_id", "to_id"]).doUpdateSet({ label }))
+    .execute();
+}
+
+export async function unlinkMemories(fromId: string, toId: string): Promise<void> {
+  await getDb()
+    .deleteFrom("memory_links")
+    .where("from_id", "=", fromId)
+    .where("to_id", "=", toId)
+    .execute();
+}
+
+/** Get all memories linked FROM this memory (outgoing links). */
+export async function getLinkedMemories(id: string): Promise<(Memory & { link_label: string })[]> {
+  const rows = await getDb()
+    .selectFrom("memory_links")
+    .innerJoin("memories", "memories.id", "memory_links.to_id")
+    .where("memory_links.from_id", "=", id)
+    .where("memories.is_archived", "=", 0)
+    .select([
+      "memories.id", "memories.type", "memories.title", "memories.summary",
+      "memories.body", "memories.sources", "memories.aliases",
+      "memories.is_archived", "memories.created_at", "memories.updated_at",
+      "memory_links.label as link_label",
+    ])
+    .orderBy("memories.title")
+    .execute();
+  return rows as any;
+}
+
+/** Get all memories that link TO this memory (backlinks). */
+export async function getBacklinks(id: string): Promise<(Memory & { link_label: string })[]> {
+  const rows = await getDb()
+    .selectFrom("memory_links")
+    .innerJoin("memories", "memories.id", "memory_links.from_id")
+    .where("memory_links.to_id", "=", id)
+    .where("memories.is_archived", "=", 0)
+    .select([
+      "memories.id", "memories.type", "memories.title", "memories.summary",
+      "memories.body", "memories.sources", "memories.aliases",
+      "memories.is_archived", "memories.created_at", "memories.updated_at",
+      "memory_links.label as link_label",
+    ])
+    .orderBy("memories.title")
+    .execute();
+  return rows as any;
+}
+
+/** Get all links for a memory (both directions). */
+export async function getAllLinks(id: string): Promise<{ outgoing: (Memory & { link_label: string })[]; incoming: (Memory & { link_label: string })[] }> {
+  const [outgoing, incoming] = await Promise.all([
+    getLinkedMemories(id),
+    getBacklinks(id),
+  ]);
+  return { outgoing, incoming };
 }

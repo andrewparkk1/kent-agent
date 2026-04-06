@@ -48,7 +48,7 @@ export interface DaemonInfo {
   nextSyncAt: number | null;
 }
 
-export type Page = "home" | "workflows" | "workflow-detail" | "activity" | "chat" | "identity" | "sources" | "memories" | "settings";
+export type Page = "home" | "workflows" | "workflow-detail" | "activity" | "chat" | "identity" | "sources" | "memories" | "memory-detail" | "settings";
 
 // ─── Source metadata ────────────────────────────────────────────────────────
 
