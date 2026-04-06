@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Search, Globe, ChevronDown, ChevronRight, RefreshCw, Calendar, Loader2, Settings2, X, MessageCircle, Users, Download, Bookmark, History, SearchIcon, Terminal, Bot } from "lucide-react";
+import { Search, Globe, ChevronDown, ChevronRight, RefreshCw, Calendar, Loader2, Settings2, X, MessageCircle, Users, Download, Bookmark, History, SearchIcon, Terminal } from "lucide-react";
 import { toast } from "sonner";
 import Markdown from "react-markdown";
 import { Stagger, StaggerItem } from "@/components/stagger";

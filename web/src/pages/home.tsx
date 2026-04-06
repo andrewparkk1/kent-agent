@@ -107,7 +107,7 @@ export function HomePage() {
   const [activeType, setActiveType] = useState<"morning" | "evening" | null>(null);
   const [loading, setLoading] = useState(true);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [direction, setDirection] = useState(0);
+  const [_direction, setDirection] = useState(0);
   const directionRef = useRef(0);
 
   const morningBrief = briefs.find((b) => b.workflow_name.includes("morning")) || null;

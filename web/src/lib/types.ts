@@ -1,4 +1,3 @@
-import { Globe } from "lucide-react";
 import {
   GmailIcon, ChromeIcon, GitHubIcon, SignalIcon, IMessageIcon,
   AppleNotesIcon, GranolaIcon, CalendarIcon, TasksIcon, DriveIcon,

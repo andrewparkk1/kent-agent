@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
-import { Brain, User, FolderOpen, Hash, CalendarDays, Heart, MapPin, Search, Link2 } from "lucide-react";
+import { Brain, User, FolderOpen, Hash, CalendarDays, Heart, MapPin, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Stagger, StaggerItem } from "@/components/stagger";
 import { timeAgo } from "@/lib/types";
@@ -48,7 +48,7 @@ export function MemoriesPage({ onSelect }: { onSelect?: (id: string) => void }) 
       const data = await res.json();
       setMemories(data.memories);
       if (!filter && !debouncedQuery) {
-        setAllTypes([...new Set(data.memories.map((m: Memory) => m.type))]);
+        setAllTypes([...new Set(data.memories.map((m: Memory) => m.type))] as string[]);
       }
     } catch {
       toast.error("Failed to load memories");
