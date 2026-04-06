@@ -394,7 +394,7 @@ function groupByConversation(items: Item[]): Conversation[] {
     } else {
       map.set(convId, {
         id: convId,
-        name: item.metadata.contactName || convId,
+        name: item.metadata.conversationName || item.metadata.contactName || convId,
         isGroup: !!item.metadata.isGroup,
         lastMessage: item,
         messages: [item],
@@ -458,9 +458,9 @@ function ConversationRow({ conv }: { conv: Conversation }) {
                           ? "bg-blue-500 text-white rounded-br-md"
                           : "bg-foreground/[0.06] text-foreground/80 rounded-bl-md"
                       }`}>
-                        {!fromMe && conv.isGroup && msg.metadata.handle && (
+                        {!fromMe && conv.isGroup && (
                           <div className="text-[10px] font-medium mb-0.5 opacity-60">
-                            {msg.metadata.contactName !== conv.name ? msg.metadata.handle : msg.metadata.handle}
+                            {msg.metadata.senderName || msg.metadata.contactName || msg.metadata.handle}
                           </div>
                         )}
                         {msg.content}

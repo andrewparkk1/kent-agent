@@ -29,6 +29,8 @@ const CONTACTS_DB_MAIN = join(
 );
 
 let contactCache: Map<string, string> | null = null;
+let contactCacheBuiltAt = 0;
+const CACHE_TTL_MS = 5 * 60 * 1000; // refresh every 5 min
 
 /** Normalize a phone number to digits only (strip +, spaces, parens, dashes) */
 function normalizePhone(phone: string): string {
@@ -37,74 +39,110 @@ function normalizePhone(phone: string): string {
   return digits;
 }
 
-/** Build a lookup map from phone/email → contact name */
-function buildContactCache(): Map<string, string> {
-  if (contactCache) return contactCache;
-  contactCache = new Map<string, string>();
-
+/** Discover all AddressBook database paths on macOS */
+function findAddressBookDbs(): string[] {
   const dbPaths: string[] = [];
+  const home = homedir();
+
+  // Main AddressBook DB
   if (existsSync(CONTACTS_DB_MAIN)) dbPaths.push(CONTACTS_DB_MAIN);
+
+  // iCloud / account-specific source DBs
   try {
     if (existsSync(CONTACTS_DB_SOURCES)) {
-      const sources = readdirSync(CONTACTS_DB_SOURCES);
-      for (const src of sources) {
+      for (const src of readdirSync(CONTACTS_DB_SOURCES)) {
         const srcDb = join(CONTACTS_DB_SOURCES, src, "AddressBook-v22.abcddb");
         if (existsSync(srcDb)) dbPaths.push(srcDb);
       }
     }
-  } catch {
-    /* ignore */
+  } catch { /* ignore */ }
+
+  // Sandboxed Contacts.app container (macOS 13+)
+  const containerDb = join(
+    home,
+    "Library/Containers/com.apple.AddressBook/Data/Library/Application Support/AddressBook/AddressBook-v22.abcddb"
+  );
+  if (existsSync(containerDb) && !dbPaths.includes(containerDb)) {
+    dbPaths.push(containerDb);
   }
+
+  return dbPaths;
+}
+
+/** Load contacts from a single AddressBook database */
+function loadContactsFromDb(dbPath: string, cache: Map<string, string>): void {
+  const db = new Database(dbPath, { readonly: true });
+  try {
+    // Phone numbers — use ZFIRSTNAME or fall back to ZNAME for orgs/nicknames
+    const phones = db
+      .query(
+        `SELECT r.ZFIRSTNAME, r.ZLASTNAME, r.ZNICKNAME, r.ZNAME, p.ZFULLNUMBER
+         FROM ZABCDRECORD r
+         JOIN ZABCDPHONENUMBER p ON p.ZOWNER = r.Z_PK
+         WHERE p.ZFULLNUMBER IS NOT NULL
+           AND (r.ZFIRSTNAME IS NOT NULL OR r.ZNAME IS NOT NULL)`
+      )
+      .all() as any[];
+
+    for (const row of phones) {
+      const name = row.ZNICKNAME
+        || [row.ZFIRSTNAME, row.ZLASTNAME].filter(Boolean).join(" ")
+        || row.ZNAME;
+      if (name && row.ZFULLNUMBER) {
+        cache.set(normalizePhone(row.ZFULLNUMBER), name);
+      }
+    }
+
+    // Email addresses
+    const emails = db
+      .query(
+        `SELECT r.ZFIRSTNAME, r.ZLASTNAME, r.ZNICKNAME, r.ZNAME, e.ZADDRESS
+         FROM ZABCDRECORD r
+         JOIN ZABCDEMAILADDRESS e ON e.ZOWNER = r.Z_PK
+         WHERE e.ZADDRESS IS NOT NULL
+           AND (r.ZFIRSTNAME IS NOT NULL OR r.ZNAME IS NOT NULL)`
+      )
+      .all() as any[];
+
+    for (const row of emails) {
+      const name = row.ZNICKNAME
+        || [row.ZFIRSTNAME, row.ZLASTNAME].filter(Boolean).join(" ")
+        || row.ZNAME;
+      if (name && row.ZADDRESS) {
+        cache.set(row.ZADDRESS.toLowerCase(), name);
+      }
+    }
+  } finally {
+    db.close();
+  }
+}
+
+/** Build a lookup map from phone/email → contact name */
+function buildContactCache(): Map<string, string> {
+  // Return cached if still fresh
+  if (contactCache && (Date.now() - contactCacheBuiltAt) < CACHE_TTL_MS) {
+    return contactCache;
+  }
+
+  const cache = new Map<string, string>();
+  const dbPaths = findAddressBookDbs();
 
   for (const dbPath of dbPaths) {
     try {
-      const db = new Database(dbPath, { readonly: true });
-      try {
-        // Phone numbers
-        const phones = db
-          .query(
-            `SELECT r.ZFIRSTNAME, r.ZLASTNAME, p.ZFULLNUMBER
-           FROM ZABCDRECORD r
-           JOIN ZABCDPHONENUMBER p ON p.ZOWNER = r.Z_PK
-           WHERE r.ZFIRSTNAME IS NOT NULL AND p.ZFULLNUMBER IS NOT NULL`
-          )
-          .all() as any[];
-
-        for (const row of phones) {
-          const name = [row.ZFIRSTNAME, row.ZLASTNAME]
-            .filter(Boolean)
-            .join(" ");
-          if (name && row.ZFULLNUMBER) {
-            contactCache.set(normalizePhone(row.ZFULLNUMBER), name);
-          }
-        }
-
-        // Email addresses
-        const emails = db
-          .query(
-            `SELECT r.ZFIRSTNAME, r.ZLASTNAME, e.ZADDRESS
-           FROM ZABCDRECORD r
-           JOIN ZABCDEMAILADDRESS e ON e.ZOWNER = r.Z_PK
-           WHERE r.ZFIRSTNAME IS NOT NULL AND e.ZADDRESS IS NOT NULL`
-          )
-          .all() as any[];
-
-        for (const row of emails) {
-          const name = [row.ZFIRSTNAME, row.ZLASTNAME]
-            .filter(Boolean)
-            .join(" ");
-          if (name && row.ZADDRESS) {
-            contactCache.set(row.ZADDRESS.toLowerCase(), name);
-          }
-        }
-      } finally {
-        db.close();
-      }
-    } catch {
-      // ignore — AddressBook may not be accessible
+      loadContactsFromDb(dbPath, cache);
+    } catch (e) {
+      console.warn(`[imessage] Failed to read contacts from ${dbPath}: ${e}`);
     }
   }
 
+  if (cache.size === 0 && dbPaths.length > 0) {
+    console.warn(
+      `[imessage] Contact cache is empty despite ${dbPaths.length} DB(s) found — check Full Disk Access permissions`
+    );
+  }
+
+  contactCache = cache;
+  contactCacheBuiltAt = Date.now();
   return contactCache;
 }
 
@@ -281,21 +319,28 @@ export const imessage: Source = {
             (row.chat_identifier && row.chat_identifier.startsWith("chat"))
           );
 
-          let displayName: string;
+          // Always resolve the per-message sender from handle_id
+          const senderName = row.is_from_me === 1
+            ? "me"
+            : row.handle_id
+              ? resolveContact(row.handle_id) || row.handle_id
+              : "Unknown";
+
+          // Conversation display name (group name or contact name)
+          let conversationName: string;
           if (row.group_name) {
-            displayName = row.group_name;
+            conversationName = row.group_name;
           } else if (
             row.chat_identifier &&
             row.chat_identifier.startsWith("chat")
           ) {
-            displayName =
+            conversationName =
               groupParticipantNames.get(row.chat_identifier) ||
               row.chat_identifier;
           } else {
-            const contactName = row.handle_id
-              ? resolveContact(row.handle_id)
-              : null;
-            displayName = contactName || row.handle_id || "Unknown";
+            conversationName = senderName === "me"
+              ? (row.handle_id ? resolveContact(row.handle_id) || row.handle_id : "Unknown")
+              : senderName;
           }
 
           const createdAt = appleTimeToUnix(row.msg_date);
@@ -307,7 +352,9 @@ export const imessage: Source = {
             metadata: {
               isFromMe: row.is_from_me === 1,
               service: row.service,
-              contactName: displayName,
+              contactName: senderName === "me" ? conversationName : senderName,
+              senderName,
+              conversationName,
               isGroup,
               conversationId: row.chat_identifier || row.handle_id || "unknown",
               handle: row.handle_id,
