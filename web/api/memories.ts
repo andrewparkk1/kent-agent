@@ -1,4 +1,4 @@
-/** GET /api/memories — list/search memories. GET /api/memories/:id — single memory with links. */
+/** GET /api/memories — list/search memories. GET /api/memories/:id — single memory with links + index for resolving inline [[Title]] references. */
 import { listMemories, searchMemories, getMemory, getAllLinks } from "../../shared/db.ts";
 
 function parseMemory(m: any) {
@@ -8,6 +8,22 @@ function parseMemory(m: any) {
     aliases: JSON.parse(m.aliases),
     is_archived: !!m.is_archived,
   };
+}
+
+/** Build a lightweight index of title/alias → memory ID for resolving [[Title]] links. */
+async function buildMemoryIndex(): Promise<Record<string, { id: string; type: string; title: string }>> {
+  const all = await listMemories();
+  const index: Record<string, { id: string; type: string; title: string }> = {};
+  for (const m of all) {
+    // Index by title (case-insensitive key)
+    index[m.title.toLowerCase()] = { id: m.id, type: m.type, title: m.title };
+    // Also index by each alias
+    const aliases: string[] = JSON.parse(m.aliases);
+    for (const alias of aliases) {
+      index[alias.toLowerCase()] = { id: m.id, type: m.type, title: m.title };
+    }
+  }
+  return index;
 }
 
 export async function handleMemories(req: Request) {
@@ -36,7 +52,10 @@ export async function handleMemoryDetail(req: Request) {
   const memory = await getMemory(id);
   if (!memory) return new Response("Not Found", { status: 404 });
 
-  const links = await getAllLinks(id);
+  const [links, memoryIndex] = await Promise.all([
+    getAllLinks(id),
+    buildMemoryIndex(),
+  ]);
 
   return Response.json({
     memory: parseMemory(memory),
@@ -56,5 +75,7 @@ export async function handleMemoryDetail(req: Request) {
         link_label: m.link_label,
       })),
     },
+    // Lightweight index for resolving [[Title]] inline links
+    memoryIndex,
   });
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { motion } from "motion/react";
 import Markdown from "react-markdown";
 import {
@@ -28,6 +28,12 @@ interface LinkedMemory {
   link_label: string;
 }
 
+interface MemoryIndexEntry {
+  id: string;
+  type: string;
+  title: string;
+}
+
 const TYPE_META: Record<string, { icon: typeof Brain; label: string; color: string; bg: string; accent: string }> = {
   person:     { icon: User,         label: "Person",     color: "text-blue-500/80",    bg: "bg-blue-500/8",    accent: "border-blue-500/20" },
   project:    { icon: FolderOpen,   label: "Project",    color: "text-violet-500/80",  bg: "bg-violet-500/8",  accent: "border-violet-500/20" },
@@ -35,6 +41,15 @@ const TYPE_META: Record<string, { icon: typeof Brain; label: string; color: stri
   event:      { icon: CalendarDays, label: "Event",      color: "text-emerald-500/80", bg: "bg-emerald-500/8", accent: "border-emerald-500/20" },
   preference: { icon: Heart,        label: "Preference", color: "text-red-500/80",     bg: "bg-red-500/8",     accent: "border-red-500/20" },
   place:      { icon: MapPin,       label: "Place",      color: "text-orange-500/80",  bg: "bg-orange-500/8",  accent: "border-orange-500/20" },
+};
+
+const TYPE_COLORS: Record<string, string> = {
+  person: "text-blue-500/70 hover:text-blue-500 decoration-blue-500/30",
+  project: "text-violet-500/70 hover:text-violet-500 decoration-violet-500/30",
+  topic: "text-amber-500/70 hover:text-amber-500 decoration-amber-500/30",
+  event: "text-emerald-500/70 hover:text-emerald-500 decoration-emerald-500/30",
+  preference: "text-red-500/70 hover:text-red-500 decoration-red-500/30",
+  place: "text-orange-500/70 hover:text-orange-500 decoration-orange-500/30",
 };
 
 /** Extract ## headings from markdown body for a table of contents. */
@@ -49,6 +64,23 @@ function extractToc(body: string): { level: number; text: string; slug: string }
     }
   }
   return headings;
+}
+
+/**
+ * Pre-process markdown body to convert [[Title]] wiki links into standard markdown links.
+ * Resolves against the memory index to create clickable links.
+ * Unresolved [[Title]] references are left as styled text.
+ */
+function resolveWikiLinks(body: string, index: Record<string, MemoryIndexEntry>): string {
+  return body.replace(/\[\[([^\]]+)\]\]/g, (_match, title: string) => {
+    const entry = index[title.toLowerCase()];
+    if (entry) {
+      // Use a custom protocol so we can intercept in the link renderer
+      return `[${title}](kent-memory://${encodeURIComponent(entry.id)})`;
+    }
+    // Unresolved reference — render as styled but non-clickable
+    return `**⟦${title}⟧**`;
+  });
 }
 
 function LinkedMemoryCard({ memory, label, onNavigate }: { memory: LinkedMemory; label?: string; onNavigate: (id: string) => void }) {
@@ -85,6 +117,7 @@ export function MemoryDetailPage({ memoryId, onBack, onNavigate }: {
 }) {
   const [memory, setMemory] = useState<Memory | null>(null);
   const [links, setLinks] = useState<{ outgoing: LinkedMemory[]; incoming: LinkedMemory[] }>({ outgoing: [], incoming: [] });
+  const [memoryIndex, setMemoryIndex] = useState<Record<string, MemoryIndexEntry>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -94,14 +127,56 @@ export function MemoryDetailPage({ memoryId, onBack, onNavigate }: {
       .then((data) => {
         setMemory(data.memory);
         setLinks(data.links);
+        setMemoryIndex(data.memoryIndex ?? {});
       })
       .catch(() => toast.error("Failed to load memory"))
       .finally(() => setLoading(false));
   }, [memoryId]);
 
   const toc = useMemo(() => (memory ? extractToc(memory.body) : []), [memory?.body]);
+
+  // Pre-process body to resolve [[Title]] links
+  const processedBody = useMemo(() => {
+    if (!memory?.body) return "";
+    return resolveWikiLinks(memory.body, memoryIndex);
+  }, [memory?.body, memoryIndex]);
+
+  // Pre-process summary too (it might have [[Title]] refs)
+  const processedSummary = useMemo(() => {
+    if (!memory?.summary) return "";
+    return resolveWikiLinks(memory.summary, memoryIndex);
+  }, [memory?.summary, memoryIndex]);
+
+  // Handle clicks on kent-memory:// links
+  const handleLinkClick = useCallback((e: React.MouseEvent, href: string) => {
+    if (href.startsWith("kent-memory://")) {
+      e.preventDefault();
+      const id = decodeURIComponent(href.replace("kent-memory://", ""));
+      onNavigate(id);
+    }
+  }, [onNavigate]);
+
   const hasLinks = links.outgoing.length > 0 || links.incoming.length > 0;
   const hasSidebar = toc.length > 1 || hasLinks;
+
+  // Custom link renderer that handles kent-memory:// links as inline wiki links
+  const linkRenderer = useCallback(({ href, children }: { href?: string; children?: React.ReactNode }) => {
+    if (href?.startsWith("kent-memory://")) {
+      const id = decodeURIComponent(href.replace("kent-memory://", ""));
+      const entry = Object.values(memoryIndex).find((e) => e.id === id);
+      const colorClass = entry ? (TYPE_COLORS[entry.type] ?? "text-foreground/70 hover:text-foreground") : "text-foreground/70 hover:text-foreground";
+
+      return (
+        <button
+          onClick={(e) => handleLinkClick(e, href)}
+          className={`${colorClass} underline underline-offset-2 decoration-1 transition-colors cursor-pointer font-medium`}
+        >
+          {children}
+        </button>
+      );
+    }
+    return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
+  }, [memoryIndex, handleLinkClick]);
 
   if (loading) {
     return (
@@ -139,7 +214,7 @@ export function MemoryDetailPage({ memoryId, onBack, onNavigate }: {
         <ArrowLeft size={14} /> Back to memories
       </motion.button>
 
-      <div className={`flex gap-8 ${hasSidebar ? "" : ""}`}>
+      <div className="flex gap-8">
         {/* Main content */}
         <div className={`min-w-0 ${hasSidebar ? "flex-1" : "max-w-[900px]"}`}>
           {/* Header */}
@@ -167,21 +242,23 @@ export function MemoryDetailPage({ memoryId, onBack, onNavigate }: {
               </div>
             </div>
 
-            {/* Summary — the Wikipedia opening paragraph */}
-            {memory.summary && (
+            {/* Summary — the Wikipedia opening paragraph, with inline wiki links */}
+            {processedSummary && (
               <motion.div
                 className={`mt-4 px-4 py-3 rounded-lg border ${meta.accent} bg-foreground/[0.015]`}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.1 }}
               >
-                <p className="text-[13px] text-foreground/80 leading-relaxed">{memory.summary}</p>
+                <div className="text-[13px] text-foreground/80 leading-relaxed prose-brief">
+                  <Markdown components={{ a: linkRenderer }}>{processedSummary}</Markdown>
+                </div>
               </motion.div>
             )}
           </motion.div>
 
-          {/* Body — rich markdown content */}
-          {memory.body && (
+          {/* Body — rich markdown content with inline [[wiki links]] */}
+          {processedBody && (
             <motion.div
               className="prose-brief text-[13px] leading-relaxed"
               initial={{ opacity: 0 }}
@@ -200,9 +277,10 @@ export function MemoryDetailPage({ memoryId, onBack, onNavigate }: {
                     const slug = text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
                     return <h3 id={slug}>{children}</h3>;
                   },
+                  a: linkRenderer,
                 }}
               >
-                {memory.body}
+                {processedBody}
               </Markdown>
             </motion.div>
           )}

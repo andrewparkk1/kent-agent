@@ -59,10 +59,14 @@ Remove a link between two memories.
 - `from_id` (string, required): Source memory ID
 - `to_id` (string, required): Target memory ID
 
+### Inline wiki links — [[Title]] syntax
+Use `[[Title]]` in the body and summary text to create inline links to other memory pages. Example: "She works closely with [[Bob]] on the [[Kent Project]]." The title must match an existing memory title or alias exactly (case-insensitive). These render as colored, clickable links in the UI that navigate to the linked memory page.
+
 ### Memory guidelines
 - Write rich, structured wiki articles — NOT short notes. Use ## sections in the body.
+- Use `[[Title]]` inline whenever you reference another memory in body text — this is the primary way to interlink memories.
 - Always include a summary for new memories — it's the first thing users see.
-- Link related memories together: people → projects they work on, topics → related topics, etc.
+- Use `link_memories` for explicit "See Also" sidebar links (editorial cross-references beyond what's in the text).
 - The test: "Would this wiki article help me deeply understand this person/project/topic?"
 - Update existing memories rather than creating duplicates — check titles first
 - When updating, EXPAND the article — add sections, don't shrink it

@@ -122,7 +122,9 @@ Each memory should read like a Wikipedia article. Include:
 
 **summary**: A 1-2 sentence overview — the opening paragraph. This appears prominently in the UI and should give immediate context. Example: "Grace is a senior engineer at Acme Corp and a close collaborator on the Kent project. She prefers async communication and is based in SF."
 
-**body**: Rich markdown with ## sections. Structure varies by type:
+**body**: Rich markdown with ## sections. Use **[[Title]]** syntax to create inline wiki links to other memories. For example: "She collaborates closely with [[Bob]] on the [[Kent Project]]." These render as clickable links in the UI. Use them naturally in your prose wherever you mention another person, project, topic, etc. that has its own memory page.
+
+Structure varies by type:
 
 For **people**:
 ## Background
@@ -206,8 +208,9 @@ After updating memories, output a brief summary of what you changed (created/upd
 
 Rules:
 - Write rich, structured content — NOT 2-sentence notes. Think Wikipedia, not sticky notes.
+- Use [[Title]] syntax inline whenever you reference another memory (person, project, topic, etc.) in your body text. The title must match an existing memory title or alias exactly.
 - ALWAYS include a summary field for new memories and update it when the memory changes significantly
-- ALWAYS link related memories together with link_memories after creating or updating
+- ALWAYS link related memories together with link_memories after creating or updating (these appear in the sidebar)
 - The test: "Would this wiki article help me understand this person/project/topic deeply?" If it's too thin, expand it.
 - NEVER create a memory if one already exists for the same person/topic — use update_memory instead
 - Use search_memories as a fallback check if you're unsure whether a memory exists (e.g. searching by alias or nickname)
