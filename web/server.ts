@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { handleCounts, handleItems } from "./api/items.ts";
 import { handleWorkflows, handleWorkflowDetail, handleWorkflowRun, handleWorkflowToggle, handleWorkflowArchive, handleWorkflowUnarchive, handleWorkflowDelete, handleActivity, handleActivitySeen, handleUnreadCount, handleBrief } from "./api/workflows.ts";
 import { handleSources, handleDaemonState } from "./api/sources.ts";
-import { handleMemories } from "./api/memories.ts";
+import { handleMemories, handleMemoryDetail } from "./api/memories.ts";
 import { handleIdentity, handleIdentitySave } from "./api/identity.ts";
 import { handleThreads, handleThreadMessages, handleDeleteThread } from "./api/threads.ts";
 import { handleChat } from "./api/chat.ts";
@@ -37,6 +37,11 @@ Bun.serve({
 
   async fetch(req) {
     const url = new URL(req.url);
+
+    // GET /api/memories/:id — single memory with links
+    if (url.pathname.match(/^\/api\/memories\/[^/]+$/) && req.method === "GET") {
+      return handleMemoryDetail(req);
+    }
 
     // GET /api/threads/:id/messages
     if (url.pathname.match(/^\/api\/threads\/[^/]+\/messages$/) && req.method === "GET") {

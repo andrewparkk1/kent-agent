@@ -75,6 +75,7 @@ export interface MemoriesTable {
   id: string;
   type: "person" | "project" | "topic" | "event" | "preference" | "place";
   title: string;
+  summary: string;
   body: string;
   sources: string; // JSON array
   aliases: string; // JSON array
@@ -88,6 +89,18 @@ export type NewMemory = Insertable<MemoriesTable>;
 export type MemoryUpdate = Updateable<MemoriesTable>;
 
 export type MemoryType = Memory["type"];
+
+// ─── Memory Links ──────────────────────────────────────────────────────────
+
+export interface MemoryLinksTable {
+  from_id: string;
+  to_id: string;
+  label: string;
+  created_at: Generated<number>;
+}
+
+export type MemoryLink = Selectable<MemoryLinksTable>;
+export type NewMemoryLink = Insertable<MemoryLinksTable>;
 
 // ─── Key-Value ─────────────────────────────────────────────────────────────
 
@@ -104,5 +117,6 @@ export interface Database {
   messages: MessagesTable;
   workflows: WorkflowsTable;
   memories: MemoriesTable;
+  memory_links: MemoryLinksTable;
   kv: KvTable;
 }

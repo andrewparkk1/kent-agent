@@ -82,6 +82,12 @@ function runMigrations(db: BunDatabase): void {
     db.exec("ALTER TABLE messages ADD COLUMN metadata TEXT");
   }
 
+  // Memories: add summary column for wiki-style pages
+  const memCols = colNames("memories");
+  if (memCols.length > 0 && !memCols.includes("summary")) {
+    db.exec("ALTER TABLE memories ADD COLUMN summary TEXT NOT NULL DEFAULT ''");
+  }
+
   // Drop legacy workflow_runs table
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='workflow_runs'").all();
   if (tables.length > 0) db.exec("DROP TABLE workflow_runs");
@@ -172,6 +178,7 @@ function initSchema(db: BunDatabase): void {
       id TEXT PRIMARY KEY,
       type TEXT NOT NULL CHECK(type IN ('person', 'project', 'topic', 'event', 'preference', 'place')),
       title TEXT NOT NULL,
+      summary TEXT NOT NULL DEFAULT '',
       body TEXT NOT NULL DEFAULT '',
       sources TEXT NOT NULL DEFAULT '[]',
       aliases TEXT NOT NULL DEFAULT '[]',
@@ -182,6 +189,16 @@ function initSchema(db: BunDatabase): void {
 
     CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(type);
     CREATE INDEX IF NOT EXISTS idx_memories_archived ON memories(is_archived);
+
+    CREATE TABLE IF NOT EXISTS memory_links (
+      from_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+      to_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+      label TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      PRIMARY KEY (from_id, to_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_memory_links_to ON memory_links(to_id);
 
     CREATE TABLE IF NOT EXISTS kv (
       key TEXT PRIMARY KEY,
