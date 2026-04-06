@@ -68,40 +68,6 @@ function daysBackFromLastSync(lastSync: number, defaultDays = 365): number {
   return defaultDays;
 }
 
-/** Extract plain-text body from a Gmail message payload (MIME structure). */
-function extractBody(payload: any): string {
-  if (!payload) return "";
-
-  // Simple message with body data directly on payload
-  if (payload.mimeType === "text/plain" && payload.body?.data) {
-    return decodeBase64Url(payload.body.data);
-  }
-
-  // Multipart — recurse into parts, prefer text/plain
-  if (payload.parts && Array.isArray(payload.parts)) {
-    // First pass: look for text/plain
-    for (const part of payload.parts) {
-      if (part.mimeType === "text/plain" && part.body?.data) {
-        return decodeBase64Url(part.body.data);
-      }
-    }
-    // Second pass: recurse into nested multipart
-    for (const part of payload.parts) {
-      if (part.mimeType?.startsWith("multipart/") || part.parts) {
-        const nested = extractBody(part);
-        if (nested) return nested;
-      }
-    }
-  }
-
-  return "";
-}
-
-function decodeBase64Url(data: string): string {
-  const base64 = data.replace(/-/g, "+").replace(/_/g, "/");
-  return atob(base64);
-}
-
 // ─── Gmail ──────────────────────────────────────────────────────────────────
 
 export const gmail: Source = {
@@ -164,9 +130,11 @@ export const gmail: Source = {
 
     if (allMessageIds.length === 0) return [];
 
-    // Fetch metadata concurrently in batches of 20
+    // Fetch message metadata concurrently in batches of 50.
+    // Uses "metadata" format with only the headers we need — much faster than "full"
+    // which downloads the entire MIME body.
     const details: Array<{ msgId: string; detail: any }> = [];
-    const BATCH = 20;
+    const BATCH = 50;
     for (let i = 0; i < allMessageIds.length; i += BATCH) {
       const batch = allMessageIds.slice(i, i + BATCH);
       const batchResults = await Promise.all(
@@ -177,7 +145,8 @@ export const gmail: Source = {
               "--params", JSON.stringify({
                 userId: "me",
                 id: msg.id,
-                format: "full",
+                format: "metadata",
+                metadataHeaders: ["Subject", "From", "To", "Date"],
               }),
             ]);
             return { msgId: msg.id, detail };
@@ -202,7 +171,6 @@ export const gmail: Source = {
       const from = getHeader("From");
       const to = getHeader("To");
       const date = getHeader("Date") || "";
-      const body = extractBody(detail.payload);
       const snippet = detail.snippet ?? "";
       const labels: string[] = detail.labelIds ?? [];
 
@@ -220,7 +188,7 @@ export const gmail: Source = {
           subject ? `Subject: ${subject}` : "",
           from ? `From: ${from}` : "",
           to ? `To: ${to}` : "",
-          body || snippet,
+          snippet,
         ]
           .filter(Boolean)
           .join("\n"),
@@ -232,9 +200,6 @@ export const gmail: Source = {
           labels,
           threadId: detail.threadId,
           isUnread: labels.includes("UNREAD"),
-          hasAttachments: !!(detail.payload?.parts?.some(
-            (p: any) => p.filename && p.filename.length > 0
-          )),
         },
         createdAt,
       });

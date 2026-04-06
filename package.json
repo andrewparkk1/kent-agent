@@ -1,81 +1,81 @@
 {
-  "name": "meet-kent",
-  "version": "0.1.6",
-  "description": "Personal AI agent that runs on your Mac",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/andrewparkk1/kent-agent"
-  },
-  "homepage": "https://github.com/andrewparkk1/kent-agent",
-  "module": "cli/index.ts",
-  "type": "module",
-  "files": [
-    "cli/",
-    "daemon/",
-    "agent/",
-    "shared/",
-    "web/api/",
-    "web/dist/",
-    "web/src/",
-    "web/public/",
-    "web/index.html",
-    "web/server.ts",
-    "web/vite.config.ts",
-    "web/package.json",
-    "web/tsconfig.json",
-    "web/tsconfig.app.json",
-    "web/tsconfig.node.json",
-    "web/components.json",
-    "web/bun.lock",
-    "index.ts",
-    "tsconfig.json"
-  ],
-  "bin": {
-    "kent": "cli/index.ts"
-  },
-  "scripts": {
-    "start": "bun run cli/index.ts",
-    "dev": "bun run cli/index.ts",
-    "kent": "bun run cli/index.ts",
-    "init": "bun run cli/index.ts init",
-    "daemon:start": "bun run cli/index.ts daemon start",
-    "daemon:stop": "bun run cli/index.ts daemon stop",
-    "daemon:status": "bun run cli/index.ts daemon status",
-    "sync": "bun run cli/index.ts sync",
-    "build:web": "cd web && bunx vite build --emptyOutDir",
-    "build:cli": "bun build ./cli/index.ts --target bun --minify --outdir ./dist --entry-naming index.js --external react-devtools-core",
-    "build": "bun run build:web && bun run build:cli",
-    "prepublishOnly": "cd web && bun install --frozen-lockfile 2>/dev/null || cd web && bun install && bunx vite build --emptyOutDir",
-    "postinstall": "cd web && bun install --frozen-lockfile 2>/dev/null || cd web && bun install",
-    "typecheck": "tsc --noEmit",
-    "uninstall": "bash uninstall.sh"
-  },
-  "devDependencies": {
-    "@types/bun": "latest",
-    "@types/react": "^19.2.14"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
-  },
-  "dependencies": {
-    "@mariozechner/pi-agent-core": "^0.63.1",
-    "@mariozechner/pi-ai": "^0.63.1",
-    "@sinclair/typebox": "^0.34.49",
-    "@types/react-dom": "^19.2.3",
-    "better-sqlite3-multiple-ciphers": "^12.8.0",
-    "ink": "^6.8.0",
-    "ink-spinner": "^5.0.0",
-    "kysely": "^0.28.15",
-    "kysely-bun-sqlite": "^0.4.0",
-    "react": "^19.2.4",
-    "react-devtools-core": "^7.0.1",
-    "react-dom": "^19.2.4",
-    "remark-gfm": "^4.0.1",
-    "yaml": "^2.8.3",
-    "zod": "^4.3.6"
-  },
-  "trustedDependencies": [
-    "better-sqlite3-multiple-ciphers",
-    "sharp"
-  ]
+    "name": "meet-kent",
+    "version": "0.1.6",
+    "description": "Personal AI agent that runs on your Mac",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/andrewparkk1/kent-agent"
+    },
+    "homepage": "https://github.com/andrewparkk1/kent-agent",
+    "module": "cli/index.ts",
+    "type": "module",
+    "files": [
+        "cli/",
+        "daemon/",
+        "agent/",
+        "shared/",
+        "web/api/",
+        "web/dist/",
+        "web/src/",
+        "web/public/",
+        "web/index.html",
+        "web/server.ts",
+        "web/vite.config.ts",
+        "web/package.json",
+        "web/tsconfig.json",
+        "web/tsconfig.app.json",
+        "web/tsconfig.node.json",
+        "web/components.json",
+        "web/bun.lock",
+        "index.ts",
+        "tsconfig.json"
+    ],
+    "bin": {
+        "kent": "cli/index.ts"
+    },
+    "scripts": {
+        "start": "bun run cli/index.ts",
+        "dev": "bun run cli/index.ts",
+        "kent": "bun run cli/index.ts",
+        "init": "bun run cli/index.ts init",
+        "daemon:start": "bun run cli/index.ts daemon start",
+        "daemon:stop": "bun run cli/index.ts daemon stop",
+        "daemon:status": "bun run cli/index.ts daemon status",
+        "sync": "bun run cli/index.ts sync",
+        "build:web": "cd web && bunx vite build --emptyOutDir",
+        "build:cli": "bun build ./cli/index.ts --target bun --minify --outdir ./dist --entry-naming index.js --external react-devtools-core",
+        "build": "bun run build:web && bun run build:cli",
+        "prepublishOnly": "cd web && bun install --frozen-lockfile 2>/dev/null || cd web && bun install && bunx vite build --emptyOutDir",
+        "postinstall": "cd web && bun install --frozen-lockfile 2>/dev/null || cd web && bun install",
+        "typecheck": "tsc --noEmit",
+        "uninstall": "bash uninstall.sh"
+    },
+    "devDependencies": {
+        "@types/bun": "latest",
+        "@types/react": "^19.2.14"
+    },
+    "peerDependencies": {
+        "typescript": "^5"
+    },
+    "dependencies": {
+        "@mariozechner/pi-agent-core": "^0.63.1",
+        "@mariozechner/pi-ai": "^0.63.1",
+        "@sinclair/typebox": "^0.34.49",
+        "@types/react-dom": "^19.2.3",
+        "better-sqlite3-multiple-ciphers": "^12.8.0",
+        "ink": "^6.8.0",
+        "ink-spinner": "^5.0.0",
+        "kysely": "^0.28.15",
+        "kysely-bun-sqlite": "^0.4.0",
+        "react": "^19.2.4",
+        "react-devtools-core": "^7.0.1",
+        "react-dom": "^19.2.4",
+        "remark-gfm": "^4.0.1",
+        "yaml": "^2.8.3",
+        "zod": "^4.3.6"
+    },
+    "trustedDependencies": [
+        "better-sqlite3-multiple-ciphers",
+        "sharp"
+    ]
 }

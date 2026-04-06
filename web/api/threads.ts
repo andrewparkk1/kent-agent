@@ -5,9 +5,15 @@ import { getDb } from "../../shared/db/connection.ts";
 import { getMessages, getThread } from "../../shared/db/threads.ts";
 
 export async function handleThreads() {
-  const threads = await getDb()
+  const db = getDb();
+  const threads = await db
     .selectFrom("threads")
     .leftJoin("workflows", "workflows.id", "threads.workflow_id")
+    .where((eb) =>
+      eb.exists(
+        eb.selectFrom("messages").whereRef("messages.thread_id", "=", "threads.id").select("messages.id").limit(1)
+      )
+    )
     .orderBy("threads.last_message_at", "desc")
     .limit(50)
     .select([

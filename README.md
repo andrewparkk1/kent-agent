@@ -52,8 +52,9 @@ kent logs -f                  # stream daemon logs
 │  └─ Backfill  → catch up missed runs     │
 ├──────────────────────────────────────────┤
 │  Agent (subprocess per run)              │
-│  ├─ Claude API                           │
-│  └─ Tools: data, memory, workflow, fs    │
+│  ├─ LLM (Anthropic, OpenAI, Google, …)  │
+│  └─ Tools: data, memory, workflow,       │
+│     filesystem, skills                   │
 ├──────────────────────────────────────────┤
 │  SQLite (~/.kent/kent.db)                │
 │  items · threads · workflows · memories  │
@@ -71,8 +72,11 @@ kent logs -f                  # stream daemon logs
 | Granola | Meeting transcripts from local JSON files. |
 | Apple Notes | Reads `NoteStore.sqlite`. Requires Full Disk Access. |
 | Signal | Reads encrypted DB. Needs `brew install sqlcipher` and Signal Desktop. |
+| AI Coding | Claude Code and Codex conversation history from local session files. |
 
 ## Workflows
+
+![Workflows](web/public/workflows.png)
 
 Workflows are prompts that run on a cron schedule. They live in the database and are managed via the CLI or web dashboard — no config files needed.
 
@@ -151,12 +155,18 @@ All data stays on your machine. Kent stores everything locally:
 - `~/.kent/daemon.log` — daemon activity log
 - `~/.kent/prompts/` — agent system prompt files
 
-**Required keys:**
+**API keys and model providers:**
 
-| Key | Required | Used for |
-|-----|----------|----------|
-| Anthropic API key | Yes | Agent LLM (Claude) |
-| OpenAI API key | Optional | Alternative LLM |
+Kent supports multiple LLM providers. Configure your preferred provider during `kent init` or in `~/.kent/config.json`.
+
+| Provider | Key required | Notes |
+|----------|-------------|-------|
+| Anthropic | Yes (default) | Claude models. Default: `claude-sonnet-4-6` |
+| OpenAI | Optional | GPT models |
+| Google | Optional | Gemini models |
+| OpenRouter | Optional | Access multiple models via OpenRouter |
+| Local (Ollama) | No | Local models via Ollama |
+| Custom | Optional | Any OpenAI-compatible endpoint via `base_url` |
 
 ## Project structure
 
