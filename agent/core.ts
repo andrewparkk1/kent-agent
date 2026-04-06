@@ -55,10 +55,11 @@ async function getMemoriesContext(): Promise<string> {
       const stale = daysSinceUpdate >= 30 ? " ⚠️ STALE" : "";
       const aliases = JSON.parse(m.aliases);
       const aliasStr = aliases.length > 0 ? ` (aliases: ${aliases.join(", ")})` : "";
-      return `- **[${m.id}]** ${m.type}: ${m.title}${aliasStr}${stale}\n  ${m.body}`;
+      const summaryStr = m.summary ? `\n  Summary: ${m.summary}` : "";
+      return `- **[${m.id}]** ${m.type}: ${m.title}${aliasStr}${stale}${summaryStr}\n  ${m.body.split("\n").slice(0, 3).join(" ").slice(0, 200)}`;
     });
 
-    return `## Known Memories (${memories.length})\n\nThese are all active memories. Check this list before creating new ones to avoid duplicates. Update existing entries when you learn new info.\n\n${lines.join("\n")}`;
+    return `## Known Memories (${memories.length})\n\nThese are wiki-style memory pages. Check this list before creating new ones to avoid duplicates. Update existing entries when you learn new info. Link related memories together.\n\n${lines.join("\n")}`;
   } catch {
     return "";
   }
