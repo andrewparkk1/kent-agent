@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from "react";
-import { motion } from "motion/react";
 import { Sidebar } from "@/components/sidebar";
 import { PageTransition } from "@/components/stagger";
 import { HomePage } from "@/pages/home";
@@ -14,30 +13,7 @@ import { WorkflowDetailPage } from "@/pages/workflow-detail";
 import { SettingsPage } from "@/pages/settings";
 import type { Page, Item, Workflow, SourceInfo, DaemonInfo } from "@/lib/types";
 
-// ─── Placeholder ────────────────────────────────────────────────────────────
 
-function PlaceholderPage({ title, description }: { title: string; description: string }) {
-  return (
-    <div className="max-w-[900px] mx-auto px-8 py-10">
-      <motion.h1
-        className="text-[32px] font-display tracking-tight mb-2"
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-      >
-        {title}
-      </motion.h1>
-      <motion.p
-        className="text-[13px] text-muted-foreground/60"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.1, duration: 0.3 }}
-      >
-        {description}
-      </motion.p>
-    </div>
-  );
-}
 
 // ─── App ────────────────────────────────────────────────────────────────────
 
@@ -143,8 +119,6 @@ export function App() {
     }, 5000);
     return () => clearInterval(interval);
   }, [fetchItems, fetchCounts, fetchWorkflows, fetchSources, fetchUnreadCount, itemsPage]);
-
-  const total = Object.values(counts).reduce((a, b) => a + b, 0);
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
