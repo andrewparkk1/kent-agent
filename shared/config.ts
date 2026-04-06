@@ -9,6 +9,14 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+export type ModelProvider =
+  | "anthropic"
+  | "openai"
+  | "openrouter"
+  | "google"
+  | "local"
+  | "custom";
+
 export interface Config {
   core: {
     device_token: string;
@@ -17,6 +25,8 @@ export interface Config {
   keys: {
     anthropic: string;
     openai: string;
+    openrouter: string;
+    google: string;
   };
   sources: {
     imessage: boolean;
@@ -34,7 +44,10 @@ export interface Config {
     sync_interval_seconds: number;
   };
   agent: {
+    provider: ModelProvider;
     default_model: string;
+    base_url: string;
+    api_key: string;
   };
 }
 
@@ -65,6 +78,8 @@ export const DEFAULT_CONFIG: Config = {
   keys: {
     anthropic: "",
     openai: "",
+    openrouter: "",
+    google: "",
   },
   sources: {
     imessage: false,
@@ -82,7 +97,10 @@ export const DEFAULT_CONFIG: Config = {
     sync_interval_seconds: 300,
   },
   agent: {
+    provider: "anthropic",
     default_model: "claude-sonnet-4-6",
+    base_url: "",
+    api_key: "",
   },
 };
 

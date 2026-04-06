@@ -3,12 +3,14 @@
  * Can be invoked in-process (no subprocess spawn needed) or from the CLI entry point.
  */
 import { Agent } from "@mariozechner/pi-agent-core";
-import { streamSimple, getModel } from "@mariozechner/pi-ai";
+import { streamSimple } from "@mariozechner/pi-ai";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { allTools } from "./tools/index.ts";
 import { getItemCount, createThread, addMessage, getMessages, listMemories } from "@shared/db.ts";
+import { loadConfig } from "@shared/config.ts";
+import { resolveModel } from "@shared/models.ts";
 
 // ─── Prompt assembly ────────────────────────────────────────────────────────
 
@@ -138,6 +140,7 @@ export interface RunAgentOptions {
   prompt: string;
   threadId?: string;
   modelName?: string;
+  provider?: string;
   timezone?: string;
   conversationHistory?: string;
   skipUserMessage?: boolean;
@@ -156,7 +159,6 @@ export interface AgentResult {
 export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
   const {
     prompt,
-    modelName = "claude-sonnet-4-20250514",
     callbacks = {},
   } = options;
 
@@ -180,7 +182,18 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
     await addMessage(threadId, "user", prompt);
   }
 
-  const model = getModel("anthropic", modelName as any);
+  // Resolve model from config — supports anthropic, openai, openrouter, google, local, and custom providers
+  const config = loadConfig();
+  // Allow env overrides for provider/model (used by agent.ts subprocess entry point)
+  if (options.provider) {
+    (config.agent as any).provider = options.provider;
+  }
+  if (options.modelName) {
+    config.agent.default_model = options.modelName;
+  }
+  const resolved = resolveModel(config);
+  const model = resolved.model;
+  const streamApiKey = resolved.apiKey;
 
   const agent = new Agent({
     streamFn: streamSimple,
@@ -190,6 +203,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
       tools: allTools,
       thinkingLevel: "off",
     },
+    ...(streamApiKey ? { getApiKey: () => streamApiKey } : {}),
   });
 
   let output = "";

@@ -12,6 +12,7 @@ import { homedir } from "node:os";
 import { createInterface } from "node:readline";
 import {
   type Config,
+  type ModelProvider,
   KENT_DIR,
   CONFIG_PATH,
   PROMPTS_DIR,
@@ -19,6 +20,7 @@ import {
   saveConfig,
   ensureKentDir,
 } from "@shared/config.ts";
+import { SUGGESTED_MODELS, DEFAULT_LOCAL_BASE_URL, LOCAL_BASE_URLS } from "@shared/models.ts";
 import { createWorkflow, listWorkflows } from "@shared/db.ts";
 import { DEFAULT_WORKFLOWS } from "@shared/default-workflows.ts";
 
@@ -518,25 +520,124 @@ export async function handleInit(): Promise<void> {
   installPrompts();
 
   // ------------------------------------------------------------------
-  // Step 2: AI Provider
+  // Step 2: AI Provider & Model
   // ------------------------------------------------------------------
-  step(2, TOTAL_STEPS, "AI Provider");
-  info("Kent needs an API key to run the agent.\n");
+  step(2, TOTAL_STEPS, "AI Provider & Model");
+  info("Choose which AI provider to use. Kent supports cloud APIs and local models.\n");
 
-  const anthropicKey = await ask("Anthropic API key (sk-ant-...)", "");
-  if (anthropicKey) {
-    config.keys.anthropic = anthropicKey;
-    success("Anthropic key saved");
-  } else {
-    warn("No Anthropic key provided. Set ANTHROPIC_API_KEY env var or add to ~/.kent/config.json");
+  const providerOptions: SelectOption[] = [
+    { label: "Anthropic (Claude)", key: "anthropic", selected: true, status: "recommended", statusColor: GREEN },
+    { label: "OpenAI (GPT)", key: "openai", selected: false },
+    { label: "OpenRouter (any model)", key: "openrouter", selected: false, status: "access 200+ models", statusColor: DIM },
+    { label: "Google (Gemini)", key: "google", selected: false },
+    { label: "Local (Ollama, LM Studio, llama.cpp)", key: "local", selected: false, status: "runs on your machine", statusColor: CYAN },
+    { label: "Custom (OpenAI-compatible endpoint)", key: "custom", selected: false },
+  ];
+
+  // Use single-select behavior: only one provider can be picked
+  const selectedProviders = await multiSelect("Provider", providerOptions);
+  const chosenProvider = selectedProviders.find((o) => o.selected);
+  const provider: ModelProvider = (chosenProvider?.key as ModelProvider) || "anthropic";
+  config.agent.provider = provider;
+
+  // --- Collect API key or connection details based on provider ---
+  switch (provider) {
+    case "anthropic": {
+      const key = await ask("Anthropic API key (sk-ant-...)", "");
+      if (key) {
+        config.keys.anthropic = key;
+        success("Anthropic key saved");
+      } else {
+        warn("No key provided. Set ANTHROPIC_API_KEY env var or add to ~/.kent/config.json");
+      }
+      break;
+    }
+    case "openai": {
+      const key = await ask("OpenAI API key (sk-...)", "");
+      if (key) {
+        config.keys.openai = key;
+        success("OpenAI key saved");
+      } else {
+        warn("No key provided. Set OPENAI_API_KEY env var or add to ~/.kent/config.json");
+      }
+      break;
+    }
+    case "openrouter": {
+      const key = await ask("OpenRouter API key (sk-or-...)", "");
+      if (key) {
+        config.keys.openrouter = key;
+        success("OpenRouter key saved");
+      } else {
+        warn("No key provided. Set OPENROUTER_API_KEY env var or add to ~/.kent/config.json");
+      }
+      break;
+    }
+    case "google": {
+      const key = await ask("Google API key", "");
+      if (key) {
+        config.keys.google = key;
+        success("Google key saved");
+      } else {
+        warn("No key provided. Set GOOGLE_API_KEY env var or add to ~/.kent/config.json");
+      }
+      break;
+    }
+    case "local": {
+      info("Local models run on your machine via an OpenAI-compatible server.\n");
+      info(`  Common servers:`);
+      info(`    ${BOLD}Ollama${NC}       ${DIM}http://localhost:11434/v1${NC}  ${DIM}(brew install ollama)${NC}`);
+      info(`    ${BOLD}LM Studio${NC}    ${DIM}http://localhost:1234/v1${NC}`);
+      info(`    ${BOLD}llama.cpp${NC}    ${DIM}http://localhost:8080/v1${NC}\n`);
+      const baseUrl = await ask("Base URL", DEFAULT_LOCAL_BASE_URL);
+      config.agent.base_url = baseUrl;
+      success(`Base URL: ${baseUrl}`);
+      break;
+    }
+    case "custom": {
+      info("Enter the base URL for your OpenAI-compatible API endpoint.\n");
+      const baseUrl = await ask("Base URL (e.g. https://my-api.example.com/v1)", "");
+      if (!baseUrl) {
+        warn("No base URL provided. Set it in ~/.kent/config.json under agent.base_url");
+      } else {
+        config.agent.base_url = baseUrl;
+        success(`Base URL: ${baseUrl}`);
+      }
+      console.log("");
+      const apiKey = await ask("API key (optional, press enter to skip)", "");
+      if (apiKey) {
+        config.agent.api_key = apiKey;
+        success("API key saved");
+      }
+      break;
+    }
   }
 
+  // --- Model selection ---
   console.log("");
-  const openaiKey = await ask("OpenAI API key (optional, press enter to skip)", "");
-  if (openaiKey) {
-    config.keys.openai = openaiKey;
-    success("OpenAI key saved");
+  const suggested = SUGGESTED_MODELS[provider];
+  if (suggested.length > 0) {
+    info("Suggested models:\n");
+    for (let i = 0; i < suggested.length; i++) {
+      const s = suggested[i]!;
+      const num = `${i + 1}`;
+      const isDefault = i === 0;
+      info(`  ${BOLD}${num}.${NC} ${s.label}${isDefault ? ` ${GREEN}← default${NC}` : ""}`);
+      info(`     ${DIM}${s.id}${NC}`);
+    }
+    console.log("");
   }
+
+  const defaultModel = suggested.length > 0 ? suggested[0]!.id : "";
+  const modelInput = await ask("Model name", defaultModel);
+  // Check if user typed a number (1-N) to select from suggestions
+  const modelIndex = parseInt(modelInput, 10);
+  if (!isNaN(modelIndex) && modelIndex >= 1 && modelIndex <= suggested.length) {
+    config.agent.default_model = suggested[modelIndex - 1]!.id;
+  } else {
+    config.agent.default_model = modelInput || defaultModel;
+  }
+  success(`Model: ${config.agent.default_model} (${provider})`);
+
 
   // ------------------------------------------------------------------
   // Step 3: Sources (interactive multi-select)

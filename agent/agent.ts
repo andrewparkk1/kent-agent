@@ -9,7 +9,8 @@ import { runAgent } from "./core.ts";
 const PROMPT = process.env.PROMPT ?? "";
 const THREAD_ID = process.env.THREAD_ID ?? "";
 const SKIP_USER_MESSAGE = process.env.SKIP_USER_MESSAGE === "1";
-const MODEL_NAME = process.env.MODEL ?? "claude-sonnet-4-20250514";
+const MODEL_NAME = process.env.MODEL ?? "";
+const PROVIDER = process.env.PROVIDER ?? "";
 const CONVERSATION_HISTORY = process.env.CONVERSATION_HISTORY ?? "";
 
 async function run(): Promise<void> {
@@ -21,7 +22,8 @@ async function run(): Promise<void> {
   const result = await runAgent({
     prompt: PROMPT,
     threadId: THREAD_ID || undefined,
-    modelName: MODEL_NAME,
+    ...(MODEL_NAME ? { modelName: MODEL_NAME } : {}),
+    ...(PROVIDER ? { provider: PROVIDER } : {}),
     timezone: process.env.TIMEZONE,
     conversationHistory: CONVERSATION_HISTORY || undefined,
     skipUserMessage: SKIP_USER_MESSAGE,
