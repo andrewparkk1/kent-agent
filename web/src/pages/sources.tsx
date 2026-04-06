@@ -856,32 +856,60 @@ const CONVERSATION_SOURCES = ["imessage", "signal"];
 const CALENDAR_SOURCES = ["gcal", "gtasks"];
 const AI_CODING_SOURCES = ["ai_coding"];
 
-function SourceAwareList({ items, filter }: { items: Item[]; filter: string | null }) {
-  if (filter && CONVERSATION_SOURCES.includes(filter)) {
-    return <ConversationList items={items} />;
-  }
-  if (filter && AI_CODING_SOURCES.includes(filter)) {
-    return <CodingSessionList items={items} />;
-  }
-  if (filter === "chrome") {
-    return <ChromeList items={items} />;
-  }
-  if (filter && CALENDAR_SOURCES.includes(filter)) {
-    return <CalendarList items={items} />;
-  }
-  // Default flat list
+/** Render items for a single source using its specialized list component */
+function SourceGroupedItems({ source, items }: { source: string; items: Item[] }) {
+  if (CONVERSATION_SOURCES.includes(source)) return <ConversationList items={items} />;
+  if (AI_CODING_SOURCES.includes(source)) return <CodingSessionList items={items} />;
+  if (source === "chrome") return <ChromeList items={items} />;
+  if (CALENDAR_SOURCES.includes(source)) return <CalendarList items={items} />;
   return (
-    <Stagger className="flex flex-col gap-1">
-      {items.map((item) => (
-        <StaggerItem key={item.id}>
-          <ItemRow item={item} />
-        </StaggerItem>
-      ))}
-      {items.length === 0 && (
-        <StaggerItem>
-          <div className="text-center text-muted-foreground/50 py-20 text-[13px]">No items found</div>
-        </StaggerItem>
-      )}
+    <div className="flex flex-col gap-1">
+      {items.map((item) => <ItemRow key={item.id} item={item} />)}
+    </div>
+  );
+}
+
+function SourceAwareList({ items, filter }: { items: Item[]; filter: string | null }) {
+  // Single source filter — render with the appropriate component
+  if (filter) {
+    return <SourceGroupedItems source={filter} items={items} />;
+  }
+
+  // "All" view — group items by source, render each group with its specialized component
+  const grouped = new Map<string, Item[]>();
+  for (const item of items) {
+    const list = grouped.get(item.source) ?? [];
+    list.push(item);
+    grouped.set(item.source, list);
+  }
+
+  // Sort groups by most recent item first
+  const sortedGroups = [...grouped.entries()].sort((a, b) => {
+    const aMax = Math.max(...a[1].map((i) => i.created_at));
+    const bMax = Math.max(...b[1].map((i) => i.created_at));
+    return bMax - aMax;
+  });
+
+  if (sortedGroups.length === 0) {
+    return <div className="text-center text-muted-foreground/50 py-20 text-[13px]">No items found</div>;
+  }
+
+  return (
+    <Stagger className="flex flex-col gap-4">
+      {sortedGroups.map(([source, sourceItems]) => {
+        const meta = SOURCE_META[source];
+        const Icon = meta?.icon || Globe;
+        return (
+          <StaggerItem key={source}>
+            <div className="flex items-center gap-2 mb-1.5 px-1">
+              <Icon size={13} className="text-muted-foreground/50" />
+              <span className="text-[12px] font-medium text-muted-foreground/70">{meta?.label || source}</span>
+              <span className="text-[10px] font-mono text-muted-foreground/30">{sourceItems.length}</span>
+            </div>
+            <SourceGroupedItems source={source} items={sourceItems} />
+          </StaggerItem>
+        );
+      })}
     </Stagger>
   );
 }

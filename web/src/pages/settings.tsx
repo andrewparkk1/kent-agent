@@ -22,6 +22,7 @@ const SOURCE_LABELS: Record<string, string> = {
   imessage: "iMessage",
   signal: "Signal",
   granola: "Granola",
+  ai_coding: "Claude & Codex",
 };
 
 const MODEL_OPTIONS = [
