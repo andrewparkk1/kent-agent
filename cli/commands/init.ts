@@ -90,8 +90,8 @@ function multiSelect(
 
     const draw = () => {
       if (drawn) {
-        process.stdout.write(`\x1b[${totalLines}F`);
-        process.stdout.write(`\x1b[0J`);
+        // Move cursor up to start of the menu and clear everything below
+        process.stdout.write(`\r\x1b[${totalLines - 1}A\x1b[0J`);
       }
       drawn = true;
 
@@ -103,10 +103,13 @@ function multiSelect(
         const status = opt.status
           ? ` ${opt.statusColor || DIM}${opt.status}${NC}`
           : "";
-        process.stdout.write(`  ${pointer} ${check} ${label}${status}\n`);
+        process.stdout.write(`  ${pointer} ${check} ${label}${status}\x1b[K\n`);
       }
-      process.stdout.write(`\n  ${DIM}↑/↓ move  ·  space toggle  ·  a select all  ·  enter confirm${NC}`);
+      process.stdout.write(`\n  ${DIM}↑/↓ move  ·  space toggle  ·  a select all  ·  enter confirm${NC}\x1b[K`);
     };
+
+    // Pause readline so it doesn't swallow arrow key escape sequences
+    rl.pause();
 
     draw();
 
@@ -115,18 +118,22 @@ function multiSelect(
     stdin.resume();
     stdin.setEncoding("utf-8");
 
+    const cleanup = () => {
+      stdin.setRawMode(false);
+      stdin.removeListener("data", onData);
+      rl.resume();
+    };
+
     const onData = (data: string) => {
       if (data === "\r" || data === "\n") {
-        stdin.setRawMode(false);
-        stdin.removeListener("data", onData);
+        cleanup();
         process.stdout.write("\n\n");
         resolve(options);
         return;
       }
 
       if (data === "\x03") {
-        stdin.setRawMode(false);
-        stdin.removeListener("data", onData);
+        cleanup();
         process.stdout.write("\n");
         process.exit(0);
       }
@@ -151,6 +158,90 @@ function multiSelect(
       if (data === "a") {
         const allSelected = options.every((o) => o.selected);
         for (const opt of options) opt.selected = !allSelected;
+        draw();
+        return;
+      }
+    };
+
+    stdin.on("data", onData);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Interactive single-select (arrow keys to move, enter to confirm)
+// ---------------------------------------------------------------------------
+
+interface SingleSelectOption {
+  label: string;
+  key: string;
+  status?: string;
+  statusColor?: string;
+}
+
+function singleSelect(
+  options: SingleSelectOption[],
+  defaultIndex = 0,
+): Promise<SingleSelectOption> {
+  return new Promise((resolve) => {
+    let cursor = defaultIndex;
+    let drawn = false;
+
+    const totalLines = options.length + 2;
+
+    const draw = () => {
+      if (drawn) {
+        process.stdout.write(`\r\x1b[${totalLines - 1}A\x1b[0J`);
+      }
+      drawn = true;
+
+      for (let i = 0; i < options.length; i++) {
+        const opt = options[i]!;
+        const pointer = i === cursor ? `${BOLD}❯${NC}` : " ";
+        const radio = i === cursor ? `${GREEN}◉${NC}` : `${DIM}○${NC}`;
+        const label = i === cursor ? `${BOLD}${opt.label}${NC}` : opt.label;
+        const status = opt.status
+          ? ` ${opt.statusColor || DIM}${opt.status}${NC}`
+          : "";
+        process.stdout.write(`  ${pointer} ${radio} ${label}${status}\x1b[K\n`);
+      }
+      process.stdout.write(`\n  ${DIM}↑/↓ move  ·  enter select${NC}\x1b[K`);
+    };
+
+    rl.pause();
+    draw();
+
+    const stdin = process.stdin;
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.setEncoding("utf-8");
+
+    const cleanup = () => {
+      stdin.setRawMode(false);
+      stdin.removeListener("data", onData);
+      rl.resume();
+    };
+
+    const onData = (data: string) => {
+      if (data === "\r" || data === "\n") {
+        cleanup();
+        process.stdout.write("\n\n");
+        resolve(options[cursor]!);
+        return;
+      }
+
+      if (data === "\x03") {
+        cleanup();
+        process.stdout.write("\n");
+        process.exit(0);
+      }
+
+      if (data === "\x1b[A" || data === "k") {
+        cursor = (cursor - 1 + options.length) % options.length;
+        draw();
+        return;
+      }
+      if (data === "\x1b[B" || data === "j") {
+        cursor = (cursor + 1) % options.length;
         draw();
         return;
       }
@@ -525,19 +616,17 @@ export async function handleInit(): Promise<void> {
   step(2, TOTAL_STEPS, "AI Provider & Model");
   info("Choose which AI provider to use. Kent supports cloud APIs and local models.\n");
 
-  const providerOptions: SelectOption[] = [
-    { label: "Anthropic (Claude)", key: "anthropic", selected: true, status: "recommended", statusColor: GREEN },
-    { label: "OpenAI (GPT)", key: "openai", selected: false },
-    { label: "OpenRouter (any model)", key: "openrouter", selected: false, status: "access 200+ models", statusColor: DIM },
-    { label: "Google (Gemini)", key: "google", selected: false },
-    { label: "Local (Ollama, LM Studio, llama.cpp)", key: "local", selected: false, status: "runs on your machine", statusColor: CYAN },
-    { label: "Custom (OpenAI-compatible endpoint)", key: "custom", selected: false },
+  const providerOptions: SingleSelectOption[] = [
+    { label: "Anthropic (Claude)", key: "anthropic", status: "recommended", statusColor: GREEN },
+    { label: "OpenAI (GPT)", key: "openai" },
+    { label: "OpenRouter (any model)", key: "openrouter", status: "access 200+ models", statusColor: DIM },
+    { label: "Google (Gemini)", key: "google" },
+    { label: "Local (Ollama, LM Studio, llama.cpp)", key: "local", status: "runs on your machine", statusColor: CYAN },
+    { label: "Custom (OpenAI-compatible endpoint)", key: "custom" },
   ];
 
-  // Use single-select behavior: only one provider can be picked
-  const selectedProviders = await multiSelect("Provider", providerOptions);
-  const chosenProvider = selectedProviders.find((o) => o.selected);
-  const provider: ModelProvider = (chosenProvider?.key as ModelProvider) || "anthropic";
+  const chosenProvider = await singleSelect(providerOptions);
+  const provider: ModelProvider = (chosenProvider.key as ModelProvider) || "anthropic";
   config.agent.provider = provider;
 
   // --- Collect API key or connection details based on provider ---
@@ -583,14 +672,8 @@ export async function handleInit(): Promise<void> {
       break;
     }
     case "local": {
-      info("Local models run on your machine via an OpenAI-compatible server.\n");
-      info(`  Common servers:`);
-      info(`    ${BOLD}Ollama${NC}       ${DIM}http://localhost:11434/v1${NC}  ${DIM}(brew install ollama)${NC}`);
-      info(`    ${BOLD}LM Studio${NC}    ${DIM}http://localhost:1234/v1${NC}`);
-      info(`    ${BOLD}llama.cpp${NC}    ${DIM}http://localhost:8080/v1${NC}\n`);
-      const baseUrl = await ask("Base URL", DEFAULT_LOCAL_BASE_URL);
-      config.agent.base_url = baseUrl;
-      success(`Base URL: ${baseUrl}`);
+      config.agent.base_url = DEFAULT_LOCAL_BASE_URL;
+      success(`Using Ollama (${DEFAULT_LOCAL_BASE_URL})`);
       break;
     }
     case "custom": {
@@ -612,31 +695,93 @@ export async function handleInit(): Promise<void> {
     }
   }
 
-  // --- Model selection ---
+  // --- Model selection (interactive dropdown) ---
   console.log("");
   const suggested = SUGGESTED_MODELS[provider];
   if (suggested.length > 0) {
-    info("Suggested models:\n");
-    for (let i = 0; i < suggested.length; i++) {
-      const s = suggested[i]!;
-      const num = `${i + 1}`;
-      const isDefault = i === 0;
-      info(`  ${BOLD}${num}.${NC} ${s.label}${isDefault ? ` ${GREEN}← default${NC}` : ""}`);
-      info(`     ${DIM}${s.id}${NC}`);
+    info("Choose a model:\n");
+    const modelOptions: SingleSelectOption[] = suggested.map((s, i) => ({
+      label: s.label,
+      key: s.id,
+      status: i === 0 ? "default" : undefined,
+      statusColor: i === 0 ? GREEN : undefined,
+    }));
+    // Add "Other (type manually)" option
+    modelOptions.push({ label: "Other (enter model ID manually)", key: "__custom__", status: undefined });
+    const chosenModel = await singleSelect(modelOptions);
+    if (chosenModel.key === "__custom__") {
+      const customModel = await ask("Model ID", suggested[0]!.id);
+      config.agent.default_model = customModel;
+    } else {
+      config.agent.default_model = chosenModel.key;
     }
-    console.log("");
-  }
-
-  const defaultModel = suggested.length > 0 ? suggested[0]!.id : "";
-  const modelInput = await ask("Model name", defaultModel);
-  // Check if user typed a number (1-N) to select from suggestions
-  const modelIndex = parseInt(modelInput, 10);
-  if (!isNaN(modelIndex) && modelIndex >= 1 && modelIndex <= suggested.length) {
-    config.agent.default_model = suggested[modelIndex - 1]!.id;
   } else {
-    config.agent.default_model = modelInput || defaultModel;
+    const customModel = await ask("Model ID", "");
+    config.agent.default_model = customModel;
   }
   success(`Model: ${config.agent.default_model} (${provider})`);
+
+  // --- For local provider: check Ollama is installed and model is pulled ---
+  if (provider === "local") {
+    let hasOllama = await commandExists("ollama");
+    if (!hasOllama) {
+      warn("Ollama is not installed.");
+      const shouldInstall = await confirm("Install Ollama now?", true);
+      if (shouldInstall) {
+        info("  Installing Ollama...\n");
+        const installProc = Bun.spawn(["brew", "install", "ollama"], {
+          stdout: "inherit", stderr: "inherit",
+        });
+        const code = await installProc.exited;
+        if (code === 0) {
+          success("Ollama installed");
+          hasOllama = true;
+        } else {
+          warn("Could not install via brew. Visit https://ollama.com to install manually.");
+          info(`  Then run: ${BOLD}ollama pull ${config.agent.default_model}${NC}\n`);
+        }
+      } else {
+        info(`  Install later: ${BOLD}brew install ollama${NC} or visit ${DIM}https://ollama.com${NC}`);
+        info(`  Then run: ${BOLD}ollama pull ${config.agent.default_model}${NC}\n`);
+      }
+    }
+    if (hasOllama) {
+      success("Ollama is installed");
+      // Check if the selected model is already pulled
+      try {
+        const proc = Bun.spawn(["ollama", "list"], { stdout: "pipe", stderr: "pipe" });
+        const output = await new Response(proc.stdout).text();
+        await proc.exited;
+        const modelName = config.agent.default_model.split(":")[0]!;
+        const isInstalled = output.split("\n").some((line) =>
+          line.toLowerCase().startsWith(config.agent.default_model.toLowerCase()) ||
+          line.toLowerCase().startsWith(modelName.toLowerCase())
+        );
+        if (isInstalled) {
+          success(`Model ${config.agent.default_model} is already pulled`);
+        } else {
+          warn(`Model ${config.agent.default_model} is not pulled yet.`);
+          const shouldPull = await confirm(`Pull ${config.agent.default_model} now?`, true);
+          if (shouldPull) {
+            info(`  Pulling ${config.agent.default_model}... (this may take a while)\n`);
+            const pullProc = Bun.spawn(["ollama", "pull", config.agent.default_model], {
+              stdout: "inherit", stderr: "inherit",
+            });
+            const code = await pullProc.exited;
+            if (code === 0) {
+              success(`Model ${config.agent.default_model} pulled successfully`);
+            } else {
+              warn(`Failed to pull model. Run 'ollama pull ${config.agent.default_model}' later.`);
+            }
+          } else {
+            info(`  Run ${BOLD}ollama pull ${config.agent.default_model}${NC} before using Kent.`);
+          }
+        }
+      } catch {
+        warn("Could not check installed models. Make sure Ollama is running.");
+      }
+    }
+  }
 
 
   // ------------------------------------------------------------------

@@ -63,6 +63,7 @@ export const SUGGESTED_MODELS: Record<ModelProvider, SuggestedModel[]> = {
     { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash" },
   ],
   local: [
+    { id: "gemma4:e4b", label: "Gemma 4 E4B (Google, recommended)" },
     { id: "llama3.1:8b", label: "Llama 3.1 8B (lightweight)" },
     { id: "llama3.1:70b", label: "Llama 3.1 70B" },
     { id: "mistral", label: "Mistral 7B" },
