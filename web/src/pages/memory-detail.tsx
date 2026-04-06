@@ -75,8 +75,8 @@ function resolveWikiLinks(body: string, index: Record<string, MemoryIndexEntry>)
   return body.replace(/\[\[([^\]]+)\]\]/g, (_match, title: string) => {
     const entry = index[title.toLowerCase()];
     if (entry) {
-      // Use a custom protocol so we can intercept in the link renderer
-      return `[${title}](kent-memory://${encodeURIComponent(entry.id)})`;
+      // Use #memory: prefix so the link stays in-page and doesn't trigger navigation
+      return `[${title}](#memory:${encodeURIComponent(entry.id)})`;
     }
     // Unresolved reference — render as styled but non-clickable
     return `**⟦${title}⟧**`;
@@ -147,11 +147,11 @@ export function MemoryDetailPage({ memoryId, onBack, onNavigate }: {
     return resolveWikiLinks(memory.summary, memoryIndex);
   }, [memory?.summary, memoryIndex]);
 
-  // Handle clicks on kent-memory:// links
+  // Handle clicks on #memory: links
   const handleLinkClick = useCallback((e: React.MouseEvent, href: string) => {
-    if (href.startsWith("kent-memory://")) {
+    if (href.startsWith("#memory:")) {
       e.preventDefault();
-      const id = decodeURIComponent(href.replace("kent-memory://", ""));
+      const id = decodeURIComponent(href.replace("#memory:", ""));
       onNavigate(id);
     }
   }, [onNavigate]);
@@ -159,10 +159,10 @@ export function MemoryDetailPage({ memoryId, onBack, onNavigate }: {
   const hasLinks = links.outgoing.length > 0 || links.incoming.length > 0;
   const hasSidebar = toc.length > 1 || hasLinks;
 
-  // Custom link renderer that handles kent-memory:// links as inline wiki links
+  // Custom link renderer that handles #memory: links as inline wiki links
   const linkRenderer = useCallback(({ href, children }: { href?: string; children?: React.ReactNode }) => {
-    if (href?.startsWith("kent-memory://")) {
-      const id = decodeURIComponent(href.replace("kent-memory://", ""));
+    if (href?.startsWith("#memory:")) {
+      const id = decodeURIComponent(href.replace("#memory:", ""));
       const entry = Object.values(memoryIndex).find((e) => e.id === id);
       const colorClass = entry ? (TYPE_COLORS[entry.type] ?? "text-foreground/70 hover:text-foreground") : "text-foreground/70 hover:text-foreground";
 
