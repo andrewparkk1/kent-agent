@@ -7,10 +7,21 @@ interface PromptFile {
   content: string;
 }
 
+interface ToolMeta {
+  name: string;
+  description: string;
+}
+
+interface ToolCategory {
+  category: string;
+  tools: ToolMeta[];
+}
+
 export function IdentityPage() {
   const [files, setFiles] = useState<PromptFile[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
+  const [toolCategories, setToolCategories] = useState<ToolCategory[]>([]);
 
   const fetchFiles = useCallback(async () => {
     try {
@@ -36,6 +47,13 @@ export function IdentityPage() {
   }, [selected]);
 
   useEffect(() => { fetchFiles(); }, []);
+
+  useEffect(() => {
+    fetch("/api/tools")
+      .then((r) => r.json())
+      .then((data) => setToolCategories(data.categories || []))
+      .catch(() => {});
+  }, []);
 
   const selectFile = (name: string) => {
     const file = files.find((f) => f.name === name);
@@ -69,8 +87,8 @@ export function IdentityPage() {
       </div>
 
       <div className="flex-1 flex min-h-0 px-8 pb-8 gap-5">
-        {/* File list */}
-        <div className="w-[200px] shrink-0">
+        {/* File list + Tools */}
+        <div className="w-[200px] shrink-0 overflow-y-auto">
           <div className="space-y-0.5">
             {files.map((f) => {
               const isSkill = f.name.startsWith("skills/");
@@ -90,6 +108,35 @@ export function IdentityPage() {
               );
             })}
           </div>
+
+          {/* Tools */}
+          {toolCategories.length > 0 && (
+            <div className="mt-6 pt-4 border-t border-border/30">
+              <span className="px-3 text-[11px] font-medium text-muted-foreground/40 uppercase tracking-wider">
+                Tools
+              </span>
+              <div className="mt-2 space-y-3">
+                {toolCategories.map((cat) => (
+                  <div key={cat.category}>
+                    <span className="px-3 text-[11px] text-muted-foreground/50">
+                      {cat.category}
+                    </span>
+                    <div className="mt-0.5 space-y-0">
+                      {cat.tools.map((tool) => (
+                        <div
+                          key={tool.name}
+                          className="group px-3 py-1 text-[12px] text-muted-foreground/60 font-mono relative"
+                          title={tool.description}
+                        >
+                          {tool.name}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Editor */}
