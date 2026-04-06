@@ -9,6 +9,7 @@ import { SourcesPage } from "@/pages/sources";
 import { ChatPage } from "@/pages/chat";
 import { IdentityPage } from "@/pages/identity";
 import { MemoriesPage } from "@/pages/memories";
+import { MemoryDetailPage } from "@/pages/memory-detail";
 import { WorkflowDetailPage } from "@/pages/workflow-detail";
 import { SettingsPage } from "@/pages/settings";
 import type { Page, Item, Workflow, SourceInfo, DaemonInfo } from "@/lib/types";
@@ -54,6 +55,7 @@ export function App() {
   const [daemon, setDaemon] = useState<DaemonInfo>({ status: "stopped", currentSource: null, intervalSeconds: 300, lastSyncAt: null, nextSyncAt: null });
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
+  const [selectedMemoryId, setSelectedMemoryId] = useState<string | null>(null);
   const [threadRefreshKey, setThreadRefreshKey] = useState(0);
 
   const [initialInput, setInitialInput] = useState("");
@@ -160,7 +162,7 @@ export function App() {
       {/* Spacer for fixed sidebar */}
       <div className="w-[220px] shrink-0" />
 
-      <PageTransition pageKey={page === "workflow-detail" ? `workflow-${selectedWorkflowId}` : page}>
+      <PageTransition pageKey={page === "workflow-detail" ? `workflow-${selectedWorkflowId}` : page === "memory-detail" ? `memory-${selectedMemoryId}` : page}>
         {page === "home" && <HomePage />}
         {page === "workflows" && (
           <WorkflowsPage
@@ -184,7 +186,14 @@ export function App() {
           <SourcesPage items={items} loading={loading} filter={filter} setFilter={setFilter} query={query} setQuery={setQuery} counts={counts} sources={sources} daemon={daemon} onRefresh={() => { fetchItems(itemsPage); fetchCounts(); fetchSources(); }} page={itemsPage} hasMore={hasMore} totalPages={totalItems > 0 ? Math.ceil(totalItems / (filter && ["imessage", "signal"].includes(filter) ? CONVO_PAGE_SIZE : PAGE_SIZE)) : undefined} onPageChange={setItemsPage} />
         )}
         {page === "identity" && <IdentityPage />}
-        {page === "memories" && <MemoriesPage />}
+        {page === "memories" && <MemoriesPage onSelect={(id) => { setSelectedMemoryId(id); setPage("memory-detail"); }} />}
+        {page === "memory-detail" && selectedMemoryId && (
+          <MemoryDetailPage
+            memoryId={selectedMemoryId}
+            onBack={() => setPage("memories")}
+            onNavigate={(id) => { setSelectedMemoryId(id); }}
+          />
+        )}
         {page === "settings" && <SettingsPage />}
       </PageTransition>
 

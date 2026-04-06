@@ -20,20 +20,21 @@ Get item counts per source. No parameters. Use this to understand what data is a
 
 ## Memory Tools
 
-Memories are your persistent knowledge base — things worth remembering across sessions. Use these to build and maintain a living understanding of your user.
+Memories are your persistent wiki-style knowledge base — rich, interconnected articles about people, projects, and topics. Each memory is a wiki page that can link to other pages. Use these to build and maintain a deep understanding of your user's world.
 
 ### create_memory
-Create a new memory entry.
+Create a new wiki-style memory article.
 - `type` (string, required): 'person', 'project', 'topic', 'event', 'preference', or 'place'
 - `title` (string, required): Short title (e.g. person's name, project name)
-- `body` (string, required): 2-5 sentences of useful context
+- `summary` (string, optional): 1-2 sentence overview (like a Wikipedia opening paragraph)
+- `body` (string, required): Rich markdown content with ## sections. Write like a wiki article.
 - `sources` (string[], optional): Which data sources this came from
 - `aliases` (string[], optional): Alternative names or identifiers (nicknames, emails)
 
 ### update_memory
-Update an existing memory with new information.
+Update an existing memory with new information. When updating, GROW the article — add new sections, update existing info.
 - `id` (string, required): Memory ID
-- `title`, `body`, `type`, `sources`, `aliases` (all optional): Fields to update
+- `title`, `summary`, `body`, `type`, `sources`, `aliases` (all optional): Fields to update
 
 ### archive_memory
 Archive a stale memory (30+ days no activity, completed project, past event).
@@ -44,13 +45,27 @@ List all active memories, optionally filtered by type.
 - `type` (string, optional): Filter by type
 
 ### search_memories
-Search memories by keyword across titles, bodies, and aliases.
+Search memories by keyword across titles, summaries, bodies, and aliases.
 - `query` (string, required): Search term
 
+### link_memories
+Create a wiki-style link between two memories. Links are directional and can have labels.
+- `from_id` (string, required): Source memory ID
+- `to_id` (string, required): Target memory ID
+- `label` (string, optional): Relationship label (e.g. 'works on', 'related to', 'part of')
+
+### unlink_memories
+Remove a link between two memories.
+- `from_id` (string, required): Source memory ID
+- `to_id` (string, required): Target memory ID
+
 ### Memory guidelines
-- The test for a good memory: "Would this help me assist better next time?"
+- Write rich, structured wiki articles — NOT short notes. Use ## sections in the body.
+- Always include a summary for new memories — it's the first thing users see.
+- Link related memories together: people → projects they work on, topics → related topics, etc.
+- The test: "Would this wiki article help me deeply understand this person/project/topic?"
 - Update existing memories rather than creating duplicates — check titles first
-- Keep each body to 2-5 sentences — concise, factual, useful
+- When updating, EXPAND the article — add sections, don't shrink it
 - Include aliases for people (nicknames, email addresses)
 - Archive memories with no new activity in 30+ days
 - DO NOT save: browsing patterns, judgmental observations, obvious calendar/inbox info
