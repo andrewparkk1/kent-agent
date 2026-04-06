@@ -19,8 +19,10 @@ rm -f ~/Library/LaunchAgents/sh.kent.daemon.plist
 rm -f ~/Library/LaunchAgents/sh.kent.web.plist
 echo "  Removed launchd services"
 
-# Remove global binary
-bun remove -g meet-kent 2>/dev/null && echo "  Removed global kent binary" || true
+# Remove global binary (handles both npm install and bun link)
+bun remove -g meet-kent 2>/dev/null || true
+rm -f ~/.bun/bin/kent 2>/dev/null || true
+echo "  Removed global kent binary"
 
 # Nuke data
 rm -rf ~/.kent
