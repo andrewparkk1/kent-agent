@@ -10,6 +10,7 @@ import { gmail, gcal, gtasks, gdrive } from "../../daemon/sources/gmail.ts";
 import { github } from "../../daemon/sources/github.ts";
 import { chrome } from "../../daemon/sources/chrome.ts";
 import { appleNotes } from "../../daemon/sources/apple-notes.ts";
+import { aiCoding } from "../../daemon/sources/ai-coding.ts";
 
 const sourceRegistry: Record<string, Source> = {
   imessage,
@@ -22,6 +23,7 @@ const sourceRegistry: Record<string, Source> = {
   github,
   chrome,
   apple_notes: appleNotes,
+  ai_coding: aiCoding,
 };
 
 export async function handleSync(req: Request): Promise<Response> {

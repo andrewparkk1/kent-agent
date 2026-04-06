@@ -24,6 +24,7 @@ import { gmail, gcal, gtasks, gdrive } from "@daemon/sources/gmail.ts";
 import { github } from "@daemon/sources/github.ts";
 import { chrome } from "@daemon/sources/chrome.ts";
 import { appleNotes } from "@daemon/sources/apple-notes.ts";
+import { aiCoding } from "@daemon/sources/ai-coding.ts";
 
 const sourceRegistry: Record<string, Source> = {
   imessage,
@@ -36,6 +37,7 @@ const sourceRegistry: Record<string, Source> = {
   github,
   chrome,
   apple_notes: appleNotes,
+  ai_coding: aiCoding,
 };
 
 interface SourceStatus {
@@ -242,7 +244,8 @@ export async function handleSync(args: string[]): Promise<void> {
     }
   }
 
-  console.log(`\n  Syncing ${sourcesToSync.length} source${sourcesToSync.length > 1 ? "s" : ""}${isFull ? " (full history)" : ""}...\n`);
+  console.log(`\n  Syncing ${sourcesToSync.length} source${sourcesToSync.length > 1 ? "s" : ""} to local database (~/.kent/kent.db)${isFull ? " (full history)" : ""}...`);
+  console.log(`  \x1b[2mAll your data stays on your machine. Nothing is sent to any server.\x1b[0m\n`);
 
   const statuses: SourceStatus[] = sourcesToSync.map((s) => ({
     name: s.name,

@@ -20,6 +20,7 @@ import { gmail, gcal, gtasks } from "./sources/gmail.ts";
 import { github } from "./sources/github.ts";
 import { chrome } from "./sources/chrome.ts";
 import { appleNotes } from "./sources/apple-notes.ts";
+import { aiCoding } from "./sources/ai-coding.ts";
 
 const sourceRegistry: Record<string, Source> = {
   imessage,
@@ -31,6 +32,7 @@ const sourceRegistry: Record<string, Source> = {
   github,
   chrome,
   apple_notes: appleNotes,
+  ai_coding: aiCoding,
 };
 
 function log(message: string): void {

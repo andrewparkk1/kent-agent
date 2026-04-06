@@ -39,6 +39,7 @@ export interface Config {
     github: boolean;
     chrome: boolean;
     apple_notes: boolean;
+    ai_coding: boolean;
   };
   daemon: {
     sync_interval_seconds: number;
@@ -92,6 +93,7 @@ export const DEFAULT_CONFIG: Config = {
     github: false,
     chrome: false,
     apple_notes: false,
+    ai_coding: false,
   },
   daemon: {
     sync_interval_seconds: 300,

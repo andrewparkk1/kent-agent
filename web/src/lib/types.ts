@@ -2,6 +2,7 @@ import { Globe } from "lucide-react";
 import {
   GmailIcon, ChromeIcon, GitHubIcon, SignalIcon, IMessageIcon,
   AppleNotesIcon, GranolaIcon, CalendarIcon, TasksIcon, DriveIcon,
+  AiCodingIcon,
 } from "./icons";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -63,6 +64,7 @@ export const SOURCE_META: Record<string, { icon: any; label: string; color: stri
   imessage:      { icon: IMessageIcon,   label: "iMessage",    color: "text-emerald-500/80", bg: "bg-emerald-500/8" },
   signal:        { icon: SignalIcon,     label: "Signal",      color: "text-blue-500/80",    bg: "bg-blue-500/8" },
   granola:       { icon: GranolaIcon,    label: "Granola",     color: "text-purple-500/80",  bg: "bg-purple-500/8" },
+  ai_coding:     { icon: AiCodingIcon,  label: "Claude & Codex", color: "text-orange-500/80",  bg: "bg-orange-500/8" },
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

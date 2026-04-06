@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Search, Globe, ChevronDown, ChevronRight, RefreshCw, Calendar, Loader2, Settings2, X, MessageCircle, Users, Download, Bookmark, History, SearchIcon } from "lucide-react";
+import { Search, Globe, ChevronDown, ChevronRight, RefreshCw, Calendar, Loader2, Settings2, X, MessageCircle, Users, Download, Bookmark, History, SearchIcon, Terminal, Bot } from "lucide-react";
 import { toast } from "sonner";
 import Markdown from "react-markdown";
 import { Stagger, StaggerItem } from "@/components/stagger";
@@ -237,7 +237,7 @@ function ItemDetail({ item }: { item: Item }) {
   const description = m.description || m.notes;
 
   // For content-heavy sources (notes, chrome, messages), show the full content
-  const isContentSource = ["apple-notes", "apple_notes", "chrome", "imessage", "signal", "granola"].includes(item.source);
+  const isContentSource = ["apple-notes", "apple_notes", "chrome", "imessage", "signal", "granola", "ai_coding"].includes(item.source);
 
   // For Granola: split content into summary and transcript sections
   const isGranola = item.source === "granola";
@@ -497,6 +497,132 @@ function ConversationList({ items }: { items: Item[] }) {
   );
 }
 
+// ─── AI Coding session-grouped view ───────────────────────────────────────
+
+interface CodingSession {
+  id: string;
+  name: string;
+  tool: "claude_code" | "codex" | string;
+  lastItem: Item;
+  items: Item[];
+}
+
+function groupByCodingSession(items: Item[]): CodingSession[] {
+  const map = new Map<string, CodingSession>();
+  for (const item of items) {
+    const sessionId = item.metadata.sessionId || "unknown";
+    const existing = map.get(sessionId);
+    if (existing) {
+      existing.items.push(item);
+      if (item.created_at > existing.lastItem.created_at) {
+        existing.lastItem = item;
+      }
+    } else {
+      map.set(sessionId, {
+        id: sessionId,
+        name: item.metadata.sessionName || item.metadata.cwd?.split("/").pop() || sessionId.slice(0, 8),
+        tool: item.metadata.tool || "unknown",
+        lastItem: item,
+        items: [item],
+      });
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => b.lastItem.created_at - a.lastItem.created_at);
+}
+
+function CodingSessionRow({ session }: { session: CodingSession }) {
+  const [open, setOpen] = useState(false);
+  const queries = session.items.filter((i) => i.metadata.type === "prompt");
+  const lastQuery = queries.sort((a, b) => b.created_at - a.created_at)[0];
+  const preview = lastQuery
+    ? lastQuery.content.replace(/^\[.*?\]\s*/, "").slice(0, 90)
+    : session.lastItem.content.replace(/^\[.*?\]\s*/, "").slice(0, 90);
+  const isClaudeCode = session.tool === "claude_code";
+
+  return (
+    <div>
+      <motion.div
+        whileHover={{ x: 2 }}
+        transition={{ duration: 0.15 }}
+        onClick={() => setOpen(!open)}
+        className="group flex items-center gap-3 min-w-0 px-3 py-3 rounded-lg hover:bg-foreground/[0.03] transition-colors cursor-pointer"
+      >
+        <div className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center ${isClaudeCode ? "bg-orange-500/10" : "bg-emerald-500/10"}`}>
+          <Terminal size={16} className={isClaudeCode ? "text-orange-500/70" : "text-emerald-500/70"} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-[13px] font-medium text-foreground truncate">{session.name}</span>
+            <span className={`text-[10px] px-1.5 py-[1px] rounded ${isClaudeCode ? "bg-orange-500/8 text-orange-500/60" : "bg-emerald-500/8 text-emerald-500/60"}`}>
+              {isClaudeCode ? "Claude Code" : "Codex"}
+            </span>
+          </div>
+          <span className="text-[12px] text-muted-foreground/50 truncate block mt-0.5">{preview}</span>
+        </div>
+        <div className="shrink-0 flex items-center gap-2">
+          <span className="text-[10px] font-mono text-muted-foreground/30 bg-foreground/[0.04] px-1.5 py-[2px] rounded tabular-nums">{session.items.length}</span>
+          <span className="text-[11px] font-mono text-muted-foreground/40 tabular-nums">{timeAgo(session.lastItem.created_at)}</span>
+          <ChevronRight size={12} className={`text-muted-foreground/30 transition-transform duration-200 ${open ? "rotate-90" : ""}`} />
+        </div>
+      </motion.div>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: [0.25, 0.46, 0.45, 0.94] }}
+            className="overflow-hidden"
+          >
+            <div className="mx-3 mb-2 px-4 py-3 rounded-lg bg-foreground/[0.02] border border-border/30 space-y-1 max-h-[400px] overflow-y-auto">
+              {session.items
+                .sort((a, b) => a.created_at - b.created_at)
+                .slice(-40)
+                .map((msg) => {
+                  const isQuery = msg.metadata.type === "prompt";
+                  const text = msg.content.replace(/^\[.*?\]\s*/, "");
+                  return (
+                    <div key={msg.id} className={`flex ${isQuery ? "justify-end" : "justify-start"}`}>
+                      <div className={`max-w-[80%] px-3 py-1.5 rounded-2xl text-[12px] leading-relaxed ${
+                        isQuery
+                          ? "bg-orange-500 text-white rounded-br-md"
+                          : "bg-foreground/[0.06] text-foreground/80 rounded-bl-md"
+                      }`}>
+                        <div className="whitespace-pre-wrap break-words">{text}</div>
+                        <div className={`text-[9px] mt-0.5 ${isQuery ? "text-white/50" : "text-muted-foreground/30"}`}>
+                          {new Date(msg.created_at * 1000).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function CodingSessionList({ items }: { items: Item[] }) {
+  const sessions = groupByCodingSession(items);
+  return (
+    <Stagger className="flex flex-col gap-0.5">
+      {sessions.map((session) => (
+        <StaggerItem key={session.id}>
+          <CodingSessionRow session={session} />
+        </StaggerItem>
+      ))}
+      {sessions.length === 0 && (
+        <StaggerItem>
+          <div className="text-center text-muted-foreground/50 py-20 text-[13px]">No coding sessions found</div>
+        </StaggerItem>
+      )}
+    </Stagger>
+  );
+}
+
 // ─── Chrome grouped view ───────────────────────────────────────────────────
 
 const CHROME_TYPE_META: Record<string, { icon: any; label: string; color: string; bg: string }> = {
@@ -728,10 +854,14 @@ function CalendarList({ items }: { items: Item[] }) {
 
 const CONVERSATION_SOURCES = ["imessage", "signal"];
 const CALENDAR_SOURCES = ["gcal", "gtasks"];
+const AI_CODING_SOURCES = ["ai_coding"];
 
 function SourceAwareList({ items, filter }: { items: Item[]; filter: string | null }) {
   if (filter && CONVERSATION_SOURCES.includes(filter)) {
     return <ConversationList items={items} />;
+  }
+  if (filter && AI_CODING_SOURCES.includes(filter)) {
+    return <CodingSessionList items={items} />;
   }
   if (filter === "chrome") {
     return <ChromeList items={items} />;
@@ -787,7 +917,12 @@ export function SourcesPage({ items, loading, filter, setFilter, query, setQuery
   sources: SourceInfo[]; daemon: DaemonInfo; onRefresh: () => void;
   page: number; hasMore: boolean; totalPages?: number; onPageChange: (p: number) => void;
 }) {
-  const sortedSources = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  const sortedSources = Object.entries(counts).sort((a, b) => {
+    // ai_coding always last
+    if (a[0] === "ai_coding") return 1;
+    if (b[0] === "ai_coding") return -1;
+    return b[1] - a[1];
+  });
   const now = useTick(1000);
 
   const [syncPanelOpen, setSyncPanelOpen] = useState(false);

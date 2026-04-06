@@ -556,6 +556,18 @@ const SOURCES: SourceInfo[] = [
       return { ok: false, message: "Apple Notes DB not found. Grant Full Disk Access to your terminal in System Settings > Privacy & Security." };
     },
   },
+  {
+    key: "ai_coding",
+    label: "AI Coding (Claude Code + Codex)",
+    check: async () => {
+      const hasClaudeCode = existsSync(join(homedir(), ".claude/projects"));
+      const hasCodex = existsSync(join(homedir(), ".codex/history.jsonl"));
+      if (hasClaudeCode && hasCodex) return { ok: true, message: "Claude Code + Codex found" };
+      if (hasClaudeCode) return { ok: true, message: "Claude Code found" };
+      if (hasCodex) return { ok: true, message: "Codex found" };
+      return { ok: false, message: "No Claude Code or Codex data found" };
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
