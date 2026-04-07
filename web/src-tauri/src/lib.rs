@@ -33,6 +33,7 @@ pub fn run() {
     let daemon_cleanup = daemon.clone();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .setup(move |app| {
             if cfg!(debug_assertions) {

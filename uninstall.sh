@@ -24,6 +24,15 @@ bun remove -g meet-kent 2>/dev/null || true
 rm -f ~/.bun/bin/kent 2>/dev/null || true
 echo "  Removed global kent binary"
 
+# Remove Kent.app from /Applications
+rm -rf "/Applications/Kent.app"
+echo "  Removed /Applications/Kent.app"
+
+# Remove Chrome app shortcut (if installed as Chrome app)
+rm -rf ~/Applications/Chrome\ Apps.localized/Kent*.app 2>/dev/null || true
+rm -rf ~/Applications/Chrome\ Apps/Kent*.app 2>/dev/null || true
+echo "  Removed Chrome app shortcut (if any)"
+
 # Nuke data
 rm -rf ~/.kent
 echo "  Removed ~/.kent"
