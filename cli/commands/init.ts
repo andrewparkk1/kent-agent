@@ -608,7 +608,7 @@ export async function handleInit(): Promise<void> {
     info(`skip iMessage/Apple Notes until access is granted.${NC}\n`);
   }
 
-  const TOTAL_STEPS = 4;
+  const TOTAL_STEPS = 5;
 
   // ------------------------------------------------------------------
   // Step 1: Device Token
@@ -903,11 +903,26 @@ export async function handleInit(): Promise<void> {
   }
 
   // ------------------------------------------------------------------
-  // Done
+  // Step 5: Start Services
   // ------------------------------------------------------------------
-  rl.close();
+  step(5, TOTAL_STEPS, "Start Services");
+  console.log("");
+  const shouldStart = await confirm("Start Kent now? (daemon + web dashboard)", true);
 
-  console.log(`
+  if (shouldStart) {
+    rl.close();
+    info("Starting services...\n");
+    try {
+      const { handleRun } = await import("./run.ts");
+      await handleRun();
+    } catch (e) {
+      warn(`Could not start services: ${e instanceof Error ? e.message : e}`);
+      info("Run 'kent run' manually to start.");
+    }
+  } else {
+    rl.close();
+
+    console.log(`
 ${GREEN}${BOLD}  Setup complete!${NC}
 
   ${BOLD}Next step:${NC}
@@ -923,6 +938,7 @@ ${GREEN}${BOLD}  Setup complete!${NC}
   ${DIM}Data:    ~/.kent/kent.db${NC}
   ${DIM}Logs:    ~/.kent/daemon.log${NC}
 `);
+  }
 
   process.exit(0);
 }

@@ -4,9 +4,9 @@ import { installWebLaunchd } from "./web.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { API_PORT, VITE_PORT } from "@shared/config.ts";
+import { API_PORT } from "@shared/config.ts";
 
-async function waitForPort(port: number, timeoutMs = 20000): Promise<boolean> {
+async function waitForPort(port: number, timeoutMs = 30000): Promise<boolean> {
   const start = Date.now();
   const deadline = start + timeoutMs;
   let lastSec = 0;
@@ -32,6 +32,27 @@ async function waitForPort(port: number, timeoutMs = 20000): Promise<boolean> {
   return false;
 }
 
+/** Build the frontend if web/dist/ doesn't exist yet. */
+function ensureFrontendBuilt(): void {
+  const distIndex = resolve(import.meta.dir, "../../web/dist/index.html");
+  if (existsSync(distIndex)) return;
+
+  console.log("Building frontend...");
+  const root = resolve(import.meta.dir, "../..");
+  try {
+    execFileSync("bun", ["run", "build:web"], {
+      cwd: root,
+      stdio: "pipe",
+      timeout: 120000,
+    });
+    console.log("Frontend built.");
+  } catch (e: any) {
+    const stderr = e?.stderr?.toString?.() || "";
+    console.log(`Warning: frontend build failed — dashboard may not load.`);
+    if (stderr) console.log(stderr.slice(0, 500));
+  }
+}
+
 export async function handleRun(): Promise<void> {
   // Start daemon via launchd
   try {
@@ -39,6 +60,9 @@ export async function handleRun(): Promise<void> {
   } catch (e) {
     console.log(`Daemon: ${e}`);
   }
+
+  // Build frontend if needed (no more Vite dev server)
+  ensureFrontendBuilt();
 
   // Start web supervisor via launchd
   try {
@@ -48,20 +72,14 @@ export async function handleRun(): Promise<void> {
     return;
   }
 
-  // Detect dev mode: no pre-built frontend means Vite dev server is used
-  const hasStaticBuild = existsSync(resolve(import.meta.dir, "../../web/dist/index.html"));
-  const dashboardPort = hasStaticBuild ? API_PORT : VITE_PORT;
-
   console.log("Starting web services...");
-  const ready = await waitForPort(dashboardPort);
+  const ready = await waitForPort(API_PORT);
 
   if (ready) {
-    console.log(`Dashboard: http://localhost:${dashboardPort}`);
-    if (!hasStaticBuild) console.log(`(dev mode — using Vite on port ${VITE_PORT})`);
+    console.log(`Dashboard: http://localhost:${API_PORT}`);
     console.log("\nAll services will auto-restart on sleep/reboot.");
     console.log("Stop with: kent daemon stop");
-
-    try { execFileSync("open", [`http://localhost:${dashboardPort}`]); } catch {}
+    try { execFileSync("open", [`http://localhost:${API_PORT}`]); } catch {}
   } else {
     console.log("Warning: server didn't start — check: kent logs api");
     console.log("\nServices are managed by launchd and may still be starting.");

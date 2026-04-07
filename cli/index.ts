@@ -34,7 +34,7 @@ Usage:
   kent workflow <sub>           Manage scheduled workflows
   kent run                      Start daemon + web dashboard
   kent status                   Check if all services are up
-  kent logs [source] [-f]       View logs (daemon|api|vite|web)
+  kent logs [source] [-f]       View logs (daemon|api|web)
   kent web                      Open web dashboard
   kent uninstall                Stop all services and remove ~/.kent
 
