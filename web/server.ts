@@ -11,11 +11,32 @@ import { handleChat } from "./api/chat.ts";
 import { handleSync } from "./api/sync.ts";
 import { handleSettings, handleSettingsSave } from "./api/settings.ts";
 import { handleTools } from "./api/tools.ts";
+import { API_PORT } from "../shared/config.ts";
 
-const STATIC_DIR = resolve(import.meta.dir, "dist");
+const STATIC_DIR = process.env.KENT_STATIC_DIR || resolve(import.meta.dir, "dist");
+
+const MIME_TYPES: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".webp": "image/webp",
+  ".webm": "video/webm",
+  ".mp4": "video/mp4",
+  ".txt": "text/plain; charset=utf-8",
+};
 
 Bun.serve({
-  port: 3456,
+  port: API_PORT,
   routes: {
     "/api/counts":       handleCounts,
     "/api/items":        handleItems,
@@ -93,17 +114,21 @@ if (url.pathname === "/api/sync" && req.method === "POST") {
 
     // Serve static frontend from web/dist/ (pre-built Vite output)
     if (existsSync(STATIC_DIR)) {
-      const filePath = join(STATIC_DIR, url.pathname === "/" ? "index.html" : url.pathname);
+      const requestPath = url.pathname === "/" ? "index.html" : url.pathname;
+      const filePath = join(STATIC_DIR, requestPath);
       const file = Bun.file(filePath);
       if (await file.exists()) {
-        return new Response(file);
+        const ext = extname(filePath);
+        const headers: Record<string, string> = {};
+        if (MIME_TYPES[ext]) headers["Content-Type"] = MIME_TYPES[ext];
+        return new Response(file, { headers });
       }
       // SPA fallback — serve index.html for client-side routes
       const ext = extname(url.pathname);
       if (!ext || ext === ".html") {
         const index = Bun.file(join(STATIC_DIR, "index.html"));
         if (await index.exists()) {
-          return new Response(index);
+          return new Response(index, { headers: { "Content-Type": "text/html; charset=utf-8" } });
         }
       }
     }
@@ -112,4 +137,4 @@ if (url.pathname === "/api/sync" && req.method === "POST") {
   },
 });
 
-console.log("Kent API server running at http://localhost:3456");
+console.log(`Kent API server running at http://localhost:${API_PORT}`);

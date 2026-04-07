@@ -5,11 +5,8 @@
 import { resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
-import { KENT_DIR, WEB_PLIST_PATH, LOG_PATH } from "@shared/config.ts";
+import { KENT_DIR, WEB_PLIST_PATH, LOG_PATH, API_PORT, VITE_PORT } from "@shared/config.ts";
 import type { Subprocess } from "bun";
-
-const API_PORT = 3456;
-const VITE_PORT = 5173;
 
 const API_PID_PATH = resolve(KENT_DIR, "web-api.pid");
 const VITE_PID_PATH = resolve(KENT_DIR, "web-vite.pid");

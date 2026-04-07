@@ -2,6 +2,7 @@ import { memo } from "react";
 import { motion } from "motion/react";
 import { User } from "lucide-react";
 import type { Message } from "./types";
+import { formatMessageTime } from "./format-time";
 
 export const MessageBubble = memo(function MessageBubble({ msg }: { msg: Message }) {
   return (
@@ -19,9 +20,16 @@ export const MessageBubble = memo(function MessageBubble({ msg }: { msg: Message
       </div>
 
       <div className="flex-1 min-w-0">
-        <span className="text-[11px] font-medium text-muted-foreground/40 uppercase tracking-wider">
-          You
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-medium text-muted-foreground/40 uppercase tracking-wider">
+            You
+          </span>
+          {msg.created_at > 0 && (
+            <span className="text-[10px] text-muted-foreground/30 font-mono tabular-nums">
+              {formatMessageTime(msg.created_at)}
+            </span>
+          )}
+        </div>
         <div className="mt-1 prose-chat">
           {msg.content}
         </div>

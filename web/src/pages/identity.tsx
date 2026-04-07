@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
+import { toast } from "sonner";
 import Markdown from "react-markdown";
 
 interface PromptFile {
@@ -43,7 +44,9 @@ export function IdentityPage() {
         setSelected(entries[0]!.name);
         setEditContent(entries[0]!.content);
       }
-    } catch {}
+    } catch {
+      toast.error("Failed to load identity files");
+    }
   }, [selected]);
 
   useEffect(() => { fetchFiles(); }, []);
@@ -52,7 +55,7 @@ export function IdentityPage() {
     fetch("/api/tools")
       .then((r) => r.json())
       .then((data) => setToolCategories(data.categories || []))
-      .catch(() => {});
+      .catch(() => { toast.error("Failed to load tools"); });
   }, []);
 
   const selectFile = (name: string) => {

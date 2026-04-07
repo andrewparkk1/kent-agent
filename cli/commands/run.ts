@@ -2,8 +2,7 @@
 import { daemonStart } from "./daemon.ts";
 import { installWebLaunchd } from "./web.ts";
 import { execFileSync } from "node:child_process";
-
-const API_PORT = 3456;
+import { API_PORT } from "@shared/config.ts";
 
 async function waitForPort(port: number, timeoutMs = 20000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;

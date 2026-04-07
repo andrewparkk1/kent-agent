@@ -95,24 +95,40 @@ async function main(): Promise<void> {
   writeFileSync(PID_PATH, String(process.pid), "utf-8");
   log(`Daemon started (PID ${process.pid})`);
 
-  const config = loadConfig();
-  const intervalMs = config.daemon.sync_interval_seconds * 1000;
+  let config = loadConfig();
+  let intervalMs = config.daemon.sync_interval_seconds * 1000;
 
-  // Build list of enabled sources
-  const enabledSources: Source[] = [];
-  for (const [key, source] of Object.entries(sourceRegistry)) {
-    const configKey = key as keyof typeof config.sources;
-    if (config.sources[configKey]) {
-      enabledSources.push(source);
+  function reloadConfig() {
+    const prev = config;
+    config = loadConfig();
+    intervalMs = config.daemon.sync_interval_seconds * 1000;
+
+    const prevSources = Object.entries(prev.sources).filter(([, v]) => v).map(([k]) => k).sort().join(",");
+    const newSources = Object.entries(config.sources).filter(([, v]) => v).map(([k]) => k).sort().join(",");
+    if (prevSources !== newSources) {
+      log(`Config reloaded — sources changed: ${newSources || "(none)"}`);
+    }
+    if (prev.daemon.sync_interval_seconds !== config.daemon.sync_interval_seconds) {
+      log(`Config reloaded — sync interval: ${config.daemon.sync_interval_seconds}s`);
     }
   }
 
-  const sourceNames = enabledSources.map((s) => s.name);
+  function getEnabledSources(): { sources: Source[]; names: string[] } {
+    const sources: Source[] = [];
+    for (const [key, source] of Object.entries(sourceRegistry)) {
+      const configKey = key as keyof typeof config.sources;
+      if (config.sources[configKey]) {
+        sources.push(source);
+      }
+    }
+    return { sources, names: sources.map((s) => s.name) };
+  }
 
-  if (enabledSources.length === 0) {
+  const { names: initialNames } = getEnabledSources();
+  if (initialNames.length === 0) {
     log("No sources enabled — daemon will idle. Enable sources in ~/.kent/config.json");
   } else {
-    log(`Sources: ${sourceNames.join(", ")}`);
+    log(`Sources: ${initialNames.join(", ")}`);
   }
 
   log(`Sync interval: ${config.daemon.sync_interval_seconds}s`);
@@ -137,6 +153,7 @@ async function main(): Promise<void> {
   let lastSyncAt = 0;
 
   // Resolve paths for spawning the agent
+  const agentBin = process.env.KENT_AGENT_BIN;
   const projectRoot = resolve(import.meta.dir, "..");
   const agentPath = resolve(projectRoot, "agent", "agent.ts");
   const bunPath = process.execPath || "bun";
@@ -196,12 +213,9 @@ async function main(): Promise<void> {
             MODEL: config.agent.default_model,
           };
 
-          const proc = Bun.spawn([bunPath, "run", agentPath], {
-            env,
-            stdout: "pipe",
-            stderr: "pipe",
-            cwd: projectRoot,
-          });
+          const proc = agentBin
+            ? Bun.spawn([agentBin], { env, stdout: "pipe", stderr: "pipe" })
+            : Bun.spawn([bunPath, "run", agentPath], { env, stdout: "pipe", stderr: "pipe", cwd: projectRoot });
 
           await new Response(proc.stdout).text();
           await proc.exited;
@@ -231,6 +245,7 @@ async function main(): Promise<void> {
 
   // ── Source sync ────────────────────────────────────────────────────
   async function syncSources(): Promise<void> {
+    const { sources: enabledSources, names: sourceNames } = getEnabledSources();
     const syncResults: Record<string, number> = {};
     const syncTitles: Record<string, string[]> = {};
     const syncErrors: Record<string, string> = {};
@@ -280,6 +295,7 @@ async function main(): Promise<void> {
     }
 
     lastSyncAt = Date.now();
+    const { names: currentNames } = getEnabledSources();
     writeDaemonState({
       pid: process.pid,
       status: "waiting",
@@ -288,7 +304,7 @@ async function main(): Promise<void> {
       lastSyncResults: syncResults,
       lastSyncTitles: syncTitles,
       lastSyncErrors: Object.keys(syncErrors).length > 0 ? syncErrors : undefined,
-      enabledSources: sourceNames,
+      enabledSources: currentNames,
       intervalSeconds: config.daemon.sync_interval_seconds,
     });
   }
@@ -297,6 +313,9 @@ async function main(): Promise<void> {
   const TICK_MS = 60_000;
 
   while (true) {
+    // Reload config each tick so changes take effect without restart
+    reloadConfig();
+
     // 1. Check for due workflows
     try {
       await runDueWorkflows();
@@ -307,7 +326,8 @@ async function main(): Promise<void> {
     // 2. Sync sources if enough time has passed
     const timeSinceSync = Date.now() - lastSyncAt;
     if (timeSinceSync >= intervalMs) {
-      if (enabledSources.length > 0) {
+      const { sources: currentSources } = getEnabledSources();
+      if (currentSources.length > 0) {
         await syncSources();
       } else {
         log("tick (idle — no sources enabled)");

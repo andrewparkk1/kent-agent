@@ -91,11 +91,34 @@ function getAccessToken(): string | null {
   }
 }
 
-/** Refresh the access token using the refresh token. */
-function refreshToken(refreshToken: string): string | null {
-  // Synchronous — we can't await here but this runs in an async context
-  // Just return null and let the caller handle it; token will refresh on next Granola app open
-  return null;
+/** Refresh the access token using the refresh token (synchronous via Bun.spawnSync). */
+function refreshToken(token: string): string | null {
+  try {
+    const res = Bun.spawnSync(["curl", "-s", "-X", "POST",
+      "https://api.granola.ai/v1/auth/refresh",
+      "-H", "Content-Type: application/json",
+      "-d", JSON.stringify({ refresh_token: token }),
+    ]);
+    const body = JSON.parse(res.stdout.toString());
+    if (body.access_token) {
+      // Persist refreshed tokens back to supabase.json
+      try {
+        const data = JSON.parse(readFileSync(SUPABASE_PATH, "utf-8"));
+        const tokens = JSON.parse(data.workos_tokens);
+        tokens.access_token = body.access_token;
+        if (body.refresh_token) tokens.refresh_token = body.refresh_token;
+        data.workos_tokens = JSON.stringify(tokens);
+        const { writeFileSync } = require("node:fs");
+        writeFileSync(SUPABASE_PATH, JSON.stringify(data), "utf-8");
+      } catch {}
+      return body.access_token;
+    }
+    console.warn("[granola] Token refresh failed — no access_token in response");
+    return null;
+  } catch (e) {
+    console.warn(`[granola] Token refresh failed: ${e}`);
+    return null;
+  }
 }
 
 /** Fetch document transcript from Granola API, formatted with speaker labels. */

@@ -288,9 +288,9 @@ export async function handleSync(args: string[]): Promise<void> {
   console.log("");
   if (errors > 0) {
     console.log(`  Done: ${total.toLocaleString()} items synced, ${errors} error${errors > 1 ? "s" : ""} (${formatTime(elapsed)})\n`);
+    process.exit(1);
   } else {
     console.log(`  Done: ${total.toLocaleString()} items synced (${formatTime(elapsed)})\n`);
+    process.exit(0);
   }
-
-  process.exit(0);
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
 import { ArrowLeft, Clock, Play, Loader2, Trash2, Pencil } from "lucide-react";
+import { toast } from "sonner";
 import Markdown from "react-markdown";
 import { type Workflow, cronToHuman, timeAgo } from "@/lib/types";
 import { WorkflowRunRow, type WorkflowRun } from "@/components/workflow-run-row";
@@ -26,7 +27,9 @@ export function WorkflowDetailPage({
     try {
       const res = await fetch(`/api/workflow?id=${encodeURIComponent(workflowId)}`);
       if (res.ok) setData(await res.json());
-    } catch {}
+    } catch {
+      toast.error("Failed to load workflow details");
+    }
   }, [workflowId]);
 
   useEffect(() => { fetchDetail(); }, [fetchDetail]);
@@ -39,7 +42,9 @@ export function WorkflowDetailPage({
         body: JSON.stringify({ id: workflowId }),
       });
       if (res.ok) fetchDetail();
-    } catch {}
+    } catch {
+      toast.error("Failed to toggle workflow");
+    }
   };
 
   const deleteWorkflow = async () => {
@@ -51,7 +56,9 @@ export function WorkflowDetailPage({
         body: JSON.stringify({ id: workflowId }),
       });
       if (res.ok) onBack();
-    } catch {}
+    } catch {
+      toast.error("Failed to delete workflow");
+    }
   };
 
   const triggerRun = async () => {
@@ -95,7 +102,7 @@ export function WorkflowDetailPage({
         }
       }
     } catch {
-      // If we failed to get a threadId, just stay on the page
+      toast.error("Failed to run workflow");
       setRunning(false);
     }
   };

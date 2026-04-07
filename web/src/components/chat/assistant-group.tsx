@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import kentIcon from "@/assets/icon.png";
 import { ToolCallBlock } from "./tool-call-block";
 import { StreamingMarkdown } from "./streaming-markdown";
+import { formatMessageTime } from "./format-time";
 import type { Message } from "./types";
 
 export function AssistantGroup({ items, streaming }: { items: Message[]; streaming: boolean }) {
@@ -49,6 +50,11 @@ export function AssistantGroup({ items, streaming }: { items: Message[]; streami
           <span className="text-[11px] font-medium text-muted-foreground/40 uppercase tracking-wider">
             Kent
           </span>
+          {items[0]!.created_at > 0 && (
+            <span className="text-[10px] text-muted-foreground/30 font-mono tabular-nums">
+              {formatMessageTime(items[0]!.created_at)}
+            </span>
+          )}
           <button
             onClick={handleCopy}
             className="opacity-0 group-hover/assistant:opacity-100 transition-opacity duration-150 p-0.5 rounded hover:bg-foreground/[0.06] text-muted-foreground/40 hover:text-muted-foreground/70 cursor-pointer"

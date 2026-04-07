@@ -1,12 +1,25 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  Home, Zap, Activity, MessageCircle, Plus, X,
+  Home, Zap, Activity, MessageCircle, Plus, X, Menu,
   Database, UserCircle, Settings, Brain,
 } from "lucide-react";
 import { toast } from "sonner";
 import kentIcon from "@/assets/icon.png";
 import type { Page } from "@/lib/types";
+
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia(query).matches : false
+  );
+  useEffect(() => {
+    const mql = window.matchMedia(query);
+    const handler = (e: MediaQueryListEvent) => setMatches(e.matches);
+    mql.addEventListener("change", handler);
+    return () => mql.removeEventListener("change", handler);
+  }, [query]);
+  return matches;
+}
 
 interface Thread {
   id: string;
@@ -35,9 +48,8 @@ function NavButton({ item, active, onClick, badge }: { item: { id: Page; icon: t
   return (
     <button
       onClick={onClick}
-      className={`group relative w-full flex items-center gap-2.5 px-3 py-[7px] rounded-lg text-[13px] transition-all duration-200 cursor-pointer ${
-        active ? "bg-foreground/[0.06] text-foreground font-medium" : "text-muted-foreground hover:text-foreground hover:bg-foreground/[0.03]"
-      }`}
+      className={`group relative w-full flex items-center gap-2.5 px-3 py-[7px] rounded-lg text-[13px] transition-all duration-200 cursor-pointer ${active ? "bg-foreground/[0.06] text-foreground font-medium" : "text-muted-foreground hover:text-foreground hover:bg-foreground/[0.03]"
+        }`}
     >
       {active && (
         <motion.div
@@ -65,6 +77,8 @@ export function Sidebar({ page, setPage, openChat, selectedThreadId, workflowCou
 }) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [showAllThreads, setShowAllThreads] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const isMobile = useMediaQuery("(max-width: 768px)");
   const COLLAPSED_COUNT = 5;
 
   useEffect(() => {
@@ -73,12 +87,20 @@ export function Sidebar({ page, setPage, openChat, selectedThreadId, workflowCou
         const res = await fetch("/api/threads");
         const data = await res.json();
         setThreads(data.threads.filter((t: Thread) => t.type !== "workflow"));
-      } catch {}
+      } catch {
+        toast.error("Failed to load chat threads");
+      }
     };
     load();
     const interval = setInterval(load, 10000);
     return () => clearInterval(interval);
   }, [refreshKey]);
+
+  // Close sidebar on navigation in mobile
+  const navigate = useCallback((action: () => void) => {
+    action();
+    if (isMobile) setMobileOpen(false);
+  }, [isMobile]);
 
   const deleteThread = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -86,18 +108,31 @@ export function Sidebar({ page, setPage, openChat, selectedThreadId, workflowCou
       await fetch(`/api/threads/${id}`, { method: "DELETE" });
       setThreads((prev) => prev.filter((t) => t.id !== id));
       if (selectedThreadId === id) {
-        openChat(); // go to new chat
+        openChat();
       }
     } catch {
       toast.error("Failed to delete thread");
     }
   };
 
-  return (
-    <aside className="w-[220px] shrink-0 border-r border-border/60 flex flex-col h-screen fixed top-0 left-0 z-30">
+  // Close on Escape
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMobileOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mobileOpen]);
+
+  const sidebarContent = (
+    <>
       <div className="px-5 pt-6 pb-5 flex items-center gap-3">
         <img src={kentIcon} alt="Kent" className="h-7 w-7 rounded-md" />
         <span className="text-[17px] font-display tracking-tight">Kent</span>
+        {isMobile && (
+          <button onClick={() => setMobileOpen(false)} className="ml-auto p-1 rounded-lg hover:bg-foreground/5 text-muted-foreground cursor-pointer">
+            <X size={16} />
+          </button>
+        )}
       </div>
 
       <nav className="flex-1 px-3 overflow-y-auto no-scrollbar">
@@ -107,7 +142,7 @@ export function Sidebar({ page, setPage, openChat, selectedThreadId, workflowCou
               key={item.id}
               item={item}
               active={page === item.id}
-              onClick={() => setPage(item.id)}
+              onClick={() => navigate(() => setPage(item.id))}
               badge={item.id === "activity" && unreadActivityCount ? (
                 <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-blue-500 text-white text-[10px] font-medium px-1 tabular-nums">
                   {unreadActivityCount > 99 ? "99+" : unreadActivityCount}
@@ -120,13 +155,13 @@ export function Sidebar({ page, setPage, openChat, selectedThreadId, workflowCou
         <div className="mt-6 mb-1">
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/50 px-3">Chats</span>
-            <button onClick={() => openChat()} className="p-0.5 mr-1.5 rounded hover:bg-foreground/5 text-muted-foreground/40 hover:text-muted-foreground transition-colors cursor-pointer">
+            <button onClick={() => navigate(() => openChat())} className="p-0.5 mr-1.5 rounded hover:bg-foreground/5 text-muted-foreground/40 hover:text-muted-foreground transition-colors cursor-pointer">
               <Plus size={12} />
             </button>
           </div>
           {threads.length === 0 && (
             <button
-              onClick={() => openChat()}
+              onClick={() => navigate(() => openChat())}
               className="w-full flex items-center gap-2.5 px-3 py-[7px] rounded-lg text-[13px] text-muted-foreground hover:text-foreground hover:bg-foreground/[0.03] transition-all duration-200 cursor-pointer"
             >
               <MessageCircle size={15} strokeWidth={1.5} />
@@ -152,12 +187,11 @@ export function Sidebar({ page, setPage, openChat, selectedThreadId, workflowCou
                       className="group/thread relative"
                     >
                       <button
-                        onClick={() => openChat(thread.id)}
-                        className={`w-full text-left px-3 py-[6px] pr-7 rounded-lg text-[12px] truncate transition-colors duration-200 cursor-pointer block ${
-                          page === "chat" && selectedThreadId === thread.id
-                            ? "bg-foreground/[0.06] text-foreground font-medium"
-                            : "text-muted-foreground/70 hover:text-foreground hover:bg-foreground/[0.03]"
-                        }`}
+                        onClick={() => navigate(() => openChat(thread.id))}
+                        className={`w-full text-left px-3 py-[6px] pr-7 rounded-lg text-[12px] truncate transition-colors duration-200 cursor-pointer block ${page === "chat" && selectedThreadId === thread.id
+                          ? "bg-foreground/[0.06] text-foreground font-medium"
+                          : "text-muted-foreground/70 hover:text-foreground hover:bg-foreground/[0.03]"
+                          }`}
                         title={thread.title || "Untitled"}
                       >
                         {thread.title || "Untitled"}
@@ -191,7 +225,7 @@ export function Sidebar({ page, setPage, openChat, selectedThreadId, workflowCou
           </div>
           <div className="space-y-0.5">
             {NAV_DATA.map((item) => (
-              <NavButton key={item.id} item={item} active={page === item.id} onClick={() => setPage(item.id)} />
+              <NavButton key={item.id} item={item} active={page === item.id} onClick={() => navigate(() => setPage(item.id))} />
             ))}
           </div>
         </div>
@@ -204,6 +238,62 @@ export function Sidebar({ page, setPage, openChat, selectedThreadId, workflowCou
           </span>
         </div>
       )}
+    </>
+  );
+
+  // Mobile: hamburger button + overlay drawer
+  if (isMobile) {
+    return (
+      <>
+        <AnimatePresence>
+          {!mobileOpen && (
+            <motion.button
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              transition={{ duration: 0.15 }}
+              onClick={() => setMobileOpen(true)}
+              className="fixed top-4 left-4 z-40 p-2 rounded-lg border border-border/60 shadow-sm hover:bg-foreground/5 transition-colors cursor-pointer"
+              style={{ background: "hsl(var(--background))" }}
+              aria-label="Open menu"
+            >
+              <Menu size={18} />
+            </motion.button>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {mobileOpen && (
+            <>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+                onClick={() => setMobileOpen(false)}
+              />
+              <motion.aside
+                initial={{ x: "-100%" }}
+                animate={{ x: 0 }}
+                exit={{ x: "-100%" }}
+                transition={{ type: "spring", stiffness: 350, damping: 30, mass: 0.8 }}
+                className="w-[280px] shrink-0 border-r border-border/60 flex flex-col h-screen fixed top-0 left-0 z-50 shadow-2xl"
+                style={{ background: "hsl(var(--background))" }}
+              >
+                {sidebarContent}
+              </motion.aside>
+            </>
+          )}
+        </AnimatePresence>
+      </>
+    );
+  }
+
+  // Desktop: fixed sidebar
+  return (
+    <aside className="w-[220px] shrink-0 border-r border-border/30 flex flex-col h-screen fixed top-0 left-0 z-30 bg-background">
+      {sidebarContent}
     </aside>
   );
 }

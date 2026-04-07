@@ -4,8 +4,9 @@
  * No args = interactive REPL, otherwise: init, daemon, sync.
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { CONFIG_PATH } from "@shared/config.ts";
 import { handleDaemon } from "./commands/daemon.ts";
 import { handleInit } from "./commands/init.ts";
 import { handleSync } from "./commands/sync.ts";
@@ -59,6 +60,13 @@ async function main(): Promise<void> {
 
   const command = args[0];
   const subArgs = args.slice(1);
+
+  // Guard: require `kent init` before any other command
+  const INIT_EXEMPT = ["init", "uninstall"];
+  if ((!command || !INIT_EXEMPT.includes(command)) && !existsSync(CONFIG_PATH)) {
+    console.error("Kent is not initialized. Run `kent init` first.");
+    process.exit(1);
+  }
 
   if (!command) {
     // No command = interactive REPL mode

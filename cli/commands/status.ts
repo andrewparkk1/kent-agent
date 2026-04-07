@@ -1,6 +1,6 @@
 /** `kent status` — shows if all services are up and running. */
 import { existsSync, readFileSync } from "node:fs";
-import { PID_PATH, PLIST_PATH, WEB_PLIST_PATH, DAEMON_STATE_PATH, KENT_DIR } from "@shared/config.ts";
+import { PID_PATH, PLIST_PATH, WEB_PLIST_PATH, DAEMON_STATE_PATH, KENT_DIR, API_PORT } from "@shared/config.ts";
 import { resolve } from "node:path";
 
 const BOLD = "\x1b[1m";
@@ -10,8 +10,6 @@ const CYAN = "\x1b[36m";
 const DIM = "\x1b[2m";
 const YELLOW = "\x1b[33m";
 const NC = "\x1b[0m";
-
-const API_PORT = 3456;
 
 function isProcessAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch { return false; }

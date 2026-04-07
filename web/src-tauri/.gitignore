@@ -2,3 +2,9 @@
 # will have compiled files and executables
 /target/
 /gen/schemas
+
+# Compiled sidecar binaries (built by scripts/build-dmg.sh)
+/binaries/
+
+# Frontend dist copy for Tauri resource bundling
+/dist-bundle/

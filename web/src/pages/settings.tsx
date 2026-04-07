@@ -106,7 +106,11 @@ export function SettingsPage() {
     );
   }
 
-  if (!config) return null;
+  if (!config) return (
+    <div className="flex items-center justify-center h-full">
+      <p className="text-[13px] text-muted-foreground/50">Failed to load settings. Check that the API server is running.</p>
+    </div>
+  );
 
   return (
     <div className="max-w-[900px] mx-auto px-8 py-10">

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { Activity } from "lucide-react";
+import { toast } from "sonner";
 import { Stagger, StaggerItem } from "@/components/stagger";
 import { WorkflowRunRow, type WorkflowRun } from "@/components/workflow-run-row";
 
@@ -15,7 +16,9 @@ export function ActivityPage({ openChat, onSeen }: { openChat?: (threadId: strin
         const res = await fetch("/api/activity");
         const data = await res.json();
         setRuns(data.runs);
-      } catch {}
+      } catch {
+        toast.error("Failed to load activity");
+      }
       setLoading(false);
     };
     load();
