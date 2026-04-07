@@ -10,10 +10,20 @@ import { StreamingMarkdown } from "./streaming-markdown";
 import { formatMessageTime } from "./format-time";
 import type { Message } from "./types";
 
+function getModelLabel(items: Message[]): string | null {
+  const first = items.find((m) => m.role === "assistant" && m.metadata);
+  if (!first?.metadata) return null;
+  try {
+    const meta = JSON.parse(first.metadata);
+    return meta.model || null;
+  } catch { return null; }
+}
+
 export function AssistantGroup({ items, streaming }: { items: Message[]; streaming: boolean }) {
   const lastItem = items[items.length - 1]!;
   const hasRunningTool = items.some((m) => m.role === "tool" && m.content.startsWith("Calling "));
   const showLoading = streaming && lastItem.role === "assistant" && !lastItem.content && !hasRunningTool;
+  const modelLabel = getModelLabel(items);
 
   const [copied, setCopied] = useState(false);
 
@@ -47,7 +57,7 @@ export function AssistantGroup({ items, streaming }: { items: Message[]; streami
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-[11px] font-medium text-muted-foreground/40 uppercase tracking-wider">
+          <span className="text-[11px] font-medium text-muted-foreground/40 uppercase tracking-wider" title={modelLabel || undefined}>
             Kent
           </span>
           {items[0]!.created_at > 0 && (

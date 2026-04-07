@@ -14,13 +14,13 @@ import { WorkflowDetailPage } from "@/pages/workflow-detail";
 import { SettingsPage } from "@/pages/settings";
 import type { Page, Item, Workflow, SourceInfo, DaemonInfo } from "@/lib/types";
 
-// ─── Hash-based routing ─────────────────────────────────────────────────────
+// ─── Clean URL routing ──────────────────────────────────────────────────────
 
 const VALID_PAGES = new Set<Page>(["home", "workflows", "workflow-detail", "activity", "chat", "identity", "sources", "memories", "memory-detail", "settings"]);
 
-function parseHash(): { page: Page; threadId: string | null; workflowId: string | null; memoryId: string | null } {
-  const hash = window.location.hash.replace(/^#\/?/, "");
-  const parts = hash.split("/");
+function parsePath(): { page: Page; threadId: string | null; workflowId: string | null; memoryId: string | null } {
+  const path = window.location.pathname.replace(/^\//, "");
+  const parts = path.split("/");
   const base = parts[0] || "workflows";
   const id = parts[1] || null;
 
@@ -39,23 +39,23 @@ function parseHash(): { page: Page; threadId: string | null; workflowId: string 
   }
 }
 
-function buildHash(page: Page, ids: { threadId?: string | null; workflowId?: string | null; memoryId?: string | null } = {}): string {
+function buildPath(page: Page, ids: { threadId?: string | null; workflowId?: string | null; memoryId?: string | null } = {}): string {
   switch (page) {
     case "chat":
-      return ids.threadId ? `#/chat/${ids.threadId}` : "#/chat";
+      return ids.threadId ? `/chat/${ids.threadId}` : "/chat";
     case "workflow-detail":
-      return ids.workflowId ? `#/workflow/${ids.workflowId}` : "#/workflows";
+      return ids.workflowId ? `/workflow/${ids.workflowId}` : "/workflows";
     case "memory-detail":
-      return ids.memoryId ? `#/memory/${ids.memoryId}` : "#/memories";
+      return ids.memoryId ? `/memory/${ids.memoryId}` : "/memories";
     default:
-      return `#/${page}`;
+      return `/${page}`;
   }
 }
 
 // ─── App ────────────────────────────────────────────────────────────────────
 
 export function App() {
-  const initial = parseHash();
+  const initial = parsePath();
   const [page, setPageState] = useState<Page>(initial.page);
   const [items, setItems] = useState<Item[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
@@ -87,9 +87,9 @@ export function App() {
       isPopstateRef.current = false;
       return;
     }
-    const hash = buildHash(page, { threadId: selectedThreadId, workflowId: selectedWorkflowId, memoryId: selectedMemoryId });
-    if (window.location.hash !== hash) {
-      window.history.pushState(null, "", hash);
+    const path = buildPath(page, { threadId: selectedThreadId, workflowId: selectedWorkflowId, memoryId: selectedMemoryId });
+    if (window.location.pathname !== path) {
+      window.history.pushState(null, "", path);
     }
   }, [page, selectedThreadId, selectedWorkflowId, selectedMemoryId]);
 
@@ -97,7 +97,7 @@ export function App() {
   useEffect(() => {
     const onPopState = () => {
       isPopstateRef.current = true;
-      const parsed = parseHash();
+      const parsed = parsePath();
       setPageState(parsed.page);
       setSelectedThreadId(parsed.threadId);
       setSelectedWorkflowId(parsed.workflowId);

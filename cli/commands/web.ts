@@ -108,7 +108,7 @@ function spawnApi(): Subprocess {
   const serverScript = resolve(webDir, "server.ts");
   const logFile = resolve(KENT_DIR, "web-api.log");
   const bun = getBunPath();
-  const proc = Bun.spawn([bun, "run", serverScript], {
+  const proc = Bun.spawn([bun, "--hot", serverScript], {
     cwd: webDir,
     stdout: Bun.file(logFile),
     stderr: Bun.file(logFile),
