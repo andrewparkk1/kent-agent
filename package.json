@@ -1,6 +1,6 @@
 {
     "name": "meet-kent",
-    "version": "0.1.9",
+    "version": "0.1.10",
     "description": "Personal AI agent that runs on your Mac",
     "repository": {
         "type": "git",
@@ -48,7 +48,12 @@
         "prepublishOnly": "cd web && bun install --frozen-lockfile 2>/dev/null || cd web && bun install && bunx vite build --emptyOutDir",
         "postinstall": "cd web && bun install --frozen-lockfile 2>/dev/null || cd web && bun install",
         "typecheck": "tsc --noEmit",
-        "uninstall": "bash uninstall.sh"
+        "uninstall": "bash uninstall.sh",
+        "version:patch": "bun run scripts/bump.ts patch",
+        "version:minor": "bun run scripts/bump.ts minor",
+        "deploy": "bun run build && npm publish --ignore-scripts",
+        "deploy:tauri": "bash scripts/build-dmg.sh",
+        "deploy:all": "bun run deploy && bun run deploy:tauri"
     },
     "devDependencies": {
         "@types/bun": "latest",
