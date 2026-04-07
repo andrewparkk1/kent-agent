@@ -80,6 +80,20 @@ kent logs -f                  # stream daemon logs
 
 Workflows are prompts that run on a cron schedule. They live in the database and are managed via the CLI or web dashboard — no config files needed.
 
+### Example workflows
+
+We have a collection of [ready-to-use workflow prompts](examples/workflows/) you can copy and paste into Kent chat:
+
+| Workflow | What it does |
+|----------|-------------|
+| [Meeting Prep](examples/workflows/meeting-prep.md) | Researches who you're meeting and creates private prep notes |
+| [Calendar from Messages](examples/workflows/calendar-from-messages.md) | Scans messages for plans and deadlines, adds them to your calendar |
+| [Weekly Goal Tracker](examples/workflows/weekly-goal-tracker.md) | Weekly check-in on your goals and what got in the way |
+| [Daily Goal Tracker](examples/workflows/daily-goal-tracker.md) | End-of-day review of whether today moved you closer to your goals |
+| [Dinner Planner](examples/workflows/dinner-planner.md) | Suggests a simple recipe every day based on your taste |
+| [Daily Lesson](examples/workflows/daily-lesson.md) | Teaches you one concept a day on any topic, building over time |
+| [Style Assistant](examples/workflows/style-assistant.md) | Learns your taste in clothes and suggests items weekly |
+
 ### Default workflows
 
 | Workflow | Schedule | What it does |
