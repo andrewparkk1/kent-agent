@@ -1,10 +1,10 @@
 [package]
-name = "app"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
-license = ""
-repository = ""
+name = "kent"
+version = "0.1.10"
+description = "Personal AI agent that runs on your Mac"
+authors = ["Andrew Park"]
+license = "MIT"
+repository = "https://github.com/andrewparkk1/kent-agent"
 edition = "2021"
 rust-version = "1.77.2"
 

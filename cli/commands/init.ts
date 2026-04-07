@@ -917,7 +917,7 @@ export async function handleInit(): Promise<void> {
       await handleRun();
     } catch (e) {
       warn(`Could not start services: ${e instanceof Error ? e.message : e}`);
-      info("Run 'kent run' manually to start.");
+      info("Run 'kent start' manually to start.");
     }
   } else {
     rl.close();
@@ -926,7 +926,7 @@ export async function handleInit(): Promise<void> {
 ${GREEN}${BOLD}  Setup complete!${NC}
 
   ${BOLD}Next step:${NC}
-    kent run                ${DIM}# start daemon + web dashboard${NC}
+    kent start                ${DIM}# start daemon + web dashboard${NC}
 
   ${BOLD}Other commands:${NC}
     kent status             ${DIM}# check if services are running${NC}

@@ -7,7 +7,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { CONFIG_PATH } from "@shared/config.ts";
-import { handleDaemon } from "./commands/daemon.ts";
+import { handleDaemon, daemonStop } from "./commands/daemon.ts";
 import { handleInit } from "./commands/init.ts";
 import { handleSync } from "./commands/sync.ts";
 import { handleWorkflow } from "./commands/workflow.ts";
@@ -27,16 +27,17 @@ function printHelp(): void {
   console.log(`kent v${getVersion()} - Personal AI agent CLI
 
 Usage:
-  kent                          Interactive REPL mode
-  kent init                     Setup wizard
-  kent daemon <start|stop|status>  Manage background daemon
+  kent                              Interactive REPL mode
+  kent init                         Setup wizard
+  kent start                        Start all services (daemon + server)
+  kent stop                         Stop all services
+  kent status                       Check if all services are up
+  kent server <start|stop>          Manage the API server
+  kent daemon <start|stop|status>   Manage the background sync worker
   kent sync [--source <name>] [--full]  Sync data sources
-  kent workflow <sub>           Manage scheduled workflows
-  kent run                      Start daemon + web dashboard
-  kent status                   Check if all services are up
-  kent logs [source] [-f]       View logs (daemon|api|web)
-  kent web                      Open web dashboard
-  kent uninstall                Stop all services and remove ~/.kent
+  kent workflow <sub>               Manage scheduled workflows
+  kent logs [source] [-f]           View logs (daemon|api|web)
+  kent uninstall                    Stop all services and remove ~/.kent
 
 Flags:
   --version     Print version
@@ -79,6 +80,36 @@ async function main(): Promise<void> {
     case "init":
       await handleInit();
       break;
+    case "start":
+    case "run": {
+      const { handleRun } = await import("./commands/run.ts");
+      await handleRun();
+      break;
+    }
+    case "stop": {
+      const { stopWeb, uninstallWebLaunchd } = await import("./commands/web.ts");
+      await daemonStop();
+      await uninstallWebLaunchd();
+      await stopWeb();
+      console.log("All services stopped.");
+      break;
+    }
+    case "server": {
+      const sub = subArgs[0];
+      if (sub === "start") {
+        const { installWebLaunchd } = await import("./commands/web.ts");
+        installWebLaunchd();
+        console.log("Server started via launchd.");
+      } else if (sub === "stop") {
+        const { stopWeb, uninstallWebLaunchd } = await import("./commands/web.ts");
+        await uninstallWebLaunchd();
+        await stopWeb();
+        console.log("Server stopped.");
+      } else {
+        console.log("Usage: kent server <start|stop>");
+      }
+      break;
+    }
     case "daemon":
       await handleDaemon(subArgs);
       break;
@@ -88,11 +119,6 @@ async function main(): Promise<void> {
     case "workflow":
       await handleWorkflow(subArgs);
       break;
-    case "run": {
-      const { handleRun } = await import("./commands/run.ts");
-      await handleRun();
-      break;
-    }
     case "status": {
       const { handleStatus } = await import("./commands/status.ts");
       await handleStatus();
@@ -101,11 +127,6 @@ async function main(): Promise<void> {
     case "logs": {
       const { handleLogs } = await import("./commands/logs.ts");
       await handleLogs(subArgs);
-      break;
-    }
-    case "web": {
-      const { handleWeb } = await import("./commands/web.ts");
-      await handleWeb();
       break;
     }
     case "uninstall": {
@@ -120,7 +141,9 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  console.error("Fatal error:", err);
-  process.exit(1);
-});
+main()
+  .then(() => process.exit(0))
+  .catch((err) => {
+    console.error("Fatal error:", err);
+    process.exit(1);
+  });

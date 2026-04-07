@@ -35,7 +35,9 @@
     },
     "scripts": {
         "start": "bun run cli/index.ts",
-        "dev": "bun run cli/index.ts",
+        "dev": "bun --hot web/server.ts & cd web && bunx vite",
+        "dev:api": "bun --hot web/server.ts",
+        "dev:web": "cd web && bunx vite",
         "kent": "bun run cli/index.ts",
         "init": "bun run cli/index.ts init",
         "daemon:start": "bun run cli/index.ts daemon start",

@@ -19,9 +19,10 @@ function isProcessAlive(pid: number): boolean {
 function killPid(pid: number): void {
   try { process.kill(pid, "SIGTERM"); } catch {}
   // Give it a moment, then force kill
-  setTimeout(() => {
+  const timer = setTimeout(() => {
     try { process.kill(pid, "SIGKILL"); } catch {}
   }, 2000);
+  timer.unref();
 }
 
 function readPid(path: string): number | null {

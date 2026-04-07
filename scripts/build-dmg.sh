@@ -51,3 +51,65 @@ echo "==> Build complete!"
 echo "    DMG: $TAURI_DIR/target/release/bundle/dmg/"
 echo "    App: $TAURI_DIR/target/release/bundle/macos/"
 ls -la "$TAURI_DIR/target/release/bundle/dmg/" 2>/dev/null || echo "    (DMG directory not found — check build output above)"
+
+# 6. Create GitHub release and upload artifacts
+VERSION=$(cd "$ROOT" && bun -e "console.log(require('./package.json').version)")
+TAG="v$VERSION"
+
+echo ""
+echo "==> Creating GitHub release $TAG..."
+
+# Push tag if it doesn't exist on remote
+git tag "$TAG" 2>/dev/null || true
+git push origin main --tags
+
+# Collect release assets
+ASSETS=()
+for f in "$TAURI_DIR"/target/release/bundle/dmg/*.dmg; do
+  [ -f "$f" ] && ASSETS+=("$f")
+done
+for f in "$TAURI_DIR"/target/release/bundle/macos/*.app.tar.gz; do
+  [ -f "$f" ] && ASSETS+=("$f")
+done
+# Include updater signature if present
+for f in "$TAURI_DIR"/target/release/bundle/macos/*.app.tar.gz.sig; do
+  [ -f "$f" ] && ASSETS+=("$f")
+done
+
+# Generate latest.json for Tauri auto-updater
+TAR_GZ=$(ls "$TAURI_DIR"/target/release/bundle/macos/*.app.tar.gz 2>/dev/null | head -1)
+SIG_FILE=$(ls "$TAURI_DIR"/target/release/bundle/macos/*.app.tar.gz.sig 2>/dev/null | head -1)
+if [ -n "$TAR_GZ" ] && [ -n "$SIG_FILE" ]; then
+  SIGNATURE=$(cat "$SIG_FILE")
+  TAR_NAME=$(basename "$TAR_GZ")
+  LATEST_JSON="$TAURI_DIR/target/release/bundle/latest.json"
+  cat > "$LATEST_JSON" <<ENDJSON
+{
+  "version": "$VERSION",
+  "platforms": {
+    "darwin-aarch64": {
+      "url": "https://github.com/andrewparkk1/kent-agent/releases/download/$TAG/$TAR_NAME",
+      "signature": "$SIGNATURE"
+    },
+    "darwin-x86_64": {
+      "url": "https://github.com/andrewparkk1/kent-agent/releases/download/$TAG/$TAR_NAME",
+      "signature": "$SIGNATURE"
+    }
+  }
+}
+ENDJSON
+  ASSETS+=("$LATEST_JSON")
+  echo "    Generated latest.json for auto-updater"
+fi
+
+if [ ${#ASSETS[@]} -eq 0 ]; then
+  echo "    No artifacts found to upload — creating release without assets"
+  gh release create "$TAG" --title "$TAG" --generate-notes
+else
+  echo "    Uploading ${#ASSETS[@]} artifact(s)..."
+  gh release create "$TAG" "${ASSETS[@]}" --title "$TAG" --generate-notes
+fi
+
+echo ""
+echo "==> Released $TAG on GitHub"
+echo "    https://github.com/andrewparkk1/kent-agent/releases/tag/$TAG"

@@ -100,10 +100,10 @@ export async function handleStatus(): Promise<void> {
     console.log(`  ${GREEN}${BOLD}All services running and persistent.${NC}`);
   } else if (allUp) {
     console.log(`  ${YELLOW}Services running but not persistent.${NC}`);
-    console.log(`  ${DIM}Run \`kent run\` to install launchd services.${NC}`);
+    console.log(`  ${DIM}Run \`kent start\` to install launchd services.${NC}`);
   } else {
     console.log(`  ${RED}Some services are down.${NC}`);
-    console.log(`  ${DIM}Run \`kent run\` to start all services.${NC}`);
+    console.log(`  ${DIM}Run \`kent start\` to start all services.${NC}`);
   }
 
   console.log();

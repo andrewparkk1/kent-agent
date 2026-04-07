@@ -10,6 +10,7 @@ Ask it what to focus on today. Get a daily brief of your meetings, emails, and P
 # requires macOS and Bun (https://bun.sh)
 bun install -g meet-kent
 kent init
+kent start
 ```
 
 `kent init` walks you through connecting sources, adding your API keys, runs your first sync, starts the daemon, and opens the web dashboard.
@@ -18,14 +19,15 @@ kent init
 
 ```bash
 kent init                     # setup wizard — connect sources, add API keys
-kent run                      # start daemon + web dashboard (persistent)
+kent start                    # start all services (daemon + server)
 ```
 
-After `kent run`, the daemon and web dashboard run as macOS system services. They'll stay running through sleep, reboot, and terminal closes. Check on them anytime:
+After `kent start`, the daemon and server run as macOS system services. They'll stay running through sleep, reboot, and terminal closes. Check on them anytime:
 
 ```bash
 kent status                   # check if everything is running
 kent logs -f                  # stream daemon logs
+kent stop                     # stop everything
 ```
 
 ## What it does
@@ -119,11 +121,7 @@ You can also create, edit, enable/disable, and run workflows from the web dashbo
 
 ## Web dashboard
 
-```bash
-kent web
-```
-
-Opens a local React dashboard at `http://localhost:5173` with pages for:
+Opens a local React dashboard at `http://localhost:3456` with pages for:
 
 - **Home** — feed of recent workflow runs and briefs
 - **Chat** — multi-turn conversations with the agent
@@ -139,12 +137,15 @@ Opens a local React dashboard at `http://localhost:5173` with pages for:
 ```bash
 kent                              # interactive REPL
 kent init                         # setup wizard (first sync + daemon + web)
-kent run                          # start daemon + web as persistent services
+kent start                        # start all services (daemon + server)
+kent stop                         # stop all services
 kent status                       # check if all services are running
-kent logs [source] [-f]           # view logs (daemon|api|vite|web)
-kent daemon start                 # start background daemon via launchd
-kent daemon stop                  # stop daemon + web services
+kent server start                 # start just the API server
+kent server stop                  # stop just the API server
+kent daemon start                 # start just the background sync worker
+kent daemon stop                  # stop just the sync worker
 kent daemon status                # live daemon status dashboard
+kent logs [source] [-f]           # view logs (daemon|api|web)
 kent sync                         # sync all sources now
 kent sync --source imessage       # sync one source
 kent sync --full                  # full re-sync (not incremental)
@@ -155,9 +156,16 @@ kent workflow enable <name>       # enable a disabled workflow
 kent workflow disable <name>      # disable a workflow
 kent workflow delete <name>       # delete a workflow
 kent workflow history <name>      # show recent runs for a workflow
-kent web                          # start web dashboard supervisor
 kent --version                    # print version
 kent --help                       # show help
+```
+
+## Development
+
+```bash
+bun run dev                       # start API server + Vite (hot reload)
+bun run dev:api                   # start just the API server
+bun run dev:web                   # start just Vite dev server
 ```
 
 ## Data and security

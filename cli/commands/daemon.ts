@@ -111,7 +111,7 @@ export async function daemonStart(): Promise<void> {
   console.log("Service will auto-restart on sleep/reboot.");
 }
 
-async function daemonStop(): Promise<void> {
+export async function daemonStop(): Promise<void> {
   const uid = process.getuid!();
 
   // Unload daemon launchd service
@@ -139,11 +139,7 @@ async function daemonStop(): Promise<void> {
   try { unlinkSync(PID_PATH); } catch {}
   try { unlinkSync(DAEMON_STATE_PATH); } catch {}
 
-  // Also stop web services (both launchd and processes)
-  await uninstallWebLaunchd();
-  await stopWeb();
-
-  console.log("All services stopped");
+  console.log("Daemon stopped");
 }
 
 // ─── Live Status Dashboard ──────────────────────────────────────────────────

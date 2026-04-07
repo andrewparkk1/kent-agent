@@ -49,50 +49,65 @@ pub fn run() {
             let daemon_setup = daemon.clone();
 
             std::thread::spawn(move || {
-                let resource_dir = handle
-                    .path()
-                    .resource_dir()
-                    .expect("failed to resolve resource dir");
-                let static_dir = resource_dir.join("dist-bundle");
+                let already_running =
+                    TcpStream::connect("127.0.0.1:3456").is_ok();
 
-                let server_bin = sidecar_path("kent-server");
-                let daemon_bin = sidecar_path("kent-daemon");
-                let agent_bin = sidecar_path("kent-agent");
+                if already_running {
+                    log::info!("kent-server already running on port 3456, reusing");
+                } else {
+                    let resource_dir = handle
+                        .path()
+                        .resource_dir()
+                        .expect("failed to resolve resource dir");
+                    let static_dir = resource_dir.join("dist-bundle");
 
-                log::info!("Starting kent-server from {:?}", server_bin);
-                match Command::new(&server_bin)
-                    .env("KENT_STATIC_DIR", &static_dir)
-                    .spawn()
-                {
-                    Ok(child) => {
-                        log::info!("kent-server started (pid {})", child.id());
-                        *server_setup.lock().unwrap() = Some(child);
+                    let server_bin = sidecar_path("kent-server");
+                    let daemon_bin = sidecar_path("kent-daemon");
+                    let agent_bin = sidecar_path("kent-agent");
+
+                    log::info!("Starting kent-server from {:?}", server_bin);
+                    match Command::new(&server_bin)
+                        .env("KENT_STATIC_DIR", &static_dir)
+                        .spawn()
+                    {
+                        Ok(child) => {
+                            log::info!("kent-server started (pid {})", child.id());
+                            *server_setup.lock().unwrap() = Some(child);
+                        }
+                        Err(e) => {
+                            log::error!("Failed to start kent-server: {e}");
+                        }
                     }
-                    Err(e) => {
-                        log::error!("Failed to start kent-server: {e}");
-                        return;
+
+                    log::info!("Starting kent-daemon from {:?}", daemon_bin);
+                    match Command::new(&daemon_bin)
+                        .env("KENT_AGENT_BIN", &agent_bin)
+                        .spawn()
+                    {
+                        Ok(child) => {
+                            log::info!("kent-daemon started (pid {})", child.id());
+                            *daemon_setup.lock().unwrap() = Some(child);
+                        }
+                        Err(e) => log::error!("Failed to start kent-daemon: {e}"),
                     }
                 }
 
-                log::info!("Starting kent-daemon from {:?}", daemon_bin);
-                match Command::new(&daemon_bin)
-                    .env("KENT_AGENT_BIN", &agent_bin)
-                    .spawn()
-                {
-                    Ok(child) => {
-                        log::info!("kent-daemon started (pid {})", child.id());
-                        *daemon_setup.lock().unwrap() = Some(child);
-                    }
-                    Err(e) => log::error!("Failed to start kent-daemon: {e}"),
-                }
-
-                if !wait_for_server(Duration::from_secs(10)) {
-                    log::error!("kent-server failed to become ready within 10s");
-                }
+                let server_ready = already_running
+                    || wait_for_server(Duration::from_secs(30));
 
                 if let Some(window) = handle.get_webview_window("main") {
-                    let _ =
-                        window.eval("window.location.replace('http://localhost:3456')");
+                    if server_ready {
+                        let _ = window.eval(
+                            "window.location.replace('http://localhost:3456')",
+                        );
+                    } else {
+                        log::error!(
+                            "kent-server failed to become ready within 30s"
+                        );
+                        let _ = window.eval(
+                            "document.body.innerHTML = '<div style=\"display:flex;align-items:center;justify-content:center;height:100vh;font-family:system-ui;color:#888;flex-direction:column;gap:12px\"><h2 style=\"margin:0\">Kent failed to start</h2><p style=\"margin:0\">Try restarting the app or running <code>kent init</code> in your terminal.</p></div>'",
+                        );
+                    }
                     std::thread::sleep(Duration::from_millis(300));
                     let _ = window.show();
                 }
