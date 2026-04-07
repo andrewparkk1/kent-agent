@@ -20,7 +20,7 @@ import {
   saveConfig,
   ensureKentDir,
 } from "@shared/config.ts";
-import { SUGGESTED_MODELS, DEFAULT_LOCAL_BASE_URL, LOCAL_BASE_URLS } from "@shared/models.ts";
+import { SUGGESTED_MODELS, DEFAULT_LOCAL_BASE_URL, LOCAL_BASE_URLS, getSystemRamGB, recommendLocalModel } from "@shared/models.ts";
 import { createWorkflow, listWorkflows } from "@shared/db.ts";
 import { DEFAULT_WORKFLOWS } from "@shared/default-workflows.ts";
 
@@ -710,7 +710,29 @@ export async function handleInit(): Promise<void> {
   // --- Model selection (interactive dropdown) ---
   console.log("");
   const suggested = SUGGESTED_MODELS[provider];
-  if (suggested.length > 0) {
+
+  // For local provider: detect RAM and recommend the best model automatically
+  if (provider === "local") {
+    const ramGB = getSystemRamGB();
+    const rec = recommendLocalModel(ramGB);
+    info(`Detected ${BOLD}${ramGB}GB${NC} unified memory → recommending ${BOLD}${rec.label}${NC}\n`);
+
+    const modelOptions: SingleSelectOption[] = suggested.map((s) => ({
+      label: s.label,
+      key: s.id,
+      status: s.id === rec.id ? `auto-selected for ${rec.ramTier}` : undefined,
+      statusColor: s.id === rec.id ? GREEN : undefined,
+    }));
+    modelOptions.push({ label: "Other (enter model ID manually)", key: "__custom__", status: undefined });
+    const defaultIdx = modelOptions.findIndex((o) => o.key === rec.id);
+    const chosenModel = await singleSelect(modelOptions, defaultIdx >= 0 ? defaultIdx : 0);
+    if (chosenModel.key === "__custom__") {
+      const customModel = await ask("Model ID", rec.id);
+      config.agent.default_model = customModel;
+    } else {
+      config.agent.default_model = chosenModel.key;
+    }
+  } else if (suggested.length > 0) {
     info("Choose a model:\n");
     const modelOptions: SingleSelectOption[] = suggested.map((s, i) => ({
       label: s.label,

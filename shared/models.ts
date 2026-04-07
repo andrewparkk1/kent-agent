@@ -63,16 +63,60 @@ export const SUGGESTED_MODELS: Record<ModelProvider, SuggestedModel[]> = {
     { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash" },
   ],
   local: [
-    { id: "gemma4:e4b", label: "Gemma 4 E4B (Google, recommended)" },
-    { id: "llama3.1:8b", label: "Llama 3.1 8B (lightweight)" },
-    { id: "llama3.1:70b", label: "Llama 3.1 70B" },
-    { id: "mistral", label: "Mistral 7B" },
-    { id: "codellama", label: "Code Llama" },
+    { id: "llama3.3:8b", label: "Llama 3.3 8B (best default, 5GB)" },
+    { id: "gemma4:e2b", label: "Gemma 4 E2B (ultra-light, 1.5GB)" },
+    { id: "phi4:14b", label: "Phi-4 14B (best reasoning, 10GB)" },
+    { id: "qwen2.5:14b", label: "Qwen 2.5 14B (best quality, 10GB)" },
+    { id: "gemma4:e4b", label: "Gemma 4 E4B (3GB)" },
     { id: "deepseek-r1:14b", label: "DeepSeek R1 14B" },
-    { id: "qwen2.5:14b", label: "Qwen 2.5 14B" },
+    { id: "mistral", label: "Mistral 7B" },
   ],
   custom: [],
 };
+
+// ─── RAM-based local model auto-selection ─────────────────────────────────
+
+export interface LocalModelRecommendation {
+  id: string;
+  label: string;
+  ramTier: string;
+}
+
+/**
+ * Detect system RAM (in GB) using macOS sysctl.
+ * Falls back to os.totalmem() if sysctl is unavailable.
+ */
+export function getSystemRamGB(): number {
+  try {
+    const proc = Bun.spawnSync(["sysctl", "-n", "hw.memsize"]);
+    const bytes = parseInt(new TextDecoder().decode(proc.stdout).trim(), 10);
+    if (!isNaN(bytes) && bytes > 0) return Math.round(bytes / (1024 ** 3));
+  } catch {}
+  // Fallback
+  const os = require("os");
+  return Math.round(os.totalmem() / (1024 ** 3));
+}
+
+/**
+ * Pick the best local model based on available system RAM.
+ *
+ *   8GB  → gemma4:e2b       (1.5GB model, leaves headroom)
+ *   16GB → llama3.3:8b      (5GB model, best all-rounder)
+ *   24GB → phi4:14b          (10GB model, best reasoning)
+ *   32GB → qwen2.5:14b      (10GB model, best quality + headroom)
+ */
+export function recommendLocalModel(ramGB: number): LocalModelRecommendation {
+  if (ramGB >= 32) {
+    return { id: "qwen2.5:14b", label: "Qwen 2.5 14B (best quality)", ramTier: "32GB+" };
+  }
+  if (ramGB >= 24) {
+    return { id: "phi4:14b", label: "Phi-4 14B (best reasoning)", ramTier: "24GB" };
+  }
+  if (ramGB >= 16) {
+    return { id: "llama3.3:8b", label: "Llama 3.3 8B (best default)", ramTier: "16GB" };
+  }
+  return { id: "gemma4:e2b", label: "Gemma 4 E2B (ultra-light)", ramTier: "8GB" };
+}
 
 // ─── Build a custom Model object for local/custom endpoints ────────────────
 
