@@ -14,7 +14,6 @@ const NC = "\x1b[0m";
 const LOG_FILES: Record<string, string> = {
   daemon: LOG_PATH,
   api: resolve(KENT_DIR, "web-api.log"),
-  vite: resolve(KENT_DIR, "web-vite.log"),
   web: resolve(KENT_DIR, "web-supervisor.log"),
 };
 
@@ -53,7 +52,6 @@ export async function handleLogs(args: string[]): Promise<void> {
 Sources:
   daemon    Background daemon log (default)
   api       Web API server log
-  vite      Vite dev server log
   web       Web supervisor log
 
 Options:

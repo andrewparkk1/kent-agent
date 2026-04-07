@@ -142,17 +142,6 @@ Bun.serve({
       }
     }
 
-    // If no static build and requesting a page, show dev mode hint
-    if (!existsSync(STATIC_DIR) && !url.pathname.startsWith("/api/")) {
-      return new Response(
-        `<html><body style="font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#111;color:#fff;flex-direction:column">
-<h2>Kent is running in dev mode</h2>
-<p>Dashboard is at <a href="http://localhost:5173" style="color:#6cf">http://localhost:5173</a></p>
-<p style="color:#888;font-size:14px">Or run <code>bun run build:web</code> to build the frontend</p>
-</body></html>`,
-        { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
-      );
-    }
     return new Response("Not Found", { status: 404 });
   },
 });

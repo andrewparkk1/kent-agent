@@ -53,7 +53,6 @@ export interface Config {
 }
 
 export const API_PORT = 3456;
-export const VITE_PORT = 5173;
 
 export const KENT_DIR = join(homedir(), ".kent");
 export const CONFIG_PATH = join(KENT_DIR, "config.json");
