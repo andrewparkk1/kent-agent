@@ -1,6 +1,6 @@
 /** POST /api/feedback — send feedback email via Resend API */
 
-const RESEND_API_KEY = "***REMOVED***";
+const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 const FROM_EMAIL = "feedback@meetkent.com";
 const TO_EMAIL = "andysampark@gmail.com";
 
