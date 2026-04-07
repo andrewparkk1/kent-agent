@@ -388,6 +388,7 @@ export function ChatPage({ threadId: initialThreadId, initialInput: initialInput
 
   const suggestions = [
     "Create a workflow that ",
+    "Create a skill for ",
     ...(workflowNames.length > 0
       ? [`Edit my ${workflowNames[0]} workflow `]
       : []),

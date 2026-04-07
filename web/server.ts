@@ -10,6 +10,7 @@ import { handleThreads, handleThreadMessages, handleDeleteThread } from "./api/t
 import { handleChat } from "./api/chat.ts";
 import { handleSync } from "./api/sync.ts";
 import { handleSettings, handleSettingsSave } from "./api/settings.ts";
+import { handleTools } from "./api/tools.ts";
 
 const STATIC_DIR = resolve(import.meta.dir, "dist");
 
@@ -28,6 +29,7 @@ Bun.serve({
     "/api/threads":      handleThreads,
     "/api/threads/:id/messages": handleThreadMessages,
     "/api/identity":     handleIdentity,
+    "/api/tools":        handleTools,
     "/api/daemon-state": handleDaemonState,
     "/api/settings": {
       GET: handleSettings,
