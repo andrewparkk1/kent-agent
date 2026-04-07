@@ -9,6 +9,8 @@ export function handleSettings() {
     keys: {
       anthropic: config.keys.anthropic ? maskKey(config.keys.anthropic) : "",
       openai: config.keys.openai ? maskKey(config.keys.openai) : "",
+      openrouter: config.keys.openrouter ? maskKey(config.keys.openrouter) : "",
+      google: config.keys.google ? maskKey(config.keys.google) : "",
     },
   };
   return Response.json({ config: masked, raw: config });

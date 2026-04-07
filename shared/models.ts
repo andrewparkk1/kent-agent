@@ -201,8 +201,9 @@ export function resolveModel(config: Config): ResolvedModel {
   if (provider === "local") {
     const url: string = base_url || DEFAULT_LOCAL_BASE_URL;
     const model = buildCustomModel(modelId, "local", url);
-    // Local servers typically don't need an API key, but allow one
-    return { model, apiKey: api_key || undefined };
+    // Local servers don't need a real API key, but pi-ai requires one to be set.
+    // Pass user-supplied key or a dummy placeholder so the stream doesn't reject.
+    return { model, apiKey: api_key || "ollama" };
   }
 
   // --- Custom OpenAI-compatible endpoint -----------------------------------

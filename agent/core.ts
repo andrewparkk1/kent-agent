@@ -195,6 +195,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
   const resolved = resolveModel(config);
   const model = resolved.model;
   const streamApiKey = resolved.apiKey;
+  const modelMeta = { model: model.id, provider: config.agent.provider };
 
   const agent = new Agent({
     streamFn: streamSimple,
@@ -217,7 +218,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
     const text = pendingText.trim();
     pendingText = "";  // Reset immediately to prevent duplicate flushes from parallel tool_starts
     if (text) {
-      await addMessage(threadId, "assistant", text);
+      await addMessage(threadId, "assistant", text, modelMeta);
     }
   }
 
