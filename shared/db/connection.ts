@@ -88,6 +88,10 @@ function runMigrations(db: BunDatabase): void {
     db.exec("ALTER TABLE memories ADD COLUMN summary TEXT NOT NULL DEFAULT ''");
   }
 
+  // Create indexes that depend on migrated columns
+  db.exec("CREATE INDEX IF NOT EXISTS idx_threads_workflow ON threads(workflow_id, started_at)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_threads_type ON threads(type, last_message_at)");
+
   // Drop legacy workflow_runs table
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='workflow_runs'").all();
   if (tables.length > 0) db.exec("DROP TABLE workflow_runs");
@@ -132,6 +136,23 @@ function initSchema(db: BunDatabase): void {
       VALUES (new.id, new.content, new.source, new.external_id);
     END;
 
+    -- workflows must be created before threads (threads references workflows via FK)
+    CREATE TABLE IF NOT EXISTS workflows (
+      id TEXT PRIMARY KEY,
+      name TEXT UNIQUE NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      prompt TEXT NOT NULL,
+      cron_schedule TEXT,
+      type TEXT NOT NULL DEFAULT 'cron' CHECK(type IN ('cron', 'manual', 'event')),
+      source TEXT NOT NULL DEFAULT 'user' CHECK(source IN ('default', 'user', 'suggested')),
+      enabled INTEGER NOT NULL DEFAULT 1,
+      is_archived INTEGER NOT NULL DEFAULT 0,
+      last_run_at INTEGER,
+      next_run_at INTEGER,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+
     CREATE TABLE IF NOT EXISTS threads (
       id TEXT PRIMARY KEY,
       title TEXT,
@@ -154,25 +175,6 @@ function initSchema(db: BunDatabase): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id, created_at);
-
-    CREATE TABLE IF NOT EXISTS workflows (
-      id TEXT PRIMARY KEY,
-      name TEXT UNIQUE NOT NULL,
-      description TEXT NOT NULL DEFAULT '',
-      prompt TEXT NOT NULL,
-      cron_schedule TEXT,
-      type TEXT NOT NULL DEFAULT 'cron' CHECK(type IN ('cron', 'manual', 'event')),
-      source TEXT NOT NULL DEFAULT 'user' CHECK(source IN ('default', 'user', 'suggested')),
-      enabled INTEGER NOT NULL DEFAULT 1,
-      is_archived INTEGER NOT NULL DEFAULT 0,
-      last_run_at INTEGER,
-      next_run_at INTEGER,
-      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_threads_workflow ON threads(workflow_id, started_at);
-    CREATE INDEX IF NOT EXISTS idx_threads_type ON threads(type, last_message_at);
 
     CREATE TABLE IF NOT EXISTS memories (
       id TEXT PRIMARY KEY,
