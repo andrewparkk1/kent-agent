@@ -1,8 +1,6 @@
-/** POST /api/feedback — send feedback email via Resend API */
+/** POST /api/feedback — forward feedback to Formspree */
 
-const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
-const FROM_EMAIL = "feedback@meetkent.com";
-const TO_EMAIL = "andysampark@gmail.com";
+const FORMSPREE_URL = "https://formspree.io/f/xpqjnlzz";
 
 export async function handleFeedback(req: Request) {
   if (req.method !== "POST") {
@@ -21,30 +19,21 @@ export async function handleFeedback(req: Request) {
     feature: "Feature Request",
     general: "General Feedback",
   };
-  const subject = `[Kent Feedback] ${subjectMap[type] || "General Feedback"}`;
 
   try {
-    const res = await fetch("https://api.resend.com/emails", {
+    const res = await fetch(FORMSPREE_URL, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        from: `Kent Feedback <${FROM_EMAIL}>`,
-        to: [TO_EMAIL],
-        subject,
-        text: `Type: ${type}\n\n${message}`,
-        html: `<div style="font-family: sans-serif; max-width: 600px;">
-          <p style="color: #666; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">${subjectMap[type] || "General"}</p>
-          <div style="white-space: pre-wrap; font-size: 14px; line-height: 1.6; color: #1a1a1a;">${escapeHtml(message)}</div>
-        </div>`,
+        _subject: `[Kent Feedback] ${subjectMap[type] || "General Feedback"}`,
+        type,
+        message,
       }),
     });
 
     if (!res.ok) {
       const err = await res.text();
-      console.error("Resend API error:", err);
+      console.error("Formspree error:", err);
       return Response.json({ error: "Failed to send feedback" }, { status: 500 });
     }
 
@@ -53,12 +42,4 @@ export async function handleFeedback(req: Request) {
     console.error("Feedback send error:", e);
     return Response.json({ error: "Failed to send feedback" }, { status: 500 });
   }
-}
-
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
