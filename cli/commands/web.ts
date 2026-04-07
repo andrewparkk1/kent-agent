@@ -163,7 +163,7 @@ export async function handleWeb(): Promise<void> {
   if (!apiReady) console.log("Warning: API server may not have started — check ~/.kent/web-api.log");
 
   if (devMode) {
-    const viteReady = await waitForHealthy(VITE_PORT);
+    const viteReady = await waitForHealthy(VITE_PORT, 45000);
     if (!viteReady) console.log("Warning: Vite dev server may not have started — check ~/.kent/web-vite.log");
   }
 
