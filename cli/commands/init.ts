@@ -20,7 +20,7 @@ import {
   saveConfig,
   ensureKentDir,
 } from "@shared/config.ts";
-import { SUGGESTED_MODELS, DEFAULT_LOCAL_BASE_URL, LOCAL_BASE_URLS, getSystemRamGB, recommendLocalModel } from "@shared/models.ts";
+import { SUGGESTED_MODELS, DEFAULT_LOCAL_BASE_URL, LOCAL_BASE_URLS, detectHardware, formatHardwareSummary, recommendLocalModel, getLocalModelOptions } from "@shared/models.ts";
 import { createWorkflow, listWorkflows } from "@shared/db.ts";
 import { DEFAULT_WORKFLOWS } from "@shared/default-workflows.ts";
 
@@ -711,16 +711,24 @@ export async function handleInit(): Promise<void> {
   console.log("");
   const suggested = SUGGESTED_MODELS[provider];
 
-  // For local provider: detect RAM and recommend the best model automatically
+  // For local provider: detect hardware and recommend the best model
   if (provider === "local") {
-    const ramGB = getSystemRamGB();
-    const rec = recommendLocalModel(ramGB);
-    info(`Detected ${BOLD}${ramGB}GB${NC} unified memory → recommending ${BOLD}${rec.label}${NC}\n`);
+    const hw = detectHardware();
+    console.log("");
+    console.log(`${CYAN}  ╭─ Hardware Detected ────────────────────╮${NC}`);
+    console.log(formatHardwareSummary(hw).split("\n").map(l => `${CYAN}  │${NC}${l.padEnd(42)}${CYAN}│${NC}`).join("\n"));
+    console.log(`${CYAN}  ╰─────────────────────────────────────────╯${NC}`);
+    console.log("");
 
-    const modelOptions: SingleSelectOption[] = suggested.map((s) => ({
+    const rec = recommendLocalModel(hw.ramGB);
+    info(`Recommended: ${BOLD}${rec.label}${NC} ${DIM}(uses ${rec.memUsage} of ${hw.ramGB}GB)${NC}\n`);
+
+    // Build model list filtered to what fits in this machine's RAM
+    const fittingModels = getLocalModelOptions(hw.ramGB);
+    const modelOptions: SingleSelectOption[] = fittingModels.map((s) => ({
       label: s.label,
       key: s.id,
-      status: s.id === rec.id ? `auto-selected for ${rec.ramTier}` : undefined,
+      status: s.id === rec.id ? `recommended for ${rec.ramTier}` : undefined,
       statusColor: s.id === rec.id ? GREEN : undefined,
     }));
     modelOptions.push({ label: "Other (enter model ID manually)", key: "__custom__", status: undefined });

@@ -63,51 +63,168 @@ export const SUGGESTED_MODELS: Record<ModelProvider, SuggestedModel[]> = {
     { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash" },
   ],
   local: [
-    { id: "glm-4.7-flash", label: "GLM 4.7 Flash (reasoning & code, ~25GB)" },
-    { id: "qwen3.5", label: "Qwen 3.5 (reasoning, coding, vision, ~11GB)" },
-    { id: "kimi-k2.5:cloud", label: "Kimi K2.5 (multimodal reasoning with subagents)" },
-    { id: "qwen3.5:cloud", label: "Qwen 3.5 Cloud (reasoning, coding, agentic tool use with vision)" },
-    { id: "glm-5:cloud", label: "GLM 5 (reasoning & code generation)" },
-    { id: "minimax-m2.7:cloud", label: "MiniMax M2.7 (fast, efficient coding)" },
+    // Populated dynamically via getLocalModelOptions() based on detected RAM.
+    // This static list is a fallback if hardware detection fails.
+    { id: "qwen3.5:27b", label: "Qwen 3.5 27B (coding + tools, ~17GB)" },
+    { id: "qwen2.5-coder:32b", label: "Qwen 2.5 Coder 32B (best coding, ~20GB)" },
+    { id: "gemma4:12b", label: "Gemma 4 12B (multimodal + tools, ~9.6GB)" },
+    { id: "llama3.3:70b", label: "Llama 3.3 70B (GPT-4 class, ~40GB)" },
+    { id: "qwen3:4b", label: "Qwen 3 4B (lightweight, ~2.5GB)" },
   ],
   custom: [],
 };
 
-// ─── RAM-based local model auto-selection ─────────────────────────────────
+// ─── Hardware detection ───────────────────────────────────────────────────
+
+export interface HardwareInfo {
+  chip: string;           // e.g. "Apple M1 Max"
+  totalCores: number;     // e.g. 10
+  perfCores: number;      // e.g. 8
+  effCores: number;       // e.g. 2
+  gpuCores: number;       // e.g. 32
+  ramGB: number;          // e.g. 64
+  metalFamily: string;    // e.g. "Metal 4"
+  isAppleSilicon: boolean;
+}
+
+/** Run a sysctl query and return trimmed stdout, or fallback on failure. */
+function sysctl(key: string, fallback = ""): string {
+  try {
+    const proc = Bun.spawnSync(["sysctl", "-n", key]);
+    const out = new TextDecoder().decode(proc.stdout).trim();
+    if (out) return out;
+  } catch {}
+  return fallback;
+}
+
+/** Parse an integer from sysctl output, return 0 on failure. */
+function sysctlInt(key: string): number {
+  const v = parseInt(sysctl(key), 10);
+  return isNaN(v) ? 0 : v;
+}
+
+/**
+ * Detect full system hardware: CPU chip, cores, RAM, GPU cores, Metal family.
+ * Uses fast sysctl calls for CPU/RAM and system_profiler for GPU info.
+ */
+export function detectHardware(): HardwareInfo {
+  // CPU / RAM via sysctl (instant)
+  const chip = sysctl("machdep.cpu.brand_string", "Unknown");
+  const totalCores = sysctlInt("hw.ncpu") || sysctlInt("hw.logicalcpu");
+  const perfCores = sysctlInt("hw.perflevel0.logicalcpu");
+  const effCores = sysctlInt("hw.perflevel1.logicalcpu");
+  const isAppleSilicon = sysctl("hw.optional.arm64") === "1";
+
+  // RAM
+  const memBytes = parseInt(sysctl("hw.memsize"), 10);
+  const ramGB = !isNaN(memBytes) && memBytes > 0
+    ? Math.round(memBytes / (1024 ** 3))
+    : Math.round(require("os").totalmem() / (1024 ** 3));
+
+  // GPU info via system_profiler (slower, ~1s)
+  let gpuCores = 0;
+  let metalFamily = "";
+  try {
+    const proc = Bun.spawnSync(["system_profiler", "SPDisplaysDataType", "-json"]);
+    const json = JSON.parse(new TextDecoder().decode(proc.stdout));
+    const gpu = json?.SPDisplaysDataType?.[0];
+    if (gpu) {
+      gpuCores = parseInt(gpu.sppci_cores, 10) || 0;
+      const metal = gpu.spdisplays_mtlgpufamilysupport || "";
+      metalFamily = metal.replace("spdisplays_", "").replace("metal", "Metal ");
+    }
+  } catch {}
+
+  return { chip, totalCores, perfCores, effCores, gpuCores, ramGB, metalFamily, isAppleSilicon };
+}
+
+/** Legacy helper — returns just the RAM in GB. */
+export function getSystemRamGB(): number {
+  return detectHardware().ramGB;
+}
+
+/**
+ * Format a hardware summary for display during init.
+ */
+export function formatHardwareSummary(hw: HardwareInfo): string {
+  const lines: string[] = [];
+  lines.push(`  Chip     : ${hw.chip}`);
+  if (hw.perfCores && hw.effCores) {
+    lines.push(`  CPU      : ${hw.totalCores} cores (${hw.perfCores}P + ${hw.effCores}E)`);
+  } else if (hw.totalCores) {
+    lines.push(`  CPU      : ${hw.totalCores} cores`);
+  }
+  lines.push(`  Memory   : ${hw.ramGB} GB unified`);
+  if (hw.gpuCores) lines.push(`  GPU      : ${hw.gpuCores}-core (${hw.metalFamily || "Metal"})`);
+  return lines.join("\n");
+}
+
+// ─── Model recommendation by hardware tier ────────────────────────────────
 
 export interface LocalModelRecommendation {
   id: string;
   label: string;
   ramTier: string;
+  memUsage: string;  // approximate VRAM usage
 }
 
 /**
- * Detect system RAM (in GB) using macOS sysctl.
- * Falls back to os.totalmem() if sysctl is unavailable.
- */
-export function getSystemRamGB(): number {
-  try {
-    const proc = Bun.spawnSync(["sysctl", "-n", "hw.memsize"]);
-    const bytes = parseInt(new TextDecoder().decode(proc.stdout).trim(), 10);
-    if (!isNaN(bytes) && bytes > 0) return Math.round(bytes / (1024 ** 3));
-  } catch {}
-  // Fallback
-  const os = require("os");
-  return Math.round(os.totalmem() / (1024 ** 3));
-}
-
-/**
- * Pick the best local model based on available system RAM.
+ * Pick the best local model for an AI agent (tool calling + code) based on
+ * available unified memory. Recommendations are from research on Ollama models
+ * as of early 2026, optimized for coding, reasoning, and function calling.
  *
- *   <16GB → qwen3.5         (~11GB model, reasoning + coding + vision)
- *   16GB  → qwen3.5         (~11GB model, best all-rounder)
- *   32GB+ → glm-4.7-flash   (~25GB model, reasoning & code)
+ *   8GB  → qwen3:4b            (~2.5GB, light but capable)
+ *  16GB  → gemma4:12b          (~9.6GB, strong tool calling + multimodal)
+ *  24GB  → qwen3.5:27b         (~17GB, best all-rounder, SWE-bench 72.4%)
+ *  32GB  → qwen2.5-coder:32b   (~20GB, best local coding model)
+ *  48GB  → llama3.3:70b        (~40GB, GPT-4 class quality)
+ *  64GB  → qwen3.5:122b        (~45GB, high quality MoE with headroom)
+ *  96GB+ → gpt-oss:120b        (~70GB, matches o3-mini benchmarks)
  */
 export function recommendLocalModel(ramGB: number): LocalModelRecommendation {
-  if (ramGB >= 32) {
-    return { id: "glm-4.7-flash", label: "GLM 4.7 Flash (reasoning & code)", ramTier: "32GB+" };
+  if (ramGB >= 96) {
+    return { id: "gpt-oss:120b", label: "GPT-OSS 120B (OpenAI-class reasoning)", ramTier: "96GB+", memUsage: "~70GB" };
   }
-  return { id: "qwen3.5", label: "Qwen 3.5 (reasoning, coding, vision)", ramTier: "16GB" };
+  if (ramGB >= 64) {
+    return { id: "qwen3.5:122b", label: "Qwen 3.5 122B MoE (high quality, efficient)", ramTier: "64GB", memUsage: "~45GB" };
+  }
+  if (ramGB >= 48) {
+    return { id: "llama3.3:70b", label: "Llama 3.3 70B (GPT-4 class)", ramTier: "48GB", memUsage: "~40GB" };
+  }
+  if (ramGB >= 32) {
+    return { id: "qwen2.5-coder:32b", label: "Qwen 2.5 Coder 32B (best local coding)", ramTier: "32GB", memUsage: "~20GB" };
+  }
+  if (ramGB >= 24) {
+    return { id: "qwen3.5:27b", label: "Qwen 3.5 27B (coding + tool use + reasoning)", ramTier: "24GB", memUsage: "~17GB" };
+  }
+  if (ramGB >= 16) {
+    return { id: "gemma4:12b", label: "Gemma 4 12B (multimodal + tool calling)", ramTier: "16GB", memUsage: "~9.6GB" };
+  }
+  return { id: "qwen3:4b", label: "Qwen 3 4B (lightweight assistant)", ramTier: "8GB", memUsage: "~2.5GB" };
+}
+
+/**
+ * Get all model options for the local provider, ordered by RAM requirement.
+ * Returns the full list so users can pick alternatives beyond the top recommendation.
+ */
+export function getLocalModelOptions(ramGB: number): SuggestedModel[] {
+  // All models ordered largest → smallest. Filter to those that fit with ~4GB OS headroom.
+  const all: (SuggestedModel & { minRam: number })[] = [
+    { id: "gpt-oss:120b",        label: "GPT-OSS 120B (reasoning, ~70GB)",          minRam: 96 },
+    { id: "qwen3.5:122b",        label: "Qwen 3.5 122B MoE (quality + efficient, ~45GB)", minRam: 64 },
+    { id: "llama3.3:70b",        label: "Llama 3.3 70B (GPT-4 class, ~40GB)",       minRam: 48 },
+    { id: "qwen2.5-coder:32b",   label: "Qwen 2.5 Coder 32B (best coding, ~20GB)", minRam: 32 },
+    { id: "qwen3-coder:30b",     label: "Qwen3 Coder 30B MoE (agentic, ~17GB)",    minRam: 24 },
+    { id: "qwen3.5:27b",         label: "Qwen 3.5 27B (coding + tools, ~17GB)",     minRam: 24 },
+    { id: "devstral-small-2:24b", label: "Devstral Small 2 24B (SWE-bench #1, ~15GB)", minRam: 24 },
+    { id: "gemma4:12b",          label: "Gemma 4 12B (multimodal + tools, ~9.6GB)", minRam: 16 },
+    { id: "qwen2.5-coder:14b",   label: "Qwen 2.5 Coder 14B (coding, ~9GB)",       minRam: 16 },
+    { id: "phi4:14b",            label: "Phi-4 14B (math + STEM, ~9GB)",            minRam: 16 },
+    { id: "qwen3:8b",            label: "Qwen 3 8B (fast general, ~4.7GB)",         minRam: 12 },
+    { id: "qwen3:4b",            label: "Qwen 3 4B (lightweight, ~2.5GB)",          minRam: 8 },
+    { id: "phi4-mini",           label: "Phi-4 Mini 3.8B (light coding, ~2.5GB)",   minRam: 8 },
+  ];
+  return all.filter((m) => m.minRam <= ramGB);
 }
 
 // ─── Build a custom Model object for local/custom endpoints ────────────────
