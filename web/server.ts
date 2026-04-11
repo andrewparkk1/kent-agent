@@ -13,6 +13,20 @@ import { handleSettings, handleSettingsSave } from "./api/settings.ts";
 import { handleTools } from "./api/tools.ts";
 import { handleFeedback } from "./api/feedback.ts";
 import { handleOllamaModels } from "./api/ollama.ts";
+import {
+  handleSetupStatus,
+  handleSetupInit,
+  handleSetupHardware,
+  handleSetupCheckSources,
+  handleSetupOllamaStatus,
+  handleSetupOllamaInstall,
+  handleSetupOllamaPull,
+  handleSetupOAuthGmail,
+  handleSetupOAuthGithub,
+  handleSetupSaveConfig,
+  handleSetupSync,
+  handleSetupStartServices,
+} from "./api/setup.ts";
 import { API_PORT } from "../shared/config.ts";
 
 const STATIC_DIR = process.env.KENT_STATIC_DIR || resolve(import.meta.dir, "dist");
@@ -54,6 +68,8 @@ Bun.serve({
     "/api/identity":     handleIdentity,
     "/api/tools":        handleTools,
     "/api/daemon-state": handleDaemonState,
+    "/api/setup/status":   handleSetupStatus,
+    "/api/setup/hardware": handleSetupHardware,
     "/api/settings": {
       GET: handleSettings,
       POST: handleSettingsSave,
@@ -119,6 +135,38 @@ Bun.serve({
 
     if (url.pathname === "/api/sync" && req.method === "POST") {
       return handleSync(req);
+    }
+
+    // Setup endpoints
+    if (url.pathname === "/api/setup/init" && req.method === "POST") {
+      return handleSetupInit();
+    }
+    if (url.pathname === "/api/setup/check-sources" && req.method === "GET") {
+      return handleSetupCheckSources();
+    }
+    if (url.pathname === "/api/setup/ollama/status" && req.method === "GET") {
+      return handleSetupOllamaStatus();
+    }
+    if (url.pathname === "/api/setup/ollama/install" && req.method === "POST") {
+      return handleSetupOllamaInstall();
+    }
+    if (url.pathname === "/api/setup/ollama/pull" && req.method === "POST") {
+      return handleSetupOllamaPull(req);
+    }
+    if (url.pathname === "/api/setup/oauth/gmail" && req.method === "POST") {
+      return handleSetupOAuthGmail();
+    }
+    if (url.pathname === "/api/setup/oauth/github" && req.method === "POST") {
+      return handleSetupOAuthGithub();
+    }
+    if (url.pathname === "/api/setup/save-config" && req.method === "POST") {
+      return handleSetupSaveConfig(req);
+    }
+    if (url.pathname === "/api/setup/sync" && req.method === "POST") {
+      return handleSetupSync();
+    }
+    if (url.pathname === "/api/setup/start-services" && req.method === "POST") {
+      return handleSetupStartServices();
     }
 
     // Serve static frontend from web/dist/ (pre-built Vite output)
