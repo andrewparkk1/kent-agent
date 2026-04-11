@@ -73,15 +73,31 @@ function extractToc(body: string): { level: number; text: string; slug: string }
  * Unresolved [[Title]] references are left as styled text.
  */
 function resolveWikiLinks(body: string, index: Record<string, MemoryIndexEntry>): string {
-  return body.replace(/\[\[([^\]]+)\]\]/g, (_match, title: string) => {
+  // Handle [[Title]] and [[Title|display text]] wiki link syntax
+  let result = body.replace(/\[\[([^\]]+)\]\]/g, (_match, inner: string) => {
+    const parts = inner.split("|");
+    const title = parts[0]!.trim();
+    const display = parts.length > 1 ? parts[1]!.trim() : title;
     const entry = index[title.toLowerCase()];
     if (entry) {
-      // Use #memory: prefix so the link stays in-page and doesn't trigger navigation
-      return `[${title}](#memory:${encodeURIComponent(entry.id)})`;
+      return `[${display}](#memory:${encodeURIComponent(entry.id)})`;
     }
-    // Unresolved reference — render as styled but non-clickable
-    return `**⟦${title}⟧**`;
+    return `**⟦${display}⟧**`;
   });
+
+  // Handle already-rendered ⟦Title⟧ and ⟦Title|alias⟧ from stored outputs (bold or plain)
+  result = result.replace(/\*{0,2}⟦([^⟧]+)⟧\*{0,2}/g, (_match, inner: string) => {
+    const parts = inner.split("|");
+    const title = parts[0]!.trim();
+    const display = parts.length > 1 ? parts[1]!.trim() : title;
+    const entry = index[title.toLowerCase()];
+    if (entry) {
+      return `[${display}](#memory:${encodeURIComponent(entry.id)})`;
+    }
+    return `**⟦${display}⟧**`;
+  });
+
+  return result;
 }
 
 function LinkedMemoryCard({ memory, label, onNavigate }: { memory: LinkedMemory; label?: string; onNavigate: (id: string) => void }) {

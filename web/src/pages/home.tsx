@@ -22,13 +22,31 @@ const TYPE_COLORS: Record<string, string> = {
 };
 
 function resolveWikiLinks(body: string, index: Record<string, MemoryIndexEntry>): string {
-  return body.replace(/\[\[([^\]]+)\]\]/g, (_match, title: string) => {
+  // Handle [[Title]] and [[Title|display text]] wiki link syntax
+  let result = body.replace(/\[\[([^\]]+)\]\]/g, (_match, inner: string) => {
+    const parts = inner.split("|");
+    const title = parts[0]!.trim();
+    const display = parts.length > 1 ? parts[1]!.trim() : title;
     const entry = index[title.toLowerCase()];
     if (entry) {
-      return `[${title}](#memory:${encodeURIComponent(entry.id)})`;
+      return `[${display}](#memory:${encodeURIComponent(entry.id)})`;
     }
-    return `**⟦${title}⟧**`;
+    return `**⟦${display}⟧**`;
   });
+
+  // Handle already-rendered ⟦Title⟧ and ⟦Title|alias⟧ from stored outputs (bold or plain)
+  result = result.replace(/\*{0,2}⟦([^⟧]+)⟧\*{0,2}/g, (_match, inner: string) => {
+    const parts = inner.split("|");
+    const title = parts[0]!.trim();
+    const display = parts.length > 1 ? parts[1]!.trim() : title;
+    const entry = index[title.toLowerCase()];
+    if (entry) {
+      return `[${display}](#memory:${encodeURIComponent(entry.id)})`;
+    }
+    return `**⟦${display}⟧**`;
+  });
+
+  return result;
 }
 
 interface BriefRun {
