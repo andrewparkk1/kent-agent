@@ -4,11 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "lsof -ti:3456 | xargs kill 2>/dev/null; bun --hot ../web/server.ts & vite",
+    "dev": "lsof -ti:19456 | xargs kill 2>/dev/null; bun --hot ../web/server.ts & vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "tauri:dev": "lsof -ti:3456 | xargs kill 2>/dev/null; bun --hot ../web/server.ts & bunx tauri dev",
+    "tauri:dev": "lsof -ti:19456 | xargs kill 2>/dev/null; bun --hot ../web/server.ts & bunx tauri dev",
     "tauri:build": "bunx tauri build"
   },
   "dependencies": {

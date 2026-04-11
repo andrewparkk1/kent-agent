@@ -9,7 +9,7 @@ type ChildHandle = Arc<Mutex<Option<Child>>>;
 fn wait_for_server(timeout: Duration) -> bool {
     let start = Instant::now();
     while start.elapsed() < timeout {
-        if TcpStream::connect("127.0.0.1:3456").is_ok() {
+        if TcpStream::connect("127.0.0.1:19456").is_ok() {
             return true;
         }
         std::thread::sleep(Duration::from_millis(100));
@@ -50,10 +50,10 @@ pub fn run() {
 
             std::thread::spawn(move || {
                 let already_running =
-                    TcpStream::connect("127.0.0.1:3456").is_ok();
+                    TcpStream::connect("127.0.0.1:19456").is_ok();
 
                 if already_running {
-                    log::info!("kent-server already running on port 3456, reusing");
+                    log::info!("kent-server already running on port 19456, reusing");
                 } else {
                     let resource_dir = handle
                         .path()
@@ -98,7 +98,7 @@ pub fn run() {
                 if let Some(window) = handle.get_webview_window("main") {
                     if server_ready {
                         let _ = window.eval(
-                            "window.location.replace('http://localhost:3456')",
+                            "window.location.replace('http://localhost:19456')",
                         );
                     } else {
                         log::error!(

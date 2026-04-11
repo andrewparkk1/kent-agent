@@ -5,7 +5,7 @@
   "identifier": "com.kent.desktop",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:3456"
+    "devUrl": "http://localhost:19456"
   },
   "app": {
     "windows": [

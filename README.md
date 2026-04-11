@@ -121,7 +121,7 @@ You can also create, edit, enable/disable, and run workflows from the web dashbo
 
 ## Web dashboard
 
-Opens a local React dashboard at `http://localhost:3456` with pages for:
+Opens a local React dashboard at `http://localhost:19456` with pages for:
 
 - **Home** — feed of recent workflow runs and briefs
 - **Chat** — multi-turn conversations with the agent
