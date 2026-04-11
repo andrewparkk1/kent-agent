@@ -121,6 +121,8 @@ export class TelegramChannel implements Channel {
   readonly name = "telegram";
   private botToken: string;
   private chatIds: Set<string>;
+  /** Tracks chat type so notifications only go to private chats. */
+  private chatTypes: Map<string, string> = new Map();
 
   constructor(botToken: string, chatIds: string[]) {
     this.botToken = botToken;
@@ -131,9 +133,14 @@ export class TelegramChannel implements Channel {
     return !!this.botToken;
   }
 
+  /** Send notification to private chats only (not group chats). */
   async sendNotification(text: string): Promise<{ chatId: string; messageId: string }[]> {
     const results: { chatId: string; messageId: string }[] = [];
     for (const chatId of this.chatIds) {
+      // Skip group chats — notifications are personal (workflow results, briefings, etc.)
+      const chatType = this.chatTypes.get(chatId);
+      if (chatType && chatType !== "private") continue;
+
       const msgId = await apiSendLongMessage(this.botToken, chatId, text);
       results.push({ chatId, messageId: String(msgId) });
     }
@@ -169,6 +176,10 @@ export class TelegramChannel implements Channel {
           if (!update.message?.text) continue;
 
           const msgChatId = String(update.message.chat.id);
+          const chatType = update.message.chat.type; // "private", "group", "supergroup"
+
+          // Track chat type so we know where to send notifications
+          this.chatTypes.set(msgChatId, chatType);
 
           // Auto-discover: if this chat isn't registered yet, add it
           if (!this.chatIds.has(msgChatId)) {

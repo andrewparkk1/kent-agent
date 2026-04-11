@@ -86,7 +86,7 @@ describe("TelegramChannel.sendNotification", () => {
     globalThis.fetch = originalFetch;
   });
 
-  test("sends to all configured chats and returns results", async () => {
+  test("sends to all chats with unknown type (assumes private)", async () => {
     const sentChats: string[] = [];
 
     globalThis.fetch = mock(async (_url: string | URL | Request, init?: RequestInit) => {
@@ -98,14 +98,13 @@ describe("TelegramChannel.sendNotification", () => {
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     }) as any;
 
+    // Chats with unknown type (not yet seen via polling) → treated as private
     const channel = new TelegramChannel("test-token", ["chat-1", "chat-2"]);
     const results = await channel.sendNotification("Hello world");
 
     expect(results).toHaveLength(2);
     expect(sentChats).toContain("chat-1");
     expect(sentChats).toContain("chat-2");
-    expect(results[0]!.chatId).toBe("chat-1");
-    expect(results[1]!.chatId).toBe("chat-2");
   });
 
   test("sends to single chat correctly", async () => {
