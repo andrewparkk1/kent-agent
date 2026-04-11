@@ -1,5 +1,6 @@
 /** GET /api/memories — list/search memories. GET /api/memories/:id — single memory with links + index for resolving inline [[Title]] references. */
-import { listMemories, searchMemories, getMemory, getAllLinks } from "../../shared/db.ts";
+/** POST /api/memories/:id/archive — archive a memory. */
+import { listMemories, searchMemories, getMemory, getAllLinks, archiveMemory } from "../../shared/db.ts";
 
 function parseMemory(m: any) {
   return {
@@ -46,6 +47,14 @@ export async function handleMemories(req: Request) {
   return Response.json({
     memories: memories.map(parseMemory),
   });
+}
+
+export async function handleMemoryArchive(req: Request) {
+  const url = new URL(req.url);
+  const match = url.pathname.match(/^\/api\/memories\/([^/]+)\/archive$/);
+  if (!match) return new Response("Not Found", { status: 404 });
+  await archiveMemory(match[1]!);
+  return Response.json({ ok: true });
 }
 
 export async function handleMemoryDetail(req: Request) {

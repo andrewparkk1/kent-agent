@@ -4,7 +4,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   ArrowLeft, User, FolderOpen, Hash, CalendarDays, Heart, MapPin, Brain,
-  Link2, ArrowRight, List,
+  Link2, ArrowRight, List, Archive,
 } from "lucide-react";
 import { toast } from "sonner";
 import { timeAgo } from "@/lib/types";
@@ -242,6 +242,21 @@ export function MemoryDetailPage({ memoryId, onBack, onNavigate }: {
                       Also known as: {memory.aliases.join(", ")}
                     </span>
                   )}
+                  <button
+                    onClick={async () => {
+                      try {
+                        await fetch(`/api/memories/${memory.id}/archive`, { method: "POST" });
+                        toast.success("Memory archived");
+                        onBack();
+                      } catch {
+                        toast.error("Failed to archive memory");
+                      }
+                    }}
+                    className="text-[11px] text-muted-foreground/30 hover:text-muted-foreground transition-colors cursor-pointer flex items-center gap-1 ml-1"
+                    title="Archive this memory"
+                  >
+                    <Archive size={11} /> Archive
+                  </button>
                 </div>
               </div>
             </div>

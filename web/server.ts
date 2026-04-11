@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { handleCounts, handleItems } from "./api/items.ts";
 import { handleWorkflows, handleWorkflowDetail, handleWorkflowRun, handleWorkflowToggle, handleWorkflowArchive, handleWorkflowUnarchive, handleWorkflowDelete, handleActivity, handleActivitySeen, handleUnreadCount, handleBrief } from "./api/workflows.ts";
 import { handleSources, handleDaemonState, handleDaemonStart, handleDaemonStop } from "./api/sources.ts";
-import { handleMemories, handleMemoryDetail, handleMemoryIndex } from "./api/memories.ts";
+import { handleMemories, handleMemoryDetail, handleMemoryIndex, handleMemoryArchive } from "./api/memories.ts";
 import { handleIdentity, handleIdentitySave } from "./api/identity.ts";
 import { handleThreads, handleThreadMessages, handleDeleteThread } from "./api/threads.ts";
 import { handleChat } from "./api/chat.ts";
@@ -88,6 +88,11 @@ Bun.serve({
     // GET /api/memories/index — memory title index for wiki link resolution
     if (url.pathname === "/api/memories/index" && req.method === "GET") {
       return handleMemoryIndex(req);
+    }
+
+    // POST /api/memories/:id/archive — archive a memory
+    if (url.pathname.match(/^\/api\/memories\/[^/]+\/archive$/) && req.method === "POST") {
+      return handleMemoryArchive(req);
     }
 
     // GET /api/memories/:id — single memory with links
