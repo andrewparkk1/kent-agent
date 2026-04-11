@@ -147,13 +147,60 @@ export function handleSetupHardware() {
 }
 
 // ---------------------------------------------------------------------------
-// 4. GET /api/setup/check-sources — check prerequisites for all 8 sources
+// 4. GET /api/setup/check-sources — check prerequisites for all sources
 // ---------------------------------------------------------------------------
 
 export async function handleSetupCheckSources() {
   const home = homedir();
 
   const results: Record<string, { ok: boolean; message: string }> = {};
+
+  // Run all CLI checks in parallel (these spawn subprocesses and are slow)
+  const [hasSqlcipher, hasGws, hasGh, hasOsascript, hasMdfind] = await Promise.all([
+    commandExists("sqlcipher"),
+    commandExists("gws"),
+    commandExists("gh"),
+    commandExists("osascript"),
+    commandExists("mdfind"),
+  ]);
+
+  // Run auth checks in parallel too (only if CLIs exist)
+  const [gwsAuth, ghAuth] = await Promise.all([
+    hasGws
+      ? (async () => {
+          try {
+            const proc = Bun.spawn(["gws", "auth", "status", "--format", "json"], { stdout: "pipe", stderr: "pipe" });
+            const code = await proc.exited;
+            if (code === 0) {
+              const output = await new Response(proc.stdout).text();
+              const status = JSON.parse(output);
+              return status.token_valid ? `authenticated as ${status.user}` : "gws found (needs auth)";
+            }
+            return "gws found (needs setup)";
+          } catch {
+            return "gws found (needs setup)";
+          }
+        })()
+      : Promise.resolve(null),
+    hasGh
+      ? (async () => {
+          try {
+            const proc = Bun.spawn(["gh", "auth", "status"], { stdout: "pipe", stderr: "pipe" });
+            const code = await proc.exited;
+            if (code === 0) {
+              const output = await new Response(proc.stderr).text();
+              const match = output.match(/Logged in to .+ as (.+)/);
+              return `authenticated as ${match?.[1] ?? "user"}`;
+            }
+            return "gh found (needs auth)";
+          } catch {
+            return "gh found (needs auth)";
+          }
+        })()
+      : Promise.resolve(null),
+  ]);
+
+  // Now assign results — all file checks are sync and instant
 
   // iMessage
   const imessageDb = join(home, "Library/Messages/chat.db");
@@ -166,7 +213,6 @@ export async function handleSetupCheckSources() {
   if (!existsSync(signalDb)) {
     results.signal = { ok: false, message: "Signal desktop not installed or no database found." };
   } else {
-    const hasSqlcipher = await commandExists("sqlcipher");
     results.signal = hasSqlcipher
       ? { ok: true, message: "Signal DB + sqlcipher found" }
       : { ok: false, message: "Requires sqlcipher. Fix: brew install sqlcipher" };
@@ -179,49 +225,14 @@ export async function handleSetupCheckSources() {
     : { ok: false, message: "Granola not installed. Download from https://granola.ai" };
 
   // Gmail / Google
-  const hasGws = await commandExists("gws");
-  if (!hasGws) {
-    results.gmail = { ok: false, message: "gws CLI not installed" };
-  } else {
-    try {
-      const proc = Bun.spawn(["gws", "auth", "status", "--format", "json"], { stdout: "pipe", stderr: "pipe" });
-      const code = await proc.exited;
-      if (code === 0) {
-        const output = await new Response(proc.stdout).text();
-        const status = JSON.parse(output);
-        if (status.token_valid) {
-          results.gmail = { ok: true, message: `authenticated as ${status.user}` };
-        } else {
-          results.gmail = { ok: true, message: "gws found (needs auth)" };
-        }
-      } else {
-        results.gmail = { ok: true, message: "gws found (needs setup)" };
-      }
-    } catch {
-      results.gmail = { ok: true, message: "gws found (needs setup)" };
-    }
-  }
+  results.gmail = hasGws
+    ? { ok: true, message: gwsAuth! }
+    : { ok: false, message: "gws CLI not installed" };
 
   // GitHub
-  const hasGh = await commandExists("gh");
-  if (!hasGh) {
-    results.github = { ok: false, message: "gh CLI not installed" };
-  } else {
-    try {
-      const proc = Bun.spawn(["gh", "auth", "status"], { stdout: "pipe", stderr: "pipe" });
-      const code = await proc.exited;
-      if (code === 0) {
-        const output = await new Response(proc.stderr).text();
-        const match = output.match(/Logged in to .+ as (.+)/);
-        const user = match?.[1] ?? "authenticated";
-        results.github = { ok: true, message: `authenticated as ${user}` };
-      } else {
-        results.github = { ok: true, message: "gh found (needs auth)" };
-      }
-    } catch {
-      results.github = { ok: true, message: "gh found (needs auth)" };
-    }
-  }
+  results.github = hasGh
+    ? { ok: true, message: ghAuth! }
+    : { ok: false, message: "gh CLI not installed" };
 
   // Chrome
   const chromeDb = join(home, "Library/Application Support/Google/Chrome/Default/History");
@@ -254,8 +265,7 @@ export async function handleSetupCheckSources() {
     ? { ok: true, message: "Safari history DB found" }
     : { ok: false, message: "Safari history not found. Is Safari installed?" };
 
-  // Apple Reminders (needs osascript — always available on macOS)
-  const hasOsascript = await commandExists("osascript");
+  // Apple Reminders
   results.apple_reminders = hasOsascript
     ? { ok: true, message: "Reminders.app available" }
     : { ok: false, message: "osascript not found (requires macOS)" };
@@ -321,7 +331,6 @@ export async function handleSetupCheckSources() {
     : { ok: false, message: "Screen Time data not found. Enable Screen Time in System Settings." };
 
   // Recent Files (needs mdfind / Spotlight)
-  const hasMdfind = await commandExists("mdfind");
   results.recent_files = hasMdfind
     ? { ok: true, message: "Spotlight indexing available" }
     : { ok: false, message: "mdfind not found (requires macOS)" };
