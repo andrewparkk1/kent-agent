@@ -251,7 +251,7 @@ export function App() {
         setPage={setPage}
         openChat={openChat}
         selectedThreadId={selectedThreadId}
-        workflowCount={workflows.length}
+        workflowCount={workflows.filter(w => w.source !== "suggested").length}
         runCount={totalRuns}
         refreshKey={threadRefreshKey}
         unreadActivityCount={unreadActivityCount}
