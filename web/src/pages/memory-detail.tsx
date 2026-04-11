@@ -170,8 +170,6 @@ export function MemoryDetailPage({ memoryId, onBack, onNavigate }: {
   // Custom link renderer that handles #memory: links as inline wiki links
   const linkRenderer = useCallback(({ href, children }: { href?: string; children?: React.ReactNode }) => {
     if (href?.startsWith("#memory:")) {
-      const id = decodeURIComponent(href.replace("#memory:", ""));
-      const entry = Object.values(memoryIndex).find((e) => e.id === id);
       return (
         <button
           onClick={(e) => handleLinkClick(e, href)}

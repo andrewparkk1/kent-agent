@@ -1,8 +1,11 @@
 /** GET /api/sources — source config + daemon status. */
 /** GET /api/daemon-state — raw daemon state JSON. */
+/** POST /api/daemon/start — start the daemon via launchd. */
+/** POST /api/daemon/stop — stop the daemon. */
 import { getItemCount } from "../../shared/db.ts";
 import { loadConfig, DAEMON_STATE_PATH, PID_PATH } from "../../shared/config.ts";
 import { readFileSync, existsSync } from "node:fs";
+import { daemonStart, daemonStop } from "../../cli/commands/daemon.ts";
 
 function isDaemonRunning(): boolean {
   if (!existsSync(PID_PATH)) return false;
@@ -52,6 +55,24 @@ export async function handleSources() {
       nextSyncAt: daemonState.nextSyncAt || null,
     },
   });
+}
+
+export async function handleDaemonStart() {
+  try {
+    await daemonStart();
+    return Response.json({ ok: true });
+  } catch (e: any) {
+    return Response.json({ ok: false, error: e.message }, { status: 500 });
+  }
+}
+
+export async function handleDaemonStop() {
+  try {
+    await daemonStop();
+    return Response.json({ ok: true });
+  } catch (e: any) {
+    return Response.json({ ok: false, error: e.message }, { status: 500 });
+  }
 }
 
 export function handleDaemonState() {

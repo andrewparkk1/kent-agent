@@ -225,7 +225,6 @@ export function HomePage({ onNavigateMemory }: { onNavigateMemory?: (id: string)
   const linkRenderer = useCallback(({ href, children }: { href?: string; children?: React.ReactNode }) => {
     if (href?.startsWith("#memory:") && onNavigateMemory) {
       const id = decodeURIComponent(href.replace("#memory:", ""));
-      const entry = Object.values(memoryIndex).find((e) => e.id === id);
       return (
         <button
           onClick={(e) => { e.preventDefault(); onNavigateMemory(id); }}

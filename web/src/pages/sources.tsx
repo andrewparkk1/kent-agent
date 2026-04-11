@@ -987,6 +987,22 @@ export function SourcesPage({ items, loading, filter, setFilter, query, setQuery
             <span className="text-[13px] text-muted-foreground/60 tabular-nums">
               {daemonStatusText(daemon, now)}
             </span>
+            {daemon.status === "stopped" && (
+              <button
+                onClick={async () => {
+                  try {
+                    await fetch("/api/daemon/start", { method: "POST" });
+                    toast.success("Daemon started");
+                    onRefresh();
+                  } catch {
+                    toast.error("Failed to start daemon");
+                  }
+                }}
+                className="text-[12px] text-blue-500/70 hover:text-blue-500 transition-colors cursor-pointer ml-1"
+              >
+                Start
+              </button>
+            )}
           </motion.div>
         </div>
 
