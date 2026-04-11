@@ -21,6 +21,8 @@ import { github } from "./sources/github.ts";
 import { chrome } from "./sources/chrome.ts";
 import { appleNotes } from "./sources/apple-notes.ts";
 import { aiCoding } from "./sources/ai-coding.ts";
+import { sendLongMessage, mapMessageToThread } from "@shared/telegram.ts";
+import { startTelegramPolling } from "./telegram-poll.ts";
 
 const sourceRegistry: Record<string, Source> = {
   imessage,
@@ -47,6 +49,32 @@ function log(message: string): void {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Send a Telegram notification for a completed workflow run. */
+async function sendTelegramNotification(
+  workflowName: string,
+  threadId: string,
+  success: boolean,
+  output: string,
+): Promise<void> {
+  const config = loadConfig();
+  const { bot_token, chat_id } = config.telegram;
+  if (!bot_token || !chat_id) return;
+
+  const status = success ? "completed" : "failed";
+  const header = `**${workflowName}** — ${status}`;
+  const body = output.trim()
+    ? `${header}\n\n${output.trim()}`
+    : `${header}\n\n(no output)`;
+
+  try {
+    const msgId = await sendLongMessage(bot_token, chat_id, body);
+    // Map the notification message to the workflow thread so replies route there
+    await mapMessageToThread(msgId, threadId);
+  } catch (e) {
+    log(`Telegram notification failed: ${e}`);
+  }
 }
 
 interface DaemonState {
@@ -217,11 +245,14 @@ async function main(): Promise<void> {
             ? Bun.spawn([agentBin], { env, stdout: "pipe", stderr: "pipe" })
             : Bun.spawn([bunPath, "run", agentPath], { env, stdout: "pipe", stderr: "pipe", cwd: projectRoot });
 
-          await new Response(proc.stdout).text();
+          const agentOutput = await new Response(proc.stdout).text();
           await proc.exited;
 
           const success = proc.exitCode === 0;
           await finishThread(threadId, success ? "done" : "error");
+
+          // Send Telegram notification
+          sendTelegramNotification(wf.name, threadId, success, agentOutput).catch(() => {});
 
           if (success) {
             log(`workflow: "${wf.name}" completed`);
@@ -233,6 +264,7 @@ async function main(): Promise<void> {
           }
         } catch (e) {
           await finishThread(threadId, "error");
+          sendTelegramNotification(wf.name, threadId, false, String(e)).catch(() => {});
           if (attempt < maxAttempts) {
             log(`workflow: "${wf.name}" error (attempt ${attempt}/${maxAttempts}), retrying — ${e}`);
           } else {
@@ -307,6 +339,14 @@ async function main(): Promise<void> {
       enabledSources: currentNames,
       intervalSeconds: config.daemon.sync_interval_seconds,
     });
+  }
+
+  // ── Telegram polling (runs in background) ──────────────────────────
+  if (config.telegram.bot_token && config.telegram.chat_id) {
+    log("Telegram channel enabled — starting polling");
+    startTelegramPolling(log).catch((e) => log(`Telegram polling fatal: ${e}`));
+  } else {
+    log("Telegram not configured — skipping. Set telegram.bot_token and telegram.chat_id in config.");
   }
 
   // ── Main loop (60s tick) ───────────────────────────────────────────

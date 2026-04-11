@@ -50,6 +50,10 @@ export interface Config {
     base_url: string;
     api_key: string;
   };
+  telegram: {
+    bot_token: string;
+    chat_id: string;
+  };
 }
 
 export const API_PORT = 19456;
@@ -106,6 +110,10 @@ export const DEFAULT_CONFIG: Config = {
     base_url: "",
     api_key: "",
   },
+  telegram: {
+    bot_token: "",
+    chat_id: "",
+  },
 };
 
 export function ensureKentDir(): void {
@@ -130,6 +138,7 @@ export function loadConfig(): Config {
       sources: { ...DEFAULT_CONFIG.sources, ...saved.sources },
       daemon: { ...DEFAULT_CONFIG.daemon, ...saved.daemon },
       agent: { ...DEFAULT_CONFIG.agent, ...saved.agent },
+      telegram: { ...DEFAULT_CONFIG.telegram, ...saved.telegram },
     };
   } catch {
     return DEFAULT_CONFIG;

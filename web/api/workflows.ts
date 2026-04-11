@@ -5,6 +5,7 @@ import { getDb } from "../../shared/db/connection.ts";
 import { getWorkflow, updateWorkflow, deleteWorkflow, archiveWorkflow, unarchiveWorkflow } from "../../shared/db/workflows.ts";
 import { createThread, finishThread, addMessage } from "../../shared/db/threads.ts";
 import { loadConfig } from "../../shared/config.ts";
+import { sendLongMessage, mapMessageToThread } from "../../shared/telegram.ts";
 import { resolve } from "node:path";
 import { sql } from "kysely";
 
@@ -166,6 +167,20 @@ export async function handleWorkflowRun(req: Request) {
       const success = proc.exitCode === 0 || proc.exitCode === null;
       try {
         await finishThread(threadId, success ? "done" : "error");
+      } catch {}
+
+      // Send Telegram notification
+      try {
+        const tgConfig = loadConfig().telegram;
+        if (tgConfig.bot_token && tgConfig.chat_id) {
+          const status = success ? "completed" : "failed";
+          const body = fullOutput.trim()
+            ? `**${workflow.name}** — ${status}\n\n${fullOutput.trim()}`
+            : `**${workflow.name}** — ${status}\n\n(no output)`;
+          sendLongMessage(tgConfig.bot_token, tgConfig.chat_id, body)
+            .then((msgId) => mapMessageToThread(msgId, threadId))
+            .catch(() => {});
+        }
       } catch {}
 
       try {
