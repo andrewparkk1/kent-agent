@@ -21,8 +21,8 @@ import { github } from "./sources/github.ts";
 import { chrome } from "./sources/chrome.ts";
 import { appleNotes } from "./sources/apple-notes.ts";
 import { aiCoding } from "./sources/ai-coding.ts";
-import { sendLongMessage, mapMessageToThread } from "@shared/telegram.ts";
-import { startTelegramPolling } from "./telegram-poll.ts";
+import { getChannels } from "@shared/channels/index.ts";
+import { startChannelPolling, notifyAllChannels } from "./channel-handler.ts";
 
 const sourceRegistry: Record<string, Source> = {
   imessage,
@@ -51,16 +51,15 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Send a Telegram notification for a completed workflow run. */
-async function sendTelegramNotification(
+/** Send a workflow notification to all configured channels. */
+async function notifyWorkflowRun(
   workflowName: string,
   threadId: string,
   success: boolean,
   output: string,
 ): Promise<void> {
-  const config = loadConfig();
-  const { bot_token, chat_id } = config.telegram;
-  if (!bot_token || !chat_id) return;
+  const channels = getChannels(loadConfig());
+  if (channels.length === 0) return;
 
   const status = success ? "completed" : "failed";
   const header = `**${workflowName}** — ${status}`;
@@ -68,13 +67,7 @@ async function sendTelegramNotification(
     ? `${header}\n\n${output.trim()}`
     : `${header}\n\n(no output)`;
 
-  try {
-    const msgId = await sendLongMessage(bot_token, chat_id, body);
-    // Map the notification message to the workflow thread so replies route there
-    await mapMessageToThread(msgId, threadId);
-  } catch (e) {
-    log(`Telegram notification failed: ${e}`);
-  }
+  await notifyAllChannels(channels, body, threadId, log);
 }
 
 interface DaemonState {
@@ -252,7 +245,7 @@ async function main(): Promise<void> {
           await finishThread(threadId, success ? "done" : "error");
 
           // Send Telegram notification
-          sendTelegramNotification(wf.name, threadId, success, agentOutput).catch(() => {});
+          notifyWorkflowRun(wf.name, threadId, success, agentOutput).catch(() => {});
 
           if (success) {
             log(`workflow: "${wf.name}" completed`);
@@ -264,7 +257,7 @@ async function main(): Promise<void> {
           }
         } catch (e) {
           await finishThread(threadId, "error");
-          sendTelegramNotification(wf.name, threadId, false, String(e)).catch(() => {});
+          notifyWorkflowRun(wf.name, threadId, false, String(e)).catch(() => {});
           if (attempt < maxAttempts) {
             log(`workflow: "${wf.name}" error (attempt ${attempt}/${maxAttempts}), retrying — ${e}`);
           } else {
@@ -341,12 +334,15 @@ async function main(): Promise<void> {
     });
   }
 
-  // ── Telegram polling (runs in background) ──────────────────────────
-  if (config.telegram.bot_token && config.telegram.chat_id) {
-    log("Telegram channel enabled — starting polling");
-    startTelegramPolling(log).catch((e) => log(`Telegram polling fatal: ${e}`));
+  // ── Channel polling (runs in background per channel) ────────────────
+  const channels = getChannels(config);
+  if (channels.length > 0) {
+    for (const channel of channels) {
+      log(`Channel "${channel.name}" enabled — starting polling`);
+      startChannelPolling(channel, log).catch((e) => log(`${channel.name} polling fatal: ${e}`));
+    }
   } else {
-    log("Telegram not configured — skipping. Set telegram.bot_token and telegram.chat_id in config.");
+    log("No channels configured — skipping. Set telegram.bot_token and telegram.chat_id in config.");
   }
 
   // ── Main loop (60s tick) ───────────────────────────────────────────

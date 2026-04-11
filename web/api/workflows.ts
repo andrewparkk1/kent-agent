@@ -5,7 +5,8 @@ import { getDb } from "../../shared/db/connection.ts";
 import { getWorkflow, updateWorkflow, deleteWorkflow, archiveWorkflow, unarchiveWorkflow } from "../../shared/db/workflows.ts";
 import { createThread, finishThread, addMessage } from "../../shared/db/threads.ts";
 import { loadConfig } from "../../shared/config.ts";
-import { sendLongMessage, mapMessageToThread } from "../../shared/telegram.ts";
+import { getChannels } from "../../shared/channels/index.ts";
+import { notifyAllChannels } from "../../daemon/channel-handler.ts";
 import { resolve } from "node:path";
 import { sql } from "kysely";
 
@@ -169,17 +170,16 @@ export async function handleWorkflowRun(req: Request) {
         await finishThread(threadId, success ? "done" : "error");
       } catch {}
 
-      // Send Telegram notification
+      // Send notification to all configured channels
       try {
-        const tgConfig = loadConfig().telegram;
-        if (tgConfig.bot_token && tgConfig.chat_id) {
+        const channels = getChannels(loadConfig());
+        if (channels.length > 0) {
           const status = success ? "completed" : "failed";
           const body = fullOutput.trim()
             ? `**${workflow.name}** — ${status}\n\n${fullOutput.trim()}`
             : `**${workflow.name}** — ${status}\n\n(no output)`;
-          sendLongMessage(tgConfig.bot_token, tgConfig.chat_id, body)
-            .then((msgId) => mapMessageToThread(msgId, threadId))
-            .catch(() => {});
+          const log = (msg: string) => console.log(`[workflow-run] ${msg}`);
+          notifyAllChannels(channels, body, threadId, log).catch(() => {});
         }
       } catch {}
 

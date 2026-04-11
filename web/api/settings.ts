@@ -29,6 +29,7 @@ export async function handleSettingsSave(req: Request) {
     sources: { ...existing.sources, ...config.sources },
     daemon: { ...existing.daemon, ...config.daemon },
     agent: { ...existing.agent, ...config.agent },
+    telegram: { ...existing.telegram, ...config.telegram },
   };
 
   saveConfig(merged);
