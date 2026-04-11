@@ -1,72 +1,29 @@
 /**
- * Apple Health — reads health data from an Apple Health XML export.
+ * Apple Health — reads health data from the local macOS HealthKit database.
  *
- * Export discovery order:
- * 1. APPLE_HEALTH_EXPORT_PATH env var (explicit override)
- * 2. ~/.kent/health/export.xml (recommended location)
+ * On macOS 13+, Health data syncs via iCloud to:
+ *   ~/Library/Health/healthdb.sqlite       (metadata, samples)
+ *   ~/Library/Health/healthdb_secure.sqlite (sensitive metrics)
  *
- * The XML export is typically large, so we parse it line-by-line with regex
- * rather than loading a full DOM. Records are aggregated by day to keep
- * the item count manageable.
+ * Falls back to an XML export at ~/.kent/health/export.xml if the
+ * database is not available (Full Disk Access required for the DB).
+ *
+ * Records are aggregated by day to keep item count manageable.
  */
-import { homedir } from "os";
+import { Database } from "bun:sqlite";
+import { homedir, tmpdir } from "os";
 import { join } from "path";
-import { existsSync } from "fs";
+import { existsSync, copyFileSync, mkdirSync } from "fs";
 import type { Source, SyncState, SyncOptions, Item } from "./types";
 
-// ---------------------------------------------------------------------------
-// Tracked metric types
-// ---------------------------------------------------------------------------
+// Core Data epoch: seconds since 2001-01-01
+const CORE_DATA_EPOCH_OFFSET = 978307200;
 
-const METRIC_TYPES = new Set([
-  "HKQuantityTypeIdentifierStepCount",
-  "HKQuantityTypeIdentifierDistanceWalkingRunning",
-  "HKQuantityTypeIdentifierActiveEnergyBurned",
-  "HKQuantityTypeIdentifierHeartRate",
-  "HKQuantityTypeIdentifierBodyMass",
-  "HKCategoryTypeIdentifierSleepAnalysis",
-  "HKQuantityTypeIdentifierFlightsClimbed",
-]);
+const HEALTH_DB = join(homedir(), "Library/Health/healthdb.sqlite");
+const HEALTH_SECURE_DB = join(homedir(), "Library/Health/healthdb_secure.sqlite");
+const TEMP_DIR = join(tmpdir(), "kent-apple-health");
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Extract an XML attribute value by name from a tag string. */
-function attr(tag: string, name: string): string | null {
-  // Match name="value" allowing for single or double quotes
-  const re = new RegExp(`${name}="([^"]*)"`, "i");
-  const m = tag.match(re);
-  return m ? m[1] : null;
-}
-
-/**
- * Parse an Apple Health date string like "2024-01-01 10:00:00 -0700"
- * into a Unix timestamp (seconds).
- */
-function parseHealthDate(dateStr: string): number {
-  // Replace the space before the timezone offset with 'T' and normalize
-  // "2024-01-01 10:00:00 -0700" -> "2024-01-01T10:00:00-0700"
-  // We need to handle the space between time and timezone
-  const parts = dateStr.trim().split(" ");
-  if (parts.length >= 3) {
-    const iso = `${parts[0]}T${parts[1]}${parts[2]}`;
-    const d = new Date(iso);
-    if (!isNaN(d.getTime())) return Math.floor(d.getTime() / 1000);
-  }
-  // Fallback: try direct parse
-  const d = new Date(dateStr);
-  return isNaN(d.getTime()) ? 0 : Math.floor(d.getTime() / 1000);
-}
-
-/** Extract the YYYY-MM-DD date string from a health date. */
-function dateKey(dateStr: string): string {
-  return dateStr.trim().slice(0, 10);
-}
-
-// ---------------------------------------------------------------------------
-// Daily aggregation
-// ---------------------------------------------------------------------------
+// ─── Daily aggregation ──────────────────────────────────────────────────
 
 interface DayBucket {
   date: string; // YYYY-MM-DD
@@ -96,42 +53,319 @@ function emptyBucket(date: string): DayBucket {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Export discovery
-// ---------------------------------------------------------------------------
+function bucketsToItems(buckets: Map<string, DayBucket>, limit: number): Item[] {
+  const sortedDays = Array.from(buckets.keys()).sort();
+  const items: Item[] = [];
+
+  for (const day of sortedDays) {
+    if (items.length >= limit) break;
+    const b = buckets.get(day)!;
+    const dayTs = Math.floor(new Date(day + "T00:00:00").getTime() / 1000);
+
+    const parts: string[] = [];
+    if (b.steps > 0) parts.push(`Steps: ${Math.round(b.steps)}`);
+    if (b.distanceKm > 0) parts.push(`Distance: ${b.distanceKm.toFixed(1)} km`);
+    if (b.activeCalories > 0) parts.push(`Calories: ${Math.round(b.activeCalories)}`);
+    if (b.heartRateCount > 0) parts.push(`Avg HR: ${Math.round(b.heartRateSum / b.heartRateCount)} bpm`);
+    if (b.weight !== null) parts.push(`Weight: ${b.weight.toFixed(1)} kg`);
+    if (b.sleepHours > 0) parts.push(`Sleep: ${b.sleepHours.toFixed(1)} hrs`);
+    if (b.flightsClimbed > 0) parts.push(`Flights: ${Math.round(b.flightsClimbed)}`);
+
+    if (parts.length === 0) continue;
+
+    items.push({
+      source: "apple-health",
+      externalId: `apple-health-${day}`,
+      content: parts.join(" | "),
+      metadata: {
+        date: day,
+        steps: Math.round(b.steps),
+        distanceKm: parseFloat(b.distanceKm.toFixed(2)),
+        activeCalories: Math.round(b.activeCalories),
+        avgHeartRate:
+          b.heartRateCount > 0
+            ? Math.round(b.heartRateSum / b.heartRateCount)
+            : null,
+        weight: b.weight !== null ? parseFloat(b.weight.toFixed(1)) : null,
+        sleepHours: parseFloat(b.sleepHours.toFixed(1)),
+        flightsClimbed: Math.round(b.flightsClimbed),
+      },
+      createdAt: dayTs,
+    });
+  }
+
+  return items;
+}
+
+// ─── SQLite-based fetcher (primary — reads macOS HealthKit DB) ──────────
+
+// HealthKit data type IDs (these are stable across macOS versions)
+const QUANTITY_TYPE_IDS: Record<string, string> = {
+  HKQuantityTypeIdentifierStepCount: "steps",
+  HKQuantityTypeIdentifierDistanceWalkingRunning: "distance",
+  HKQuantityTypeIdentifierActiveEnergyBurned: "calories",
+  HKQuantityTypeIdentifierHeartRate: "heartRate",
+  HKQuantityTypeIdentifierBodyMass: "weight",
+  HKQuantityTypeIdentifierFlightsClimbed: "flights",
+};
+
+const CATEGORY_TYPE_IDS: Record<string, string> = {
+  HKCategoryTypeIdentifierSleepAnalysis: "sleep",
+};
+
+function copyToTemp(srcPath: string, name: string): string | null {
+  if (!existsSync(srcPath)) return null;
+  mkdirSync(TEMP_DIR, { recursive: true });
+  const dest = join(TEMP_DIR, name);
+  try {
+    copyFileSync(srcPath, dest);
+    // Copy WAL and SHM if they exist
+    const walPath = srcPath + "-wal";
+    const shmPath = srcPath + "-shm";
+    if (existsSync(walPath)) copyFileSync(walPath, dest + "-wal");
+    if (existsSync(shmPath)) copyFileSync(shmPath, dest + "-shm");
+    return dest;
+  } catch (e) {
+    console.warn(`[apple-health] Failed to copy ${name} to temp: ${e}`);
+    return null;
+  }
+}
+
+function coreDataToDate(coreDataTs: number): Date {
+  return new Date((coreDataTs + CORE_DATA_EPOCH_OFFSET) * 1000);
+}
+
+function coreDataToDateKey(coreDataTs: number): string {
+  return coreDataToDate(coreDataTs).toISOString().slice(0, 10);
+}
+
+async function fetchViaSqlite(cutoff: number, limit: number): Promise<Item[]> {
+  // Try the main healthdb first
+  const tempDb = copyToTemp(HEALTH_DB, "healthdb.sqlite");
+  if (!tempDb) return [];
+
+  let db: InstanceType<typeof Database>;
+  try {
+    db = new Database(tempDb, { readonly: true });
+    db.exec("PRAGMA busy_timeout = 5000");
+  } catch (e) {
+    console.warn(`[apple-health] Failed to open healthdb: ${e}`);
+    return [];
+  }
+
+  const buckets = new Map<string, DayBucket>();
+  const cutoffCoreData = cutoff > 0 ? cutoff - CORE_DATA_EPOCH_OFFSET : 0;
+
+  try {
+    // First, get data_type IDs for the types we care about
+    const allTypeNames = [...Object.keys(QUANTITY_TYPE_IDS), ...Object.keys(CATEGORY_TYPE_IDS)];
+    const placeholders = allTypeNames.map(() => "?").join(",");
+
+    // The samples table links to data_types and quantity_samples
+    // Schema: samples(data_id, data_type, start_date, end_date)
+    //         quantity_samples(data_id, quantity)
+    //         quantity_sample_series(data_id, ...)
+    const rows = db.query(`
+      SELECT
+        s.data_id,
+        s.start_date,
+        s.end_date,
+        dt.data_type as type_name,
+        COALESCE(qs.quantity, qss.quantity, 0) as value
+      FROM samples s
+      JOIN data_types dt ON s.data_type = dt.ROWID
+      LEFT JOIN quantity_samples qs ON qs.data_id = s.data_id
+      LEFT JOIN quantity_sample_series qss ON qss.data_id = s.data_id
+      WHERE dt.data_type IN (${placeholders})
+        AND s.start_date > ?
+      ORDER BY s.start_date DESC
+      LIMIT 50000
+    `).all(...allTypeNames, cutoffCoreData) as Array<{
+      data_id: number;
+      start_date: number;
+      end_date: number;
+      type_name: string;
+      value: number;
+    }>;
+
+    db.close();
+
+    for (const row of rows) {
+      const day = coreDataToDateKey(row.start_date);
+      let bucket = buckets.get(day);
+      if (!bucket) {
+        bucket = emptyBucket(day);
+        buckets.set(day, bucket);
+      }
+
+      const startTs = row.start_date + CORE_DATA_EPOCH_OFFSET;
+      const endTs = row.end_date + CORE_DATA_EPOCH_OFFSET;
+
+      switch (row.type_name) {
+        case "HKQuantityTypeIdentifierStepCount":
+          bucket.steps += row.value;
+          break;
+        case "HKQuantityTypeIdentifierDistanceWalkingRunning":
+          // HealthKit stores distance in meters in the DB
+          bucket.distanceKm += row.value / 1000;
+          break;
+        case "HKQuantityTypeIdentifierActiveEnergyBurned":
+          // HealthKit stores energy in kcal in the DB
+          bucket.activeCalories += row.value;
+          break;
+        case "HKQuantityTypeIdentifierHeartRate":
+          // HealthKit stores heart rate in count/s — convert to BPM
+          bucket.heartRateSum += row.value * 60;
+          bucket.heartRateCount += 1;
+          break;
+        case "HKQuantityTypeIdentifierBodyMass":
+          // HealthKit stores mass in kg
+          if (startTs > bucket.weightTimestamp) {
+            bucket.weight = row.value;
+            bucket.weightTimestamp = startTs;
+          }
+          break;
+        case "HKQuantityTypeIdentifierFlightsClimbed":
+          bucket.flightsClimbed += row.value;
+          break;
+        case "HKCategoryTypeIdentifierSleepAnalysis":
+          if (endTs > startTs) {
+            bucket.sleepHours += (endTs - startTs) / 3600;
+          }
+          break;
+      }
+    }
+  } catch (e) {
+    db.close();
+    throw e;
+  }
+
+  return bucketsToItems(buckets, limit);
+}
+
+// ─── XML export fallback ────────────────────────────────────────────────
 
 function findExportPath(): string | null {
-  // 1. Env var override
   const envPath = process.env.APPLE_HEALTH_EXPORT_PATH;
-  if (envPath && existsSync(envPath)) {
-    return envPath;
-  }
-
-  // 2. Standard location
+  if (envPath && existsSync(envPath)) return envPath;
   const standardPath = join(homedir(), ".kent", "health", "export.xml");
-  if (existsSync(standardPath)) {
-    return standardPath;
-  }
-
+  if (existsSync(standardPath)) return standardPath;
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// Source implementation
-// ---------------------------------------------------------------------------
+function attr(tag: string, name: string): string | null {
+  const re = new RegExp(`${name}="([^"]*)"`, "i");
+  const m = tag.match(re);
+  return m ? m[1] : null;
+}
 
-/** Regex to match self-closing <Record .../> elements across one or more lines. */
+function parseHealthDate(dateStr: string): number {
+  const parts = dateStr.trim().split(" ");
+  if (parts.length >= 3) {
+    const iso = `${parts[0]}T${parts[1]}${parts[2]}`;
+    const d = new Date(iso);
+    if (!isNaN(d.getTime())) return Math.floor(d.getTime() / 1000);
+  }
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? 0 : Math.floor(d.getTime() / 1000);
+}
+
+const METRIC_TYPES = new Set([
+  "HKQuantityTypeIdentifierStepCount",
+  "HKQuantityTypeIdentifierDistanceWalkingRunning",
+  "HKQuantityTypeIdentifierActiveEnergyBurned",
+  "HKQuantityTypeIdentifierHeartRate",
+  "HKQuantityTypeIdentifierBodyMass",
+  "HKCategoryTypeIdentifierSleepAnalysis",
+  "HKQuantityTypeIdentifierFlightsClimbed",
+]);
+
 const RECORD_RE = /<Record\s+[^>]*\/>/g;
+
+async function fetchViaXmlExport(cutoff: number, limit: number): Promise<Item[]> {
+  const exportPath = findExportPath();
+  if (!exportPath) return [];
+
+  let xml: string;
+  try {
+    xml = await Bun.file(exportPath).text();
+  } catch {
+    return [];
+  }
+
+  const buckets = new Map<string, DayBucket>();
+  let match: RegExpExecArray | null;
+
+  while ((match = RECORD_RE.exec(xml)) !== null) {
+    const tag = match[0];
+    const type = attr(tag, "type");
+    if (!type || !METRIC_TYPES.has(type)) continue;
+
+    const startDateStr = attr(tag, "startDate");
+    if (!startDateStr) continue;
+
+    const startTs = parseHealthDate(startDateStr);
+    if (startTs <= cutoff) continue;
+
+    const day = startDateStr.trim().slice(0, 10);
+    let bucket = buckets.get(day);
+    if (!bucket) {
+      bucket = emptyBucket(day);
+      buckets.set(day, bucket);
+    }
+
+    const value = parseFloat(attr(tag, "value") ?? "0");
+
+    switch (type) {
+      case "HKQuantityTypeIdentifierStepCount":
+        bucket.steps += value;
+        break;
+      case "HKQuantityTypeIdentifierDistanceWalkingRunning": {
+        const unit = attr(tag, "unit");
+        bucket.distanceKm += unit === "mi" ? value * 1.60934 : value;
+        break;
+      }
+      case "HKQuantityTypeIdentifierActiveEnergyBurned": {
+        const unit = attr(tag, "unit");
+        bucket.activeCalories += unit === "kJ" ? value / 4.184 : value;
+        break;
+      }
+      case "HKQuantityTypeIdentifierHeartRate":
+        bucket.heartRateSum += value;
+        bucket.heartRateCount += 1;
+        break;
+      case "HKQuantityTypeIdentifierBodyMass": {
+        const unit = attr(tag, "unit");
+        const w = unit === "lb" ? value * 0.453592 : value;
+        if (startTs > bucket.weightTimestamp) {
+          bucket.weight = w;
+          bucket.weightTimestamp = startTs;
+        }
+        break;
+      }
+      case "HKCategoryTypeIdentifierSleepAnalysis": {
+        const endDateStr = attr(tag, "endDate");
+        if (endDateStr) {
+          const endTs = parseHealthDate(endDateStr);
+          if (endTs > startTs) bucket.sleepHours += (endTs - startTs) / 3600;
+        }
+        break;
+      }
+      case "HKQuantityTypeIdentifierFlightsClimbed":
+        bucket.flightsClimbed += value;
+        break;
+    }
+  }
+
+  return bucketsToItems(buckets, limit);
+}
+
+// ─── Source implementation ───────────────────────────────────────────────
 
 export const appleHealth: Source = {
   name: "apple-health",
 
   async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
-    const exportPath = findExportPath();
-    if (!exportPath) {
-      return [];
-    }
-
     const lastSync = state.getLastSync("apple-health");
     const now = Math.floor(Date.now() / 1000);
     const defaultDays = options?.defaultDays ?? 365;
@@ -141,163 +375,20 @@ export const appleHealth: Source = {
         : defaultDays === 0
           ? 0
           : now - defaultDays * 86400;
-
-    // Read the full file text — Apple Health exports can be large but
-    // we process via regex rather than a DOM parser.
-    let xml: string;
-    try {
-      xml = await Bun.file(exportPath).text();
-    } catch {
-      return [];
-    }
-
-    // Aggregate records into day buckets
-    const buckets = new Map<string, DayBucket>();
-    let highWaterMark = 0;
-    let progressCount = 0;
-
-    let match: RegExpExecArray | null;
-    while ((match = RECORD_RE.exec(xml)) !== null) {
-      const tag = match[0];
-      const type = attr(tag, "type");
-      if (!type || !METRIC_TYPES.has(type)) continue;
-
-      const startDateStr = attr(tag, "startDate");
-      if (!startDateStr) continue;
-
-      const startTs = parseHealthDate(startDateStr);
-      if (startTs <= cutoff) continue;
-
-      const day = dateKey(startDateStr);
-      let bucket = buckets.get(day);
-      if (!bucket) {
-        bucket = emptyBucket(day);
-        buckets.set(day, bucket);
-      }
-
-      const value = parseFloat(attr(tag, "value") ?? "0");
-
-      switch (type) {
-        case "HKQuantityTypeIdentifierStepCount":
-          bucket.steps += value;
-          break;
-
-        case "HKQuantityTypeIdentifierDistanceWalkingRunning": {
-          // Value is typically in km; some exports use mi — we store as km.
-          const unit = attr(tag, "unit");
-          if (unit === "mi") {
-            bucket.distanceKm += value * 1.60934;
-          } else {
-            bucket.distanceKm += value;
-          }
-          break;
-        }
-
-        case "HKQuantityTypeIdentifierActiveEnergyBurned": {
-          // Value may be kcal or Cal (same thing) or kJ
-          const unit = attr(tag, "unit");
-          if (unit === "kJ") {
-            bucket.activeCalories += value / 4.184;
-          } else {
-            bucket.activeCalories += value;
-          }
-          break;
-        }
-
-        case "HKQuantityTypeIdentifierHeartRate":
-          bucket.heartRateSum += value;
-          bucket.heartRateCount += 1;
-          break;
-
-        case "HKQuantityTypeIdentifierBodyMass": {
-          // Keep the latest weight reading per day
-          if (startTs > bucket.weightTimestamp) {
-            const unit = attr(tag, "unit");
-            if (unit === "lb") {
-              bucket.weight = value * 0.453592;
-            } else {
-              bucket.weight = value;
-            }
-            bucket.weightTimestamp = startTs;
-          }
-          break;
-        }
-
-        case "HKCategoryTypeIdentifierSleepAnalysis": {
-          // Duration in hours from startDate to endDate
-          const endDateStr = attr(tag, "endDate");
-          if (endDateStr) {
-            const endTs = parseHealthDate(endDateStr);
-            if (endTs > startTs) {
-              bucket.sleepHours += (endTs - startTs) / 3600;
-            }
-          }
-          break;
-        }
-
-        case "HKQuantityTypeIdentifierFlightsClimbed":
-          bucket.flightsClimbed += value;
-          break;
-      }
-
-      if (startTs > highWaterMark) {
-        highWaterMark = startTs;
-      }
-
-      progressCount++;
-      if (options?.onProgress && progressCount % 1000 === 0) {
-        options.onProgress(progressCount);
-      }
-    }
-
-    // Convert buckets to items, sorted by date
     const limit = options?.limit ?? 5000;
-    const sortedDays = Array.from(buckets.keys()).sort();
-    const items: Item[] = [];
 
-    for (const day of sortedDays) {
-      if (items.length >= limit) break;
-
-      const b = buckets.get(day)!;
-      const dayTs = Math.floor(new Date(day + "T00:00:00").getTime() / 1000);
-
-      // Build content summary
-      const parts: string[] = [];
-      if (b.steps > 0) parts.push(`Steps: ${Math.round(b.steps)}`);
-      if (b.distanceKm > 0) parts.push(`Distance: ${b.distanceKm.toFixed(1)} km`);
-      if (b.activeCalories > 0) parts.push(`Calories: ${Math.round(b.activeCalories)}`);
-      if (b.heartRateCount > 0) parts.push(`Avg HR: ${Math.round(b.heartRateSum / b.heartRateCount)} bpm`);
-      if (b.weight !== null) parts.push(`Weight: ${b.weight.toFixed(1)} kg`);
-      if (b.sleepHours > 0) parts.push(`Sleep: ${b.sleepHours.toFixed(1)} hrs`);
-      if (b.flightsClimbed > 0) parts.push(`Flights: ${Math.round(b.flightsClimbed)}`);
-
-      if (parts.length === 0) continue;
-
-      items.push({
-        source: "apple-health",
-        externalId: `apple-health-${day}`,
-        content: parts.join(" | "),
-        metadata: {
-          date: day,
-          steps: Math.round(b.steps),
-          distanceKm: parseFloat(b.distanceKm.toFixed(2)),
-          activeCalories: Math.round(b.activeCalories),
-          avgHeartRate:
-            b.heartRateCount > 0
-              ? Math.round(b.heartRateSum / b.heartRateCount)
-              : null,
-          weight: b.weight !== null ? parseFloat(b.weight.toFixed(1)) : null,
-          sleepHours: parseFloat(b.sleepHours.toFixed(1)),
-          flightsClimbed: Math.round(b.flightsClimbed),
-        },
-        createdAt: dayTs,
-      });
+    // Try reading from macOS HealthKit SQLite database first
+    if (existsSync(HEALTH_DB)) {
+      try {
+        const items = await fetchViaSqlite(cutoff, limit);
+        if (items.length > 0) return items;
+        console.warn("[apple-health] SQLite returned no items, trying XML fallback");
+      } catch (e) {
+        console.warn(`[apple-health] SQLite failed, trying XML fallback: ${e}`);
+      }
     }
 
-    if (options?.onProgress && progressCount > 0) {
-      options.onProgress(progressCount);
-    }
-
-    return items;
+    // Fallback: XML export
+    return fetchViaXmlExport(cutoff, limit);
   },
 };
