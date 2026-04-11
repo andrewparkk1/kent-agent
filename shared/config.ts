@@ -27,6 +27,11 @@ export interface Config {
     openai: string;
     openrouter: string;
     google: string;
+    slack: string;
+    notion: string;
+    spotify_client_id: string;
+    spotify_client_secret: string;
+    spotify_refresh_token: string;
   };
   sources: {
     imessage: boolean;
@@ -40,6 +45,18 @@ export interface Config {
     chrome: boolean;
     apple_notes: boolean;
     ai_coding: boolean;
+    safari: boolean;
+    apple_reminders: boolean;
+    contacts: boolean;
+    obsidian: boolean;
+    whatsapp: boolean;
+    slack: boolean;
+    notion: boolean;
+    spotify: boolean;
+    apple_music: boolean;
+    apple_health: boolean;
+    screen_time: boolean;
+    recent_files: boolean;
   };
   daemon: {
     sync_interval_seconds: number;
@@ -83,6 +100,11 @@ export const DEFAULT_CONFIG: Config = {
     openai: "",
     openrouter: "",
     google: "",
+    slack: "",
+    notion: "",
+    spotify_client_id: "",
+    spotify_client_secret: "",
+    spotify_refresh_token: "",
   },
   sources: {
     imessage: false,
@@ -96,6 +118,18 @@ export const DEFAULT_CONFIG: Config = {
     chrome: false,
     apple_notes: false,
     ai_coding: false,
+    safari: false,
+    apple_reminders: false,
+    contacts: false,
+    obsidian: false,
+    whatsapp: false,
+    slack: false,
+    notion: false,
+    spotify: false,
+    apple_music: false,
+    apple_health: false,
+    screen_time: false,
+    recent_files: false,
   },
   daemon: {
     sync_interval_seconds: 300,

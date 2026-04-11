@@ -53,7 +53,7 @@ describe("DEFAULT_CONFIG", () => {
     }
   });
 
-  test("has all 10 source toggles", () => {
+  test("has all 23 source toggles", () => {
     const sourceKeys = Object.keys(DEFAULT_CONFIG.sources);
     expect(sourceKeys).toContain("imessage");
     expect(sourceKeys).toContain("signal");
@@ -66,7 +66,19 @@ describe("DEFAULT_CONFIG", () => {
     expect(sourceKeys).toContain("chrome");
     expect(sourceKeys).toContain("apple_notes");
     expect(sourceKeys).toContain("ai_coding");
-    expect(sourceKeys.length).toBe(11);
+    expect(sourceKeys).toContain("safari");
+    expect(sourceKeys).toContain("apple_reminders");
+    expect(sourceKeys).toContain("contacts");
+    expect(sourceKeys).toContain("obsidian");
+    expect(sourceKeys).toContain("whatsapp");
+    expect(sourceKeys).toContain("slack");
+    expect(sourceKeys).toContain("notion");
+    expect(sourceKeys).toContain("spotify");
+    expect(sourceKeys).toContain("apple_music");
+    expect(sourceKeys).toContain("apple_health");
+    expect(sourceKeys).toContain("screen_time");
+    expect(sourceKeys).toContain("recent_files");
+    expect(sourceKeys.length).toBe(23);
   });
 
   test("daemon sync interval is a positive number", () => {
@@ -127,7 +139,7 @@ describe("Config load/save", () => {
   test("saveConfig writes valid JSON", () => {
     const config: Config = {
       ...DEFAULT_CONFIG,
-      keys: { anthropic: "sk-test-key", openai: "sk-openai" },
+      keys: { ...DEFAULT_CONFIG.keys, anthropic: "sk-test-key", openai: "sk-openai" },
     };
     saveConfigTo(dir, configPath, config);
 
@@ -141,7 +153,7 @@ describe("Config load/save", () => {
     const config: Config = {
       ...DEFAULT_CONFIG,
       sources: { ...DEFAULT_CONFIG.sources, github: true, chrome: true },
-      agent: { default_model: "custom-model" },
+      agent: { ...DEFAULT_CONFIG.agent, default_model: "custom-model" },
     };
     saveConfigTo(dir, configPath, config);
     const loaded = loadConfigFrom(dir, configPath);

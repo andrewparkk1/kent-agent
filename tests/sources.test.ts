@@ -143,7 +143,7 @@ describe("Apple Notes source", () => {
 });
 
 describe("Source registry in sync command", () => {
-  test("all 7 sources are importable and conform to Source interface", async () => {
+  test("all 19 sources are importable and conform to Source interface", async () => {
     const sources: Source[] = [
       (await import("@daemon/sources/imessage.ts")).imessage,
       (await import("@daemon/sources/signal.ts")).signal,
@@ -152,9 +152,21 @@ describe("Source registry in sync command", () => {
       (await import("@daemon/sources/github.ts")).github,
       (await import("@daemon/sources/chrome.ts")).chrome,
       (await import("@daemon/sources/apple-notes.ts")).appleNotes,
+      (await import("@daemon/sources/safari.ts")).safari,
+      (await import("@daemon/sources/apple-reminders.ts")).appleReminders,
+      (await import("@daemon/sources/contacts.ts")).contacts,
+      (await import("@daemon/sources/obsidian.ts")).obsidian,
+      (await import("@daemon/sources/whatsapp.ts")).whatsapp,
+      (await import("@daemon/sources/slack.ts")).slack,
+      (await import("@daemon/sources/notion.ts")).notion,
+      (await import("@daemon/sources/spotify.ts")).spotify,
+      (await import("@daemon/sources/apple-music.ts")).appleMusic,
+      (await import("@daemon/sources/apple-health.ts")).appleHealth,
+      (await import("@daemon/sources/screen-time.ts")).screenTime,
+      (await import("@daemon/sources/recent-files.ts")).recentFiles,
     ];
 
-    expect(sources.length).toBe(7);
+    expect(sources.length).toBe(19);
 
     const names = sources.map((s) => s.name);
     expect(names).toContain("imessage");
@@ -164,6 +176,18 @@ describe("Source registry in sync command", () => {
     expect(names).toContain("github");
     expect(names).toContain("chrome");
     expect(names).toContain("apple-notes");
+    expect(names).toContain("safari");
+    expect(names).toContain("apple-reminders");
+    expect(names).toContain("contacts");
+    expect(names).toContain("obsidian");
+    expect(names).toContain("whatsapp");
+    expect(names).toContain("slack");
+    expect(names).toContain("notion");
+    expect(names).toContain("spotify");
+    expect(names).toContain("apple-music");
+    expect(names).toContain("apple-health");
+    expect(names).toContain("screen-time");
+    expect(names).toContain("recent-files");
 
     for (const source of sources) {
       expect(typeof source.name).toBe("string");
