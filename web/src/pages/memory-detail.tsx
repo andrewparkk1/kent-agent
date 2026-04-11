@@ -44,15 +44,6 @@ const TYPE_META: Record<string, { icon: typeof Brain; label: string; color: stri
   place:      { icon: MapPin,       label: "Place",      color: "text-orange-500/80",  bg: "bg-orange-500/8",  accent: "border-orange-500/20" },
 };
 
-const TYPE_COLORS: Record<string, string> = {
-  person: "text-blue-500/70 hover:text-blue-500 decoration-blue-500/30",
-  project: "text-violet-500/70 hover:text-violet-500 decoration-violet-500/30",
-  topic: "text-amber-500/70 hover:text-amber-500 decoration-amber-500/30",
-  event: "text-emerald-500/70 hover:text-emerald-500 decoration-emerald-500/30",
-  preference: "text-red-500/70 hover:text-red-500 decoration-red-500/30",
-  place: "text-orange-500/70 hover:text-orange-500 decoration-orange-500/30",
-};
-
 /** Extract ## headings from markdown body for a table of contents. */
 function extractToc(body: string): { level: number; text: string; slug: string }[] {
   const headings: { level: number; text: string; slug: string }[] = [];
@@ -181,12 +172,10 @@ export function MemoryDetailPage({ memoryId, onBack, onNavigate }: {
     if (href?.startsWith("#memory:")) {
       const id = decodeURIComponent(href.replace("#memory:", ""));
       const entry = Object.values(memoryIndex).find((e) => e.id === id);
-      const colorClass = entry ? (TYPE_COLORS[entry.type] ?? "text-foreground/70 hover:text-foreground") : "text-foreground/70 hover:text-foreground";
-
       return (
         <button
           onClick={(e) => handleLinkClick(e, href)}
-          className={`${colorClass} underline underline-offset-2 decoration-1 transition-colors cursor-pointer font-medium`}
+          className="text-blue-500/80 hover:text-blue-500 underline underline-offset-2 decoration-blue-500/30 decoration-1 transition-colors cursor-pointer font-medium"
         >
           {children}
         </button>
