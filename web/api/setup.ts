@@ -248,7 +248,15 @@ export async function handleSetupCheckSources() {
     results.ai_coding = { ok: false, message: "No Claude Code or Codex data found" };
   }
 
-  return Response.json({ sources: results });
+  // Convert to array format expected by frontend: { key, available, connected }
+  const sourcesArray = Object.entries(results).map(([key, val]) => ({
+    key,
+    available: val.ok,
+    connected: val.ok && !val.message.includes("needs auth") && !val.message.includes("needs setup"),
+    message: val.message,
+  }));
+
+  return Response.json({ sources: sourcesArray });
 }
 
 // ---------------------------------------------------------------------------
