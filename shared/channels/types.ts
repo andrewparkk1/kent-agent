@@ -17,6 +17,8 @@ export interface ChannelMessage {
   text: string;
   /** Who sent it (channel-specific user ID or name) */
   from: string;
+  /** Which chat/room/channel this message came from */
+  chatId: string;
   /** If this is a reply, the ID of the message being replied to */
   replyToMessageId?: string;
 }
@@ -29,22 +31,22 @@ export interface Channel {
   isConfigured(): boolean;
 
   /**
-   * Send a notification message (e.g. workflow output).
-   * Returns the channel-specific message ID for reply threading.
+   * Send a notification to all configured chats.
+   * Returns an array of { chatId, messageId } for reply threading.
    */
-  sendNotification(text: string): Promise<string>;
+  sendNotification(text: string): Promise<{ chatId: string; messageId: string }[]>;
 
   /**
-   * Send a reply to a specific message.
+   * Send a reply to a specific message in a specific chat.
    * Returns the channel-specific message ID.
    */
-  sendReply(text: string, replyToMessageId: string): Promise<string>;
+  sendReply(text: string, chatId: string, replyToMessageId: string): Promise<string>;
 
   /**
-   * Show a "typing" indicator to the user.
+   * Show a "typing" indicator in a specific chat.
    * No-op if the channel doesn't support it.
    */
-  sendTypingIndicator(): Promise<void>;
+  sendTypingIndicator(chatId: string): Promise<void>;
 
   /**
    * Start polling for incoming messages.

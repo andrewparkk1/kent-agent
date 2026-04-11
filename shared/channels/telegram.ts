@@ -1,7 +1,7 @@
 /**
  * Telegram channel implementation.
  * Uses the Telegram Bot API via plain fetch (zero external deps).
- * Default bot: @kent_personal_bot
+ * Supports multiple chat IDs — notifications go to all, replies route to the correct one.
  */
 import type { Channel, ChannelMessage } from "./types.ts";
 
@@ -117,32 +117,36 @@ async function apiSendTyping(botToken: string, chatId: string): Promise<void> {
 export class TelegramChannel implements Channel {
   readonly name = "telegram";
   private botToken: string;
-  private chatId: string;
+  private chatIds: Set<string>;
 
-  constructor(botToken: string, chatId: string) {
+  constructor(botToken: string, chatIds: string[]) {
     this.botToken = botToken;
-    this.chatId = chatId;
+    this.chatIds = new Set(chatIds.filter(Boolean));
   }
 
   isConfigured(): boolean {
-    return !!(this.botToken && this.chatId);
+    return !!(this.botToken && this.chatIds.size > 0);
   }
 
-  async sendNotification(text: string): Promise<string> {
-    const msgId = await apiSendLongMessage(this.botToken, this.chatId, text);
-    return String(msgId);
+  async sendNotification(text: string): Promise<{ chatId: string; messageId: string }[]> {
+    const results: { chatId: string; messageId: string }[] = [];
+    for (const chatId of this.chatIds) {
+      const msgId = await apiSendLongMessage(this.botToken, chatId, text);
+      results.push({ chatId, messageId: String(msgId) });
+    }
+    return results;
   }
 
-  async sendReply(text: string, replyToMessageId: string): Promise<string> {
+  async sendReply(text: string, chatId: string, replyToMessageId: string): Promise<string> {
     const msgId = await apiSendLongMessage(
-      this.botToken, this.chatId, text,
+      this.botToken, chatId, text,
       Number(replyToMessageId),
     );
     return String(msgId);
   }
 
-  async sendTypingIndicator(): Promise<void> {
-    await apiSendTyping(this.botToken, this.chatId);
+  async sendTypingIndicator(chatId: string): Promise<void> {
+    await apiSendTyping(this.botToken, chatId);
   }
 
   async startPolling(onMessage: (msg: ChannelMessage) => Promise<void>): Promise<void> {
@@ -160,12 +164,15 @@ export class TelegramChannel implements Channel {
         for (const update of updates) {
           offset = update.update_id + 1;
           if (!update.message?.text) continue;
-          if (String(update.message.chat.id) !== this.chatId) continue;
+
+          const msgChatId = String(update.message.chat.id);
+          if (!this.chatIds.has(msgChatId)) continue;
 
           const msg: ChannelMessage = {
             id: String(update.message.message_id),
             text: update.message.text,
             from: update.message.from?.first_name ?? "unknown",
+            chatId: msgChatId,
             replyToMessageId: update.message.reply_to_message
               ? String(update.message.reply_to_message.message_id)
               : undefined,

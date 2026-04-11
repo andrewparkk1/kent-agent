@@ -475,7 +475,7 @@ export async function handleSetupSaveConfig(req: Request) {
     telegram: {
       ...existing.telegram,
       ...(telegramBotToken ? { bot_token: telegramBotToken } : {}),
-      ...(telegramChatId ? { chat_id: telegramChatId } : {}),
+      ...(telegramChatId ? { chat_ids: [telegramChatId] } : {}),
     },
   };
 

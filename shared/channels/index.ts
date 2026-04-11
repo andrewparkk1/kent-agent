@@ -17,7 +17,7 @@ import { TelegramChannel } from "./telegram.ts";
 export function getChannels(config: Config): Channel[] {
   const channels: Channel[] = [];
 
-  const tg = new TelegramChannel(config.telegram.bot_token, config.telegram.chat_id);
+  const tg = new TelegramChannel(config.telegram.bot_token, config.telegram.chat_ids);
   if (tg.isConfigured()) channels.push(tg);
 
   // Future channels go here:

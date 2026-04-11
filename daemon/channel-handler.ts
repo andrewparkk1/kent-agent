@@ -6,7 +6,7 @@
  *   1. Resolve which Kent thread it belongs to (reply context or persistent thread)
  *   2. Show a typing indicator
  *   3. Run the agent
- *   4. Send the response back via the channel
+ *   4. Send the response back via the channel to the correct chat
  */
 import { loadConfig } from "@shared/config.ts";
 import { createThread, addMessage, getMessages, finishThread } from "@shared/db.ts";
@@ -24,7 +24,7 @@ export async function startChannelPolling(channel: Channel, log: LogFn): Promise
   log(`${channel.name}: polling started`);
 
   await channel.startPolling(async (msg: ChannelMessage) => {
-    log(`${channel.name}: received message from ${msg.from}: "${msg.text.slice(0, 80)}"`);
+    log(`${channel.name}: received message from ${msg.from} in chat ${msg.chatId}: "${msg.text.slice(0, 80)}"`);
 
     try {
       await handleIncomingMessage(channel, msg, log);
@@ -36,7 +36,7 @@ export async function startChannelPolling(channel: Channel, log: LogFn): Promise
 
 /**
  * Send a notification to all configured channels.
- * Maps the sent message to the given thread so replies route correctly.
+ * Maps the sent messages to the given thread so replies route correctly.
  */
 export async function notifyAllChannels(
   channels: Channel[],
@@ -46,8 +46,10 @@ export async function notifyAllChannels(
 ): Promise<void> {
   for (const channel of channels) {
     try {
-      const msgId = await channel.sendNotification(text);
-      await mapChannelMessageToThread(channel.name, msgId, threadId);
+      const results = await channel.sendNotification(text);
+      for (const { messageId } of results) {
+        await mapChannelMessageToThread(channel.name, messageId, threadId);
+      }
     } catch (e) {
       log(`${channel.name}: notification failed — ${e}`);
     }
@@ -63,21 +65,23 @@ async function handleIncomingMessage(
 ): Promise<void> {
   const config = loadConfig();
 
-  // 1. Resolve thread — check reply context first, then persistent thread
+  // 1. Resolve thread — check reply context first, then persistent thread per chat
   let threadId: string | null = null;
 
   if (msg.replyToMessageId) {
     threadId = await getThreadForChannelMessage(channel.name, msg.replyToMessageId);
   }
 
+  // Persistent thread is per-chat so different chats get separate conversations
+  const persistentKey = `${channel.name}:${msg.chatId}`;
   if (!threadId) {
-    threadId = await getPersistentThreadId(channel.name);
+    threadId = await getPersistentThreadId(persistentKey);
   }
 
   if (!threadId) {
     threadId = await createThread(`${channel.name} chat`, { type: "chat" });
-    await setPersistentThreadId(channel.name, threadId);
-    log(`${channel.name}: created persistent chat thread ${threadId}`);
+    await setPersistentThreadId(persistentKey, threadId);
+    log(`${channel.name}: created persistent chat thread ${threadId} for chat ${msg.chatId}`);
   }
 
   // 2. Store user message
@@ -93,8 +97,8 @@ async function handleIncomingMessage(
     ? priorMessages.map((m) => `${m.role === "user" ? "Human" : "Assistant"}: ${m.content}`).join("\n\n")
     : "";
 
-  // 4. Show typing indicator
-  channel.sendTypingIndicator().catch(() => {});
+  // 4. Show typing indicator in the correct chat
+  channel.sendTypingIndicator(msg.chatId).catch(() => {});
 
   // 5. Run agent — only text output, no tool call traces
   await finishThread(threadId, "running");
@@ -118,9 +122,9 @@ async function handleIncomingMessage(
     agentOutput = "Sorry, I encountered an error processing your message.";
   }
 
-  // 6. Send response back as a reply
+  // 6. Send response back to the correct chat as a reply
   try {
-    const replyMsgId = await channel.sendReply(agentOutput, msg.id);
+    const replyMsgId = await channel.sendReply(agentOutput, msg.chatId, msg.id);
     await mapChannelMessageToThread(channel.name, replyMsgId, threadId);
   } catch (e) {
     log(`${channel.name}: failed to send response — ${e}`);

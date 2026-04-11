@@ -903,7 +903,8 @@ export async function handleInit(): Promise<void> {
       info("");
       info(`${BOLD}To find your chat ID:${NC}`);
       info("  1. Send any message to your bot in Telegram");
-      info("  2. Then press Enter here — Kent will detect it automatically\n");
+      info("  2. Then press Enter here — Kent will detect it automatically");
+      info(`${DIM}  You can add more chats (group chats, etc.) later in Settings.${NC}\n`);
 
       const autoDetect = await confirm("Auto-detect chat ID? (send a message to the bot first)", true);
       if (autoDetect) {
@@ -919,29 +920,29 @@ export async function handleInit(): Promise<void> {
             const chatId = String(data.result[0]!.message?.chat.id ?? "");
             const fromName = data.result[0]!.message?.from?.first_name ?? "unknown";
             if (chatId) {
-              config.telegram.chat_id = chatId;
+              config.telegram.chat_ids = [chatId];
               success(`Detected chat ID: ${chatId} (from ${fromName})`);
             } else {
               warn("No messages found. Enter chat ID manually.");
               const manualId = await ask("Chat ID");
-              if (manualId) config.telegram.chat_id = manualId;
+              if (manualId) config.telegram.chat_ids = [manualId];
             }
           } else {
             warn("No messages found. Send a message to your bot and enter the chat ID manually.");
             const manualId = await ask("Chat ID");
-            if (manualId) config.telegram.chat_id = manualId;
+            if (manualId) config.telegram.chat_ids = [manualId];
           }
         } catch {
           warn("Could not reach Telegram API. Enter chat ID manually.");
           const manualId = await ask("Chat ID");
-          if (manualId) config.telegram.chat_id = manualId;
+          if (manualId) config.telegram.chat_ids = [manualId];
         }
       } else {
         const manualId = await ask("Chat ID");
-        if (manualId) config.telegram.chat_id = manualId;
+        if (manualId) config.telegram.chat_ids = [manualId];
       }
 
-      if (config.telegram.bot_token && config.telegram.chat_id) {
+      if (config.telegram.bot_token && config.telegram.chat_ids.length > 0) {
         success("Telegram configured — you'll get workflow notifications and can chat with Kent");
       } else {
         warn("Telegram partially configured. Update in Settings or ~/.kent/config.json later.");
