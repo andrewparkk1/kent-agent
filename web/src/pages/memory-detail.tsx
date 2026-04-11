@@ -183,11 +183,12 @@ export function MemoryDetailPage({ memoryId, onBack, onNavigate }: {
   const saveEditing = useCallback(async () => {
     if (!memory) return;
     try {
-      await fetch(`/api/memories/${memory.id}`, {
+      const res = await fetch(`/api/memories/${memory.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: editTitle, summary: editSummary, body: editBody }),
       });
+      if (!res.ok) throw new Error("Server returned an error");
       setMemory({ ...memory, title: editTitle, summary: editSummary, body: editBody });
       setEditing(false);
       toast.success("Memory updated");
