@@ -68,8 +68,8 @@ Bun.serve({
     "/api/identity":     handleIdentity,
     "/api/tools":        handleTools,
     "/api/daemon-state": handleDaemonState,
-    "/api/setup/status":   handleSetupStatus,
-    "/api/setup/hardware": handleSetupHardware,
+    "/api/setup/status":   { GET: handleSetupStatus },
+    "/api/setup/hardware": { GET: handleSetupHardware },
     "/api/settings": {
       GET: handleSettings,
       POST: handleSettingsSave,

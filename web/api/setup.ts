@@ -6,7 +6,6 @@ import { join, dirname } from "node:path";
 import {
   Config,
   CONFIG_PATH,
-  DEFAULT_CONFIG,
   KENT_DIR,
   PROMPTS_DIR,
   ensureKentDir,
@@ -109,6 +108,11 @@ export function handleSetupInit() {
   ensureKentDir();
 
   const deviceToken = randomBytes(32).toString("base64url");
+
+  // Persist the device token to config
+  const config = loadConfig();
+  config.core.device_token = deviceToken;
+  saveConfig(config);
 
   // Install bundled prompts
   const { copied } = installPrompts();
@@ -304,6 +308,9 @@ export async function handleSetupOllamaPull(req: Request) {
   const model = body.model;
   if (!model) {
     return Response.json({ error: "model is required" }, { status: 400 });
+  }
+  if (!/^[a-zA-Z0-9._:/-]+$/.test(model)) {
+    return Response.json({ error: "invalid model name" }, { status: 400 });
   }
 
   try {
