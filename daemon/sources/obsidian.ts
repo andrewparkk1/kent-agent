@@ -116,24 +116,25 @@ const SKIP_DIRS = new Set([".obsidian", ".trash"]);
 function walkMarkdownFiles(dir: string): string[] {
   const files: string[] = [];
 
-  let entries: ReturnType<typeof readdirSync>;
+  let dirents: import("fs").Dirent[];
   try {
-    entries = readdirSync(dir, { withFileTypes: true });
+    dirents = readdirSync(dir, { withFileTypes: true }) as import("fs").Dirent[];
   } catch {
     return files;
   }
 
-  for (const entry of entries) {
-    if (entry.name.startsWith(".") && SKIP_DIRS.has(entry.name)) continue;
+  for (const entry of dirents) {
+    const name = String(entry.name);
+    if (name.startsWith(".") && SKIP_DIRS.has(name)) continue;
     // Also skip hidden directories in general
-    if (entry.name.startsWith(".")) continue;
+    if (name.startsWith(".")) continue;
 
-    const fullPath = join(dir, entry.name);
+    const fullPath = join(dir, name);
 
     if (entry.isDirectory()) {
-      if (SKIP_DIRS.has(entry.name)) continue;
+      if (SKIP_DIRS.has(name)) continue;
       files.push(...walkMarkdownFiles(fullPath));
-    } else if (entry.isFile() && entry.name.endsWith(".md")) {
+    } else if (entry.isFile() && name.endsWith(".md")) {
       files.push(fullPath);
     }
   }
