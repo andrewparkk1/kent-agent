@@ -68,7 +68,7 @@ const SOURCE_LIST = [
   { key: "imessage", label: "iMessage", oauth: false },
 ];
 
-const STEP_LABELS = ["Welcome", "AI Provider", "Sources", "Sync", "Done"];
+const STEP_LABELS = ["Welcome", "AI Provider", "Sources", "Channels", "Sync", "Done"];
 
 interface InitResult {
   deviceToken?: string;
@@ -451,6 +451,112 @@ function StepSources({
   );
 }
 
+function StepChannels({
+  botToken,
+  setBotToken,
+  chatId,
+  setChatId,
+}: {
+  botToken: string;
+  setBotToken: (v: string) => void;
+  chatId: string;
+  setChatId: (v: string) => void;
+}) {
+  const [detecting, setDetecting] = useState(false);
+  const [detected, setDetected] = useState(false);
+
+  const autoDetect = async () => {
+    if (!botToken.trim()) return;
+    setDetecting(true);
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${botToken}/getUpdates`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ timeout: 10 }),
+      });
+      const data = await res.json() as { ok: boolean; result: Array<{ message?: { chat: { id: number }; from?: { first_name: string } } }> };
+      if (data.ok && data.result.length > 0) {
+        const id = String(data.result[0]?.message?.chat.id ?? "");
+        if (id) {
+          setChatId(id);
+          setDetected(true);
+        }
+      }
+    } catch {
+      // Silently fail — user can enter manually
+    }
+    setDetecting(false);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="text-center mb-6">
+        <h2 className="text-[24px] font-display tracking-tight mb-2">Set up channels</h2>
+        <p className="text-[13px] text-muted-foreground/60">
+          Get workflow notifications and chat with Kent via messaging apps.
+        </p>
+      </div>
+
+      <div className="max-w-md mx-auto space-y-4">
+        <div className="bg-foreground/[0.03] border border-border/50 rounded-lg px-4 py-3">
+          <p className="text-[13px] text-foreground/80 font-medium mb-2">Telegram</p>
+          <p className="text-[12px] text-muted-foreground/50">Optional — you can set this up later in Settings.</p>
+        </div>
+
+        <div className="bg-foreground/[0.03] border border-border/50 rounded-lg px-4 py-3 space-y-1">
+          <p className="text-[12px] text-muted-foreground/60">1. Open Telegram and message <span className="font-mono text-foreground/70">@BotFather</span></p>
+          <p className="text-[12px] text-muted-foreground/60">2. Send <span className="font-mono text-foreground/70">/newbot</span> and pick a name</p>
+          <p className="text-[12px] text-muted-foreground/60">3. Paste the bot token below</p>
+          <p className="text-[12px] text-muted-foreground/60">4. Send any message to your new bot, then click detect</p>
+        </div>
+
+        <div>
+          <label className="text-[12px] text-muted-foreground/60 mb-1 block">Bot Token</label>
+          <input
+            type="password"
+            value={botToken}
+            onChange={(e) => setBotToken(e.target.value)}
+            placeholder="123456:ABC-DEF..."
+            className="w-full bg-foreground/[0.03] border border-border/50 rounded-lg px-3 py-2 text-[13px] font-mono outline-none focus:border-border"
+          />
+        </div>
+
+        <div>
+          <label className="text-[12px] text-muted-foreground/60 mb-1 block">Chat ID</label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={chatId}
+              onChange={(e) => setChatId(e.target.value)}
+              placeholder="Your chat ID"
+              className="flex-1 bg-foreground/[0.03] border border-border/50 rounded-lg px-3 py-2 text-[13px] font-mono outline-none focus:border-border"
+            />
+            <button
+              onClick={autoDetect}
+              disabled={!botToken.trim() || detecting}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-medium transition-colors cursor-pointer border border-border/50 bg-foreground/[0.03] hover:bg-foreground/[0.06] disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              {detecting ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : detected ? (
+                <Check size={12} className="text-emerald-500" />
+              ) : null}
+              Detect
+            </button>
+          </div>
+        </div>
+
+        {botToken && chatId && (
+          <div className="flex items-center gap-2 text-[12px] text-emerald-500">
+            <Check size={14} />
+            Telegram configured
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function StepSync({
   provider,
   model,
@@ -458,6 +564,8 @@ function StepSync({
   baseUrl,
   customApiKey,
   enabledSources,
+  telegramBotToken,
+  telegramChatId,
 }: {
   provider: ModelProvider;
   model: string;
@@ -465,6 +573,8 @@ function StepSync({
   baseUrl: string;
   customApiKey: string;
   enabledSources: Record<string, boolean>;
+  telegramBotToken: string;
+  telegramChatId: string;
 }) {
   const [syncing, setSyncing] = useState(true);
   const [result, setResult] = useState<SyncResult | null>(null);
@@ -485,6 +595,8 @@ function StepSync({
             baseUrl,
             customApiKey,
             sources: enabledSources,
+            telegramBotToken,
+            telegramChatId,
           }),
         });
         // Then trigger sync
@@ -502,7 +614,7 @@ function StepSync({
       }
     })();
     return () => { cancelled = true; };
-  }, [provider, model, apiKey, baseUrl, customApiKey, enabledSources]);
+  }, [provider, model, apiKey, baseUrl, customApiKey, enabledSources, telegramBotToken, telegramChatId]);
 
   if (syncing) {
     return (
@@ -631,6 +743,10 @@ export function SetupPage({ onComplete }: { onComplete: () => void }) {
     imessage: true,
   });
 
+  // Step 3 state (Channels)
+  const [telegramBotToken, setTelegramBotToken] = useState("");
+  const [telegramChatId, setTelegramChatId] = useState("");
+
   const canContinue = (): boolean => {
     switch (step) {
       case 0:
@@ -640,9 +756,11 @@ export function SetupPage({ onComplete }: { onComplete: () => void }) {
         if (provider === "local") return model.trim().length > 0;
         return apiKey.trim().length > 0 && model.trim().length > 0;
       }
-      case 2:
+      case 2: // Sources
         return true;
-      case 3:
+      case 3: // Channels (optional)
+        return true;
+      case 4: // Sync
         return true;
       default:
         return false;
@@ -705,6 +823,14 @@ export function SetupPage({ onComplete }: { onComplete: () => void }) {
                 />
               )}
               {step === 3 && (
+                <StepChannels
+                  botToken={telegramBotToken}
+                  setBotToken={setTelegramBotToken}
+                  chatId={telegramChatId}
+                  setChatId={setTelegramChatId}
+                />
+              )}
+              {step === 4 && (
                 <StepSync
                   provider={provider}
                   model={model}
@@ -712,16 +838,18 @@ export function SetupPage({ onComplete }: { onComplete: () => void }) {
                   baseUrl={baseUrl}
                   customApiKey={customApiKey}
                   enabledSources={enabledSources}
+                  telegramBotToken={telegramBotToken}
+                  telegramChatId={telegramChatId}
                 />
               )}
-              {step === 4 && <StepDone onComplete={onComplete} />}
+              {step === 5 && <StepDone onComplete={onComplete} />}
             </motion.div>
           </AnimatePresence>
         </div>
       </div>
 
       {/* Navigation buttons */}
-      {step < 4 && (
+      {step < 5 && (
         <div className="px-8 py-6 border-t border-border/30 max-w-2xl mx-auto w-full">
           <div className="flex items-center justify-between">
             <button
@@ -733,11 +861,11 @@ export function SetupPage({ onComplete }: { onComplete: () => void }) {
               Back
             </button>
             <button
-              onClick={() => setStep((s) => Math.min(4, s + 1))}
+              onClick={() => setStep((s) => Math.min(5, s + 1))}
               disabled={!canContinue()}
               className="flex items-center gap-1.5 bg-foreground text-background px-5 py-2 rounded-lg text-[13px] font-medium hover:bg-foreground/90 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
             >
-              Continue
+              {step === 3 && !telegramBotToken ? "Skip" : "Continue"}
               <ChevronRight size={14} />
             </button>
           </div>

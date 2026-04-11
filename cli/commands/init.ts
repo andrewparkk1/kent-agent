@@ -944,13 +944,13 @@ export async function handleInit(): Promise<void> {
       if (config.telegram.bot_token && config.telegram.chat_id) {
         success("Telegram configured — you'll get workflow notifications and can chat with Kent");
       } else {
-        warn("Telegram partially configured. Update in ~/.kent/config.json later.");
+        warn("Telegram partially configured. Update in Settings or ~/.kent/config.json later.");
       }
     } else {
-      info("Skipping Telegram. You can set it up later in ~/.kent/config.json");
+      info("Skipping Telegram. You can set it up later in Settings or ~/.kent/config.json");
     }
   } else {
-    info("Skipping channels. You can set them up later in ~/.kent/config.json");
+    info("Skipping channels. You can set them up later in Settings or ~/.kent/config.json");
   }
 
   // ------------------------------------------------------------------

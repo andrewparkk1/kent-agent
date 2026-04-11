@@ -436,20 +436,47 @@ export async function handleSetupOAuthGithub() {
 // ---------------------------------------------------------------------------
 
 export async function handleSetupSaveConfig(req: Request) {
-  const body = await req.json() as { config: Partial<Config> };
-  if (!body.config) {
-    return Response.json({ error: "config is required" }, { status: 400 });
-  }
+  const body = await req.json() as any;
 
   const existing = loadConfig();
-  const incoming = body.config;
+
+  // Support both nested { config: ... } and flat wizard format
+  if (body.config) {
+    const incoming = body.config;
+    const merged: Config = {
+      core: { ...existing.core, ...incoming.core },
+      keys: { ...existing.keys, ...incoming.keys },
+      sources: { ...existing.sources, ...incoming.sources },
+      daemon: { ...existing.daemon, ...incoming.daemon },
+      agent: { ...existing.agent, ...incoming.agent },
+      telegram: { ...existing.telegram, ...incoming.telegram },
+    };
+    saveConfig(merged);
+    return Response.json({ ok: true, config: merged });
+  }
+
+  // Flat format from setup wizard
+  const { provider, model, apiKey, baseUrl, customApiKey, sources, telegramBotToken, telegramChatId } = body;
 
   const merged: Config = {
-    core: { ...existing.core, ...incoming.core },
-    keys: { ...existing.keys, ...incoming.keys },
-    sources: { ...existing.sources, ...incoming.sources },
-    daemon: { ...existing.daemon, ...incoming.daemon },
-    agent: { ...existing.agent, ...incoming.agent },
+    ...existing,
+    keys: {
+      ...existing.keys,
+      ...(provider && apiKey ? { [provider]: apiKey } : {}),
+    },
+    sources: { ...existing.sources, ...sources },
+    agent: {
+      ...existing.agent,
+      ...(provider ? { provider } : {}),
+      ...(model ? { default_model: model } : {}),
+      ...(baseUrl ? { base_url: baseUrl } : {}),
+      ...(customApiKey ? { api_key: customApiKey } : {}),
+    },
+    telegram: {
+      ...existing.telegram,
+      ...(telegramBotToken ? { bot_token: telegramBotToken } : {}),
+      ...(telegramChatId ? { chat_id: telegramChatId } : {}),
+    },
   };
 
   saveConfig(merged);
