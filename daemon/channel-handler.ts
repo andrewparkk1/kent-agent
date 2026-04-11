@@ -34,28 +34,6 @@ export async function startChannelPolling(channel: Channel, log: LogFn): Promise
   });
 }
 
-/**
- * Send a notification to all configured channels.
- * Maps the sent messages to the given thread so replies route correctly.
- */
-export async function notifyAllChannels(
-  channels: Channel[],
-  text: string,
-  threadId: string,
-  log: LogFn,
-): Promise<void> {
-  for (const channel of channels) {
-    try {
-      const results = await channel.sendNotification(text);
-      for (const { messageId } of results) {
-        await mapChannelMessageToThread(channel.name, messageId, threadId);
-      }
-    } catch (e) {
-      log(`${channel.name}: notification failed — ${e}`);
-    }
-  }
-}
-
 // ─── Internal ──────────────────────────────────────────────────────────────
 
 async function handleIncomingMessage(

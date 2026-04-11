@@ -1,10 +1,12 @@
 /**
- * Channel registry — returns configured channel instances.
+ * Channel registry.
  *
  * To add a new channel:
  *   1. Create shared/channels/<name>.ts implementing Channel
  *   2. Add config fields to shared/config.ts
  *   3. Register it in getChannels() below
+ *
+ * Notification helpers: import from shared/channels/notify.ts
  */
 export type { Channel, ChannelMessage } from "./types.ts";
 export { TelegramChannel, TELEGRAM_DEFAULT_BOT } from "./telegram.ts";

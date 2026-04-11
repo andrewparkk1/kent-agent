@@ -6,7 +6,7 @@ import { getWorkflow, updateWorkflow, deleteWorkflow, archiveWorkflow, unarchive
 import { createThread, finishThread, addMessage } from "../../shared/db/threads.ts";
 import { loadConfig } from "../../shared/config.ts";
 import { getChannels } from "../../shared/channels/index.ts";
-import { notifyAllChannels } from "../../daemon/channel-handler.ts";
+import { notifyAllChannels, formatWorkflowNotification } from "../../shared/channels/notify.ts";
 import { resolve } from "node:path";
 import { sql } from "kysely";
 
@@ -174,10 +174,7 @@ export async function handleWorkflowRun(req: Request) {
       try {
         const channels = getChannels(loadConfig());
         if (channels.length > 0) {
-          const status = success ? "completed" : "failed";
-          const body = fullOutput.trim()
-            ? `**${workflow.name}** — ${status}\n\n${fullOutput.trim()}`
-            : `**${workflow.name}** — ${status}\n\n(no output)`;
+          const body = formatWorkflowNotification(workflow.name, success, fullOutput);
           const log = (msg: string) => console.log(`[workflow-run] ${msg}`);
           notifyAllChannels(channels, body, threadId, log).catch(() => {});
         }

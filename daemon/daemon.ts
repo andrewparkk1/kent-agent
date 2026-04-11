@@ -22,7 +22,8 @@ import { chrome } from "./sources/chrome.ts";
 import { appleNotes } from "./sources/apple-notes.ts";
 import { aiCoding } from "./sources/ai-coding.ts";
 import { getChannels } from "@shared/channels/index.ts";
-import { startChannelPolling, notifyAllChannels } from "./channel-handler.ts";
+import { notifyAllChannels, formatWorkflowNotification } from "@shared/channels/notify.ts";
+import { startChannelPolling } from "./channel-handler.ts";
 
 const sourceRegistry: Record<string, Source> = {
   imessage,
@@ -61,12 +62,7 @@ async function notifyWorkflowRun(
   const channels = getChannels(loadConfig());
   if (channels.length === 0) return;
 
-  const status = success ? "completed" : "failed";
-  const header = `**${workflowName}** — ${status}`;
-  const body = output.trim()
-    ? `${header}\n\n${output.trim()}`
-    : `${header}\n\n(no output)`;
-
+  const body = formatWorkflowNotification(workflowName, success, output);
   await notifyAllChannels(channels, body, threadId, log);
 }
 
