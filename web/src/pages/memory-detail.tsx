@@ -295,7 +295,8 @@ export function MemoryDetailPage({ memoryId, onBack, onNavigate }: {
                       <button
                         onClick={async () => {
                           try {
-                            await fetch(`/api/memories/${memory.id}/archive`, { method: "POST" });
+                            const res = await fetch(`/api/memories/${memory.id}/archive`, { method: "POST" });
+                            if (!res.ok) throw new Error("Server returned an error");
                             toast.success("Memory archived");
                             onBack();
                           } catch {
