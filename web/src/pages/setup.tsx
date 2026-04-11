@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Loader2,
@@ -387,26 +387,30 @@ function StepSources({
 }) {
   const [statuses, setStatuses] = useState<SourceStatus[]>([]);
   const [loading, setLoading] = useState(true);
+  const enabledRef = useRef(enabledSources);
+  enabledRef.current = enabledSources;
 
   useEffect(() => {
-    fetch("/api/setup/check-sources")
-      .then((r) => r.json())
-      .then((data) => {
-        const sources: SourceStatus[] = data.sources || [];
-        setStatuses(sources);
-        // Auto-enable sources that are detected as available
-        const autoEnabled: Record<string, boolean> = { ...enabledSources };
-        let changed = false;
-        for (const s of sources) {
-          if (s.available && s.connected && autoEnabled[s.key] === undefined) {
-            autoEnabled[s.key] = true;
-            changed = true;
-          }
+    const es = new EventSource("/api/setup/check-sources");
+    es.onmessage = (e) => {
+      try {
+        const s: SourceStatus = JSON.parse(e.data);
+        setStatuses((prev) => {
+          const exists = prev.find((p) => p.key === s.key);
+          return exists ? prev.map((p) => (p.key === s.key ? s : p)) : [...prev, s];
+        });
+        // Auto-enable if detected as connected
+        if (s.available && s.connected && enabledRef.current[s.key] === undefined) {
+          setEnabledSources({ ...enabledRef.current, [s.key]: true });
         }
-        if (changed) setEnabledSources(autoEnabled);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+      } catch {}
+    };
+    es.addEventListener("done", () => {
+      setLoading(false);
+      es.close();
+    });
+    es.onerror = () => { setLoading(false); es.close(); };
+    return () => es.close();
   }, []);
 
   const handleToggle = (key: string) => {
