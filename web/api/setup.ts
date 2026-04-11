@@ -248,6 +248,89 @@ export async function handleSetupCheckSources() {
     results.ai_coding = { ok: false, message: "No Claude Code or Codex data found" };
   }
 
+  // Safari
+  const safariDb = join(home, "Library/Safari/History.db");
+  results.safari = existsSync(safariDb)
+    ? { ok: true, message: "Safari history DB found" }
+    : { ok: false, message: "Safari history not found. Is Safari installed?" };
+
+  // Apple Reminders (needs osascript — always available on macOS)
+  const hasOsascript = await commandExists("osascript");
+  results.apple_reminders = hasOsascript
+    ? { ok: true, message: "Reminders.app available" }
+    : { ok: false, message: "osascript not found (requires macOS)" };
+
+  // Contacts
+  const contactsDb = join(home, "Library/Application Support/AddressBook/AddressBook-v22.abcddb");
+  const contactsSources = join(home, "Library/Application Support/AddressBook/Sources");
+  results.contacts = existsSync(contactsDb) || existsSync(contactsSources)
+    ? { ok: true, message: "AddressBook found" }
+    : { ok: false, message: "AddressBook not found. Grant Full Disk Access." };
+
+  // Obsidian
+  const obsidianConfig = join(home, "Library/Application Support/obsidian/obsidian.json");
+  const hasObsidianEnv = !!process.env.OBSIDIAN_VAULT_PATH;
+  results.obsidian = existsSync(obsidianConfig) || hasObsidianEnv
+    ? { ok: true, message: "Obsidian vault found" }
+    : { ok: false, message: "Obsidian not installed" };
+
+  // WhatsApp
+  const whatsappDb = join(home, "Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite");
+  results.whatsapp = existsSync(whatsappDb)
+    ? { ok: true, message: "WhatsApp Desktop DB found" }
+    : { ok: false, message: "WhatsApp Desktop not installed" };
+
+  // Slack (needs API token)
+  const config = loadConfig();
+  const hasSlackToken = !!(process.env.SLACK_TOKEN || (config.keys as Record<string, string>).slack);
+  results.slack = hasSlackToken
+    ? { ok: true, message: "Slack token configured" }
+    : { ok: false, message: "Needs API token (set keys.slack in config)" };
+
+  // Notion (needs API token)
+  const hasNotionToken = !!(process.env.NOTION_TOKEN || (config.keys as Record<string, string>).notion);
+  results.notion = hasNotionToken
+    ? { ok: true, message: "Notion token configured" }
+    : { ok: false, message: "Needs API token (set keys.notion in config)" };
+
+  // Spotify (needs OAuth credentials)
+  const keys = config.keys as Record<string, string>;
+  const hasSpotify = !!(
+    (process.env.SPOTIFY_CLIENT_ID || keys.spotify_client_id) &&
+    (process.env.SPOTIFY_REFRESH_TOKEN || keys.spotify_refresh_token)
+  );
+  results.spotify = hasSpotify
+    ? { ok: true, message: "Spotify credentials configured" }
+    : { ok: false, message: "Needs OAuth credentials (set keys.spotify_* in config)" };
+
+  // Apple Music (needs osascript)
+  results.apple_music = hasOsascript
+    ? { ok: true, message: "Music.app available" }
+    : { ok: false, message: "osascript not found (requires macOS)" };
+
+  // Apple Health
+  const healthDb = join(home, "Library/Health/healthdb.sqlite");
+  results.apple_health = existsSync(healthDb)
+    ? { ok: true, message: "HealthKit database found" }
+    : { ok: false, message: "Health data not synced. Enable Health in iCloud settings." };
+
+  // Screen Time
+  const knowledgeDb = join(home, "Library/Application Support/Knowledge/knowledgeC.db");
+  results.screen_time = existsSync(knowledgeDb)
+    ? { ok: true, message: "Knowledge store found" }
+    : { ok: false, message: "Screen Time data not found. Enable Screen Time in System Settings." };
+
+  // Recent Files (needs mdfind / Spotlight)
+  const hasMdfind = await commandExists("mdfind");
+  results.recent_files = hasMdfind
+    ? { ok: true, message: "Spotlight indexing available" }
+    : { ok: false, message: "mdfind not found (requires macOS)" };
+
+  // Apple Calendar (needs osascript)
+  results.apple_calendar = hasOsascript
+    ? { ok: true, message: "Calendar.app available" }
+    : { ok: false, message: "osascript not found (requires macOS)" };
+
   // Convert to array format expected by frontend: { key, available, connected }
   const sourcesArray = Object.entries(results).map(([key, val]) => ({
     key,
