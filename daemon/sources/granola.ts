@@ -130,7 +130,7 @@ async function fetchTranscript(docId: string, token: string): Promise<string> {
       body: JSON.stringify({ document_id: docId }),
     });
     if (!res.ok) return "";
-    const segments: any[] = await res.json();
+    const segments: any[] = await res.json() as any[];
     if (!segments.length) return "";
 
     // Group consecutive segments by speaker for cleaner output
@@ -167,7 +167,7 @@ async function fetchPanels(docId: string, token: string): Promise<string> {
       body: JSON.stringify({ document_id: docId }),
     });
     if (!res.ok) return "";
-    const panels: any[] = await res.json();
+    const panels: any[] = await res.json() as any[];
     if (!panels.length) return "";
     return panels
       .map((p) => {

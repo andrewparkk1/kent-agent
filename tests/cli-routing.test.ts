@@ -2,11 +2,21 @@ import { test, expect, describe } from "bun:test";
 
 const CLI_PATH = new URL("../cli/index.ts", import.meta.url).pathname;
 
+const TEST_HOME = "/tmp/kent-test-cli-home";
+
 async function runCli(args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  // Ensure minimal config exists so init guard doesn't block command routing
+  const { mkdirSync, writeFileSync, existsSync } = await import("node:fs");
+  const configDir = `${TEST_HOME}/.kent`;
+  if (!existsSync(`${configDir}/config.json`)) {
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(`${configDir}/config.json`, "{}");
+  }
+
   const proc = Bun.spawn(["bun", "run", CLI_PATH, ...args], {
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env, HOME: "/tmp/kent-test-cli-home" },
+    env: { ...process.env, HOME: TEST_HOME },
   });
 
   const stdout = await new Response(proc.stdout).text();

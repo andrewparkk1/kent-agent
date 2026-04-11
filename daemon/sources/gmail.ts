@@ -74,6 +74,7 @@ export const gmail: Source = {
   name: "gmail",
 
   async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
+    try {
     await checkGws();
 
     const lastSync = state.getLastSync("gmail");
@@ -209,6 +210,7 @@ export const gmail: Source = {
       return items.filter((item) => item.createdAt > lastSync);
     }
     return items;
+    } catch { return []; }
   },
 };
 

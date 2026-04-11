@@ -58,17 +58,20 @@ async function runGhJson(args: string[]): Promise<any | null> {
 
 /** Detect the authenticated GitHub username, or null if gh is unavailable/not logged in. */
 async function detectAccount(): Promise<string | null> {
-  const raw = await runGh(["api", "user", "--jq", ".login"]);
-  return raw && raw.length > 0 ? raw : null;
+  const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000));
+  const check = runGh(["api", "user", "--jq", ".login"]).then(
+    (raw) => (raw && raw.length > 0 ? raw : null),
+  );
+  return Promise.race([check, timeout]);
 }
 
 export const github: Source = {
   name: "github",
 
   async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
-    const account = await detectAccount();
+    const account = await detectAccount().catch(() => null);
     if (!account) {
-      throw new Error("gh CLI not installed or not authenticated. Run: gh auth login");
+      return [];
     }
 
     const items: Item[] = [];

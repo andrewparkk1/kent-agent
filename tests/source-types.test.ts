@@ -111,7 +111,7 @@ describe("Source fetchNew with mock SyncState", () => {
   test("github returns empty array when gh not authenticated", async () => {
     const { github } = await import("../daemon/sources/github.ts");
     // github uses `gh` CLI — may or may not be installed
-    const items = await github.fetchNew(mockState);
+    const items = await github.fetchNew(mockState, { limit: 5, defaultDays: 1 });
     expect(Array.isArray(items)).toBe(true);
-  });
+  }, 30_000);
 });

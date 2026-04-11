@@ -16,6 +16,9 @@ class FreshSyncState implements SyncState {
   markSynced(source: string, highWaterMark?: number): void {
     this.real.markSynced(source, highWaterMark);
   }
+  resetSync(source: string, timestamp: number): void {
+    this.real.resetSync(source, timestamp);
+  }
 }
 import { imessage } from "@daemon/sources/imessage.ts";
 import { signal } from "@daemon/sources/signal.ts";

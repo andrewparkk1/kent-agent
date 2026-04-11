@@ -134,7 +134,7 @@ describe("daemon lifecycle", () => {
     expect(hasInterval).toBe(true);
 
     const logContent = readFileSync(logPath(tempHome), "utf-8");
-    expect(logContent).toContain("minutes");
+    expect(logContent).toContain("Sync interval:");
   });
 
   test("daemon removes PID file on SIGTERM", async () => {

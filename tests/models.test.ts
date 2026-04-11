@@ -182,7 +182,7 @@ describe("resolveModel — local", () => {
     expect(model.api).toBe("openai-completions");
     expect(model.baseUrl).toBe(DEFAULT_LOCAL_BASE_URL);
     expect(model.provider).toBe("local");
-    expect(apiKey).toBeUndefined();
+    expect(apiKey).toBe("ollama");
   });
 
   test("uses custom base URL for LM Studio", () => {

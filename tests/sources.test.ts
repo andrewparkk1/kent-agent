@@ -97,13 +97,13 @@ describe("GitHub source", () => {
     const { github } = await import("@daemon/sources/github.ts");
     const state = new MockSyncState();
 
-    const items = await github.fetchNew(state);
+    const items = await github.fetchNew(state, { limit: 5 });
     expect(items).toBeArray();
     for (const item of items) {
       expect(item.source).toBe("github");
       expect(item.externalId).toMatch(/^github-/);
     }
-  });
+  }, 30_000);
 });
 
 describe("Signal source", () => {

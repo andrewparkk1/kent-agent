@@ -65,7 +65,8 @@ describe("DEFAULT_CONFIG", () => {
     expect(sourceKeys).toContain("github");
     expect(sourceKeys).toContain("chrome");
     expect(sourceKeys).toContain("apple_notes");
-    expect(sourceKeys.length).toBe(10);
+    expect(sourceKeys).toContain("ai_coding");
+    expect(sourceKeys.length).toBe(11);
   });
 
   test("daemon sync interval is a positive number", () => {
