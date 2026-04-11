@@ -79,16 +79,23 @@ pub fn run() {
                         }
                     }
 
-                    log::info!("Starting kent-daemon from {:?}", daemon_bin);
-                    match Command::new(&daemon_bin)
-                        .env("KENT_AGENT_BIN", &agent_bin)
-                        .spawn()
-                    {
-                        Ok(child) => {
-                            log::info!("kent-daemon started (pid {})", child.id());
-                            *daemon_setup.lock().unwrap() = Some(child);
+                    let config_path = std::env::var("HOME")
+                        .map(|h| std::path::PathBuf::from(h).join(".kent").join("config.json"))
+                        .unwrap_or_default();
+                    if config_path.exists() {
+                        log::info!("Starting kent-daemon from {:?}", daemon_bin);
+                        match Command::new(&daemon_bin)
+                            .env("KENT_AGENT_BIN", &agent_bin)
+                            .spawn()
+                        {
+                            Ok(child) => {
+                                log::info!("kent-daemon started (pid {})", child.id());
+                                *daemon_setup.lock().unwrap() = Some(child);
+                            }
+                            Err(e) => log::error!("Failed to start kent-daemon: {e}"),
                         }
-                        Err(e) => log::error!("Failed to start kent-daemon: {e}"),
+                    } else {
+                        log::info!("No config.json found — skipping daemon (setup wizard will handle)");
                     }
                 }
 
