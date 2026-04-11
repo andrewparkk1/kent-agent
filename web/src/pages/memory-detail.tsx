@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { motion } from "motion/react";
 import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   ArrowLeft, User, FolderOpen, Hash, CalendarDays, Heart, MapPin, Brain,
   Link2, ArrowRight, List,
@@ -251,7 +252,7 @@ export function MemoryDetailPage({ memoryId, onBack, onNavigate }: {
                 transition={{ delay: 0.1 }}
               >
                 <div className="text-[13px] text-foreground/80 leading-relaxed prose-brief">
-                  <Markdown components={{ a: linkRenderer }}>{processedSummary}</Markdown>
+                  <Markdown remarkPlugins={[remarkGfm]} components={{ a: linkRenderer }}>{processedSummary}</Markdown>
                 </div>
               </motion.div>
             )}
@@ -266,6 +267,7 @@ export function MemoryDetailPage({ memoryId, onBack, onNavigate }: {
               transition={{ delay: 0.15, duration: 0.3 }}
             >
               <Markdown
+                remarkPlugins={[remarkGfm]}
                 components={{
                   h2: ({ children }) => {
                     const text = String(children);
