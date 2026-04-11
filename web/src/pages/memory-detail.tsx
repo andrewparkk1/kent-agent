@@ -4,7 +4,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   ArrowLeft, User, FolderOpen, Hash, CalendarDays, Heart, MapPin, Brain,
-  Link2, ArrowRight, List, Archive,
+  Link2, ArrowRight, List, Archive, Pencil, Check, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { timeAgo } from "@/lib/types";
@@ -127,6 +127,10 @@ export function MemoryDetailPage({ memoryId, onBack, onNavigate }: {
   const [links, setLinks] = useState<{ outgoing: LinkedMemory[]; incoming: LinkedMemory[] }>({ outgoing: [], incoming: [] });
   const [memoryIndex, setMemoryIndex] = useState<Record<string, MemoryIndexEntry>>({});
   const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editSummary, setEditSummary] = useState("");
+  const [editBody, setEditBody] = useState("");
 
   useEffect(() => {
     setLoading(true);
@@ -163,6 +167,34 @@ export function MemoryDetailPage({ memoryId, onBack, onNavigate }: {
       onNavigate(id);
     }
   }, [onNavigate]);
+
+  const startEditing = useCallback(() => {
+    if (!memory) return;
+    setEditTitle(memory.title);
+    setEditSummary(memory.summary);
+    setEditBody(memory.body);
+    setEditing(true);
+  }, [memory]);
+
+  const cancelEditing = useCallback(() => {
+    setEditing(false);
+  }, []);
+
+  const saveEditing = useCallback(async () => {
+    if (!memory) return;
+    try {
+      await fetch(`/api/memories/${memory.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: editTitle, summary: editSummary, body: editBody }),
+      });
+      setMemory({ ...memory, title: editTitle, summary: editSummary, body: editBody });
+      setEditing(false);
+      toast.success("Memory updated");
+    } catch {
+      toast.error("Failed to update memory");
+    }
+  }, [memory, editTitle, editSummary, editBody]);
 
   const hasLinks = links.outgoing.length > 0 || links.incoming.length > 0;
   const hasSidebar = toc.length > 1 || hasLinks;
@@ -233,7 +265,15 @@ export function MemoryDetailPage({ memoryId, onBack, onNavigate }: {
                 <Icon size={20} className={meta.color} />
               </div>
               <div>
-                <h1 className="text-[28px] font-display tracking-tight leading-tight">{memory.title}</h1>
+                {editing ? (
+                  <input
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    className="text-[28px] font-display tracking-tight leading-tight bg-transparent border-b border-foreground/20 outline-none w-full"
+                  />
+                ) : (
+                  <h1 className="text-[28px] font-display tracking-tight leading-tight">{memory.title}</h1>
+                )}
                 <div className="flex items-center gap-2 mt-1">
                   <span className="text-[11px] font-medium px-2 py-[2px] rounded-full bg-foreground/[0.05] text-muted-foreground/60">{meta.label}</span>
                   <span className="text-[11px] text-muted-foreground/40">Updated {timeAgo(memory.updated_at)}</span>
@@ -242,27 +282,64 @@ export function MemoryDetailPage({ memoryId, onBack, onNavigate }: {
                       Also known as: {memory.aliases.join(", ")}
                     </span>
                   )}
-                  <button
-                    onClick={async () => {
-                      try {
-                        await fetch(`/api/memories/${memory.id}/archive`, { method: "POST" });
-                        toast.success("Memory archived");
-                        onBack();
-                      } catch {
-                        toast.error("Failed to archive memory");
-                      }
-                    }}
-                    className="text-[11px] text-muted-foreground/30 hover:text-muted-foreground transition-colors cursor-pointer flex items-center gap-1 ml-1"
-                    title="Archive this memory"
-                  >
-                    <Archive size={11} /> Archive
-                  </button>
+                  {!editing && (
+                    <>
+                      <button
+                        onClick={startEditing}
+                        className="text-[11px] text-muted-foreground/30 hover:text-muted-foreground transition-colors cursor-pointer flex items-center gap-1 ml-1"
+                        title="Edit this memory"
+                      >
+                        <Pencil size={11} /> Edit
+                      </button>
+                      <button
+                        onClick={async () => {
+                          try {
+                            await fetch(`/api/memories/${memory.id}/archive`, { method: "POST" });
+                            toast.success("Memory archived");
+                            onBack();
+                          } catch {
+                            toast.error("Failed to archive memory");
+                          }
+                        }}
+                        className="text-[11px] text-muted-foreground/30 hover:text-muted-foreground transition-colors cursor-pointer flex items-center gap-1"
+                        title="Archive this memory"
+                      >
+                        <Archive size={11} /> Archive
+                      </button>
+                    </>
+                  )}
+                  {editing && (
+                    <>
+                      <button
+                        onClick={saveEditing}
+                        className="text-[11px] text-emerald-500/70 hover:text-emerald-500 transition-colors cursor-pointer flex items-center gap-1 ml-1"
+                      >
+                        <Check size={11} /> Save
+                      </button>
+                      <button
+                        onClick={cancelEditing}
+                        className="text-[11px] text-muted-foreground/30 hover:text-muted-foreground transition-colors cursor-pointer flex items-center gap-1"
+                      >
+                        <X size={11} /> Cancel
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
 
             {/* Summary — the Wikipedia opening paragraph, with inline wiki links */}
-            {processedSummary && (
+            {editing ? (
+              <div className="mt-4">
+                <label className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider mb-1 block">Summary</label>
+                <textarea
+                  value={editSummary}
+                  onChange={(e) => setEditSummary(e.target.value)}
+                  rows={3}
+                  className="w-full text-[13px] leading-relaxed bg-foreground/[0.02] border border-border/50 rounded-lg px-4 py-3 outline-none focus:border-foreground/20 transition-colors resize-y"
+                />
+              </div>
+            ) : processedSummary ? (
               <motion.div
                 className={`mt-4 px-4 py-3 rounded-lg border ${meta.accent} bg-foreground/[0.015]`}
                 initial={{ opacity: 0 }}
@@ -273,11 +350,21 @@ export function MemoryDetailPage({ memoryId, onBack, onNavigate }: {
                   <Markdown remarkPlugins={[remarkGfm]} components={{ a: linkRenderer }}>{processedSummary}</Markdown>
                 </div>
               </motion.div>
-            )}
+            ) : null}
           </motion.div>
 
           {/* Body — rich markdown content with inline [[wiki links]] */}
-          {processedBody && (
+          {editing ? (
+            <div className="mt-4">
+              <label className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider mb-1 block">Body</label>
+              <textarea
+                value={editBody}
+                onChange={(e) => setEditBody(e.target.value)}
+                rows={20}
+                className="w-full text-[13px] leading-relaxed font-mono bg-foreground/[0.02] border border-border/50 rounded-lg px-4 py-3 outline-none focus:border-foreground/20 transition-colors resize-y"
+              />
+            </div>
+          ) : processedBody ? (
             <motion.div
               className="prose-brief text-[13px] leading-relaxed"
               initial={{ opacity: 0 }}
@@ -303,7 +390,7 @@ export function MemoryDetailPage({ memoryId, onBack, onNavigate }: {
                 {processedBody}
               </Markdown>
             </motion.div>
-          )}
+          ) : null}
 
           {/* Sources */}
           {memory.sources.length > 0 && (
