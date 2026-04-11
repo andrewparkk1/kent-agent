@@ -2,13 +2,9 @@
  * Apple Health — reads health data from the local macOS HealthKit database.
  *
  * On macOS 13+, Health data syncs via iCloud to:
- *   ~/Library/Health/healthdb.sqlite       (metadata, samples)
- *   ~/Library/Health/healthdb_secure.sqlite (sensitive metrics)
+ *   ~/Library/Health/healthdb.sqlite (metadata, samples, quantities)
  *
- * Falls back to an XML export at ~/.kent/health/export.xml if the
- * database is not available (Full Disk Access required for the DB).
- *
- * Records are aggregated by day to keep item count manageable.
+ * Requires Full Disk Access. Records are aggregated by day.
  */
 import { Database } from "bun:sqlite";
 import { homedir, tmpdir } from "os";
@@ -20,7 +16,6 @@ import type { Source, SyncState, SyncOptions, Item } from "./types";
 const CORE_DATA_EPOCH_OFFSET = 978307200;
 
 const HEALTH_DB = join(homedir(), "Library/Health/healthdb.sqlite");
-const HEALTH_SECURE_DB = join(homedir(), "Library/Health/healthdb_secure.sqlite");
 const TEMP_DIR = join(tmpdir(), "kent-apple-health");
 
 // ─── Daily aggregation ──────────────────────────────────────────────────
@@ -243,123 +238,6 @@ async function fetchViaSqlite(cutoff: number, limit: number): Promise<Item[]> {
   return bucketsToItems(buckets, limit);
 }
 
-// ─── XML export fallback ────────────────────────────────────────────────
-
-function findExportPath(): string | null {
-  const envPath = process.env.APPLE_HEALTH_EXPORT_PATH;
-  if (envPath && existsSync(envPath)) return envPath;
-  const standardPath = join(homedir(), ".kent", "health", "export.xml");
-  if (existsSync(standardPath)) return standardPath;
-  return null;
-}
-
-function attr(tag: string, name: string): string | null {
-  const re = new RegExp(`${name}="([^"]*)"`, "i");
-  const m = tag.match(re);
-  return m ? m[1] : null;
-}
-
-function parseHealthDate(dateStr: string): number {
-  const parts = dateStr.trim().split(" ");
-  if (parts.length >= 3) {
-    const iso = `${parts[0]}T${parts[1]}${parts[2]}`;
-    const d = new Date(iso);
-    if (!isNaN(d.getTime())) return Math.floor(d.getTime() / 1000);
-  }
-  const d = new Date(dateStr);
-  return isNaN(d.getTime()) ? 0 : Math.floor(d.getTime() / 1000);
-}
-
-const METRIC_TYPES = new Set([
-  "HKQuantityTypeIdentifierStepCount",
-  "HKQuantityTypeIdentifierDistanceWalkingRunning",
-  "HKQuantityTypeIdentifierActiveEnergyBurned",
-  "HKQuantityTypeIdentifierHeartRate",
-  "HKQuantityTypeIdentifierBodyMass",
-  "HKCategoryTypeIdentifierSleepAnalysis",
-  "HKQuantityTypeIdentifierFlightsClimbed",
-]);
-
-const RECORD_RE = /<Record\s+[^>]*\/>/g;
-
-async function fetchViaXmlExport(cutoff: number, limit: number): Promise<Item[]> {
-  const exportPath = findExportPath();
-  if (!exportPath) return [];
-
-  let xml: string;
-  try {
-    xml = await Bun.file(exportPath).text();
-  } catch {
-    return [];
-  }
-
-  const buckets = new Map<string, DayBucket>();
-  let match: RegExpExecArray | null;
-
-  while ((match = RECORD_RE.exec(xml)) !== null) {
-    const tag = match[0];
-    const type = attr(tag, "type");
-    if (!type || !METRIC_TYPES.has(type)) continue;
-
-    const startDateStr = attr(tag, "startDate");
-    if (!startDateStr) continue;
-
-    const startTs = parseHealthDate(startDateStr);
-    if (startTs <= cutoff) continue;
-
-    const day = startDateStr.trim().slice(0, 10);
-    let bucket = buckets.get(day);
-    if (!bucket) {
-      bucket = emptyBucket(day);
-      buckets.set(day, bucket);
-    }
-
-    const value = parseFloat(attr(tag, "value") ?? "0");
-
-    switch (type) {
-      case "HKQuantityTypeIdentifierStepCount":
-        bucket.steps += value;
-        break;
-      case "HKQuantityTypeIdentifierDistanceWalkingRunning": {
-        const unit = attr(tag, "unit");
-        bucket.distanceKm += unit === "mi" ? value * 1.60934 : value;
-        break;
-      }
-      case "HKQuantityTypeIdentifierActiveEnergyBurned": {
-        const unit = attr(tag, "unit");
-        bucket.activeCalories += unit === "kJ" ? value / 4.184 : value;
-        break;
-      }
-      case "HKQuantityTypeIdentifierHeartRate":
-        bucket.heartRateSum += value;
-        bucket.heartRateCount += 1;
-        break;
-      case "HKQuantityTypeIdentifierBodyMass": {
-        const unit = attr(tag, "unit");
-        const w = unit === "lb" ? value * 0.453592 : value;
-        if (startTs > bucket.weightTimestamp) {
-          bucket.weight = w;
-          bucket.weightTimestamp = startTs;
-        }
-        break;
-      }
-      case "HKCategoryTypeIdentifierSleepAnalysis": {
-        const endDateStr = attr(tag, "endDate");
-        if (endDateStr) {
-          const endTs = parseHealthDate(endDateStr);
-          if (endTs > startTs) bucket.sleepHours += (endTs - startTs) / 3600;
-        }
-        break;
-      }
-      case "HKQuantityTypeIdentifierFlightsClimbed":
-        bucket.flightsClimbed += value;
-        break;
-    }
-  }
-
-  return bucketsToItems(buckets, limit);
-}
-
 // ─── Source implementation ───────────────────────────────────────────────
 
 export const appleHealth: Source = {
@@ -377,18 +255,16 @@ export const appleHealth: Source = {
           : now - defaultDays * 86400;
     const limit = options?.limit ?? 5000;
 
-    // Try reading from macOS HealthKit SQLite database first
-    if (existsSync(HEALTH_DB)) {
-      try {
-        const items = await fetchViaSqlite(cutoff, limit);
-        if (items.length > 0) return items;
-        console.warn("[apple-health] SQLite returned no items, trying XML fallback");
-      } catch (e) {
-        console.warn(`[apple-health] SQLite failed, trying XML fallback: ${e}`);
-      }
+    if (!existsSync(HEALTH_DB)) {
+      console.warn("[apple-health] ~/Library/Health/healthdb.sqlite not found — enable Health sync in iCloud settings");
+      return [];
     }
 
-    // Fallback: XML export
-    return fetchViaXmlExport(cutoff, limit);
+    try {
+      return await fetchViaSqlite(cutoff, limit);
+    } catch (e) {
+      console.warn(`[apple-health] Failed to read HealthKit database: ${e}`);
+      return [];
+    }
   },
 };
