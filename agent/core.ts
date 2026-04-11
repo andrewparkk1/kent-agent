@@ -212,14 +212,16 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
   let hasOutput = false;
   let agentError: string | null = null;
   let pendingText = "";
+  let flushPromise: Promise<void> = Promise.resolve();
   const toolCallMap = new Map<string, { name: string; args: any }>();
 
-  async function flushText() {
+  function flushText() {
     const text = pendingText.trim();
     pendingText = "";  // Reset immediately to prevent duplicate flushes from parallel tool_starts
     if (text) {
-      await addMessage(threadId, "assistant", text, modelMeta);
+      flushPromise = flushPromise.then(async () => { await addMessage(threadId, "assistant", text, modelMeta); });
     }
+    return flushPromise;
   }
 
   const unsub = agent.subscribe((event) => {
@@ -241,7 +243,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
       }
 
       case "tool_execution_start": {
-        void flushText();
+        flushText();
         toolCallMap.set(event.toolCallId, { name: event.toolName, args: event.args });
         callbacks.onToolStart?.(event.toolName, event.args);
         break;
@@ -271,7 +273,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
       }
 
       case "agent_end":
-        void flushText();
+        flushText();
         break;
     }
   });
@@ -280,7 +282,8 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
     await agent.prompt(prompt);
   } finally {
     unsub();
-    await flushText();
+    flushText();          // queue any remaining text
+    await flushPromise;   // wait for all writes to complete
   }
 
   return { threadId, output, hasOutput, error: agentError };

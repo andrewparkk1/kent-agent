@@ -70,17 +70,28 @@ export function ChatPage({ threadId: initialThreadId, initialInput: initialInput
       fetch(`/api/threads/${initialThreadId}/messages`)
         .then((r) => r.json())
         .then((data) => {
-          const seenTexts = new Set<string>();
-          const msgs: Message[] = (data.messages || []).filter((m: Message, i: number, arr: Message[]) => {
+          const allMsgs: Message[] = data.messages || [];
+          const assistantTexts: string[] = allMsgs
+            .filter((m: Message) => m.role === "assistant" && m.content.trim())
+            .map((m: Message) => m.content.trim());
+
+          const msgs: Message[] = allMsgs.filter((m: Message, i: number, arr: Message[]) => {
             if (i > 0) {
               const prev = arr[i - 1];
               if (m.role === prev.role && m.content === prev.content) return false;
             }
             if (m.role === "assistant" && m.content.trim()) {
               const text = m.content.trim();
-              if (seenTexts.has(text)) return false;
-              seenTexts.add(text);
+              const isDuplOrSubstring = assistantTexts.some(
+                (other) => other !== text && other.includes(text),
+              );
+              if (isDuplOrSubstring) return false;
+              const firstIdx = allMsgs.findIndex(
+                (om) => om.role === "assistant" && om.content.trim() === text,
+              );
+              if (firstIdx !== i) return false;
             }
+            if (m.role === "assistant" && !m.content.trim()) return false;
             return true;
           });
           setMessages(msgs);
@@ -338,20 +349,33 @@ export function ChatPage({ threadId: initialThreadId, initialInput: initialInput
         try {
           const res = await fetch(`/api/threads/${threadId}/messages`);
           const data = await res.json();
-          // Deduplicate: remove assistant messages with identical content (even if separated by tool messages)
-          const seenAssistantTexts = new Set<string>();
+          // Deduplicate: remove assistant messages whose content is a substring of another
+          // (partial flushes before tool calls are subsets of later, fuller text)
+          const assistantTexts: string[] = (data.messages || [])
+            .filter((m: Message) => m.role === "assistant" && m.content.trim())
+            .map((m: Message) => m.content.trim());
+
           const msgs: Message[] = (data.messages || []).filter((m: Message, i: number, arr: Message[]) => {
             // Consecutive same-role same-content dedup
             if (i > 0) {
               const prev = arr[i - 1];
               if (m.role === prev.role && m.content === prev.content) return false;
             }
-            // Assistant text dedup across entire thread
+            // Skip assistant messages that are exact duplicates or substrings of another
             if (m.role === "assistant" && m.content.trim()) {
               const text = m.content.trim();
-              if (seenAssistantTexts.has(text)) return false;
-              seenAssistantTexts.add(text);
+              const isDuplOrSubstring = assistantTexts.some(
+                (other) => other !== text && other.includes(text),
+              );
+              if (isDuplOrSubstring) return false;
+              // Exact duplicate check (keep only first occurrence)
+              const firstIdx = (data.messages as Message[]).findIndex(
+                (om) => om.role === "assistant" && om.content.trim() === text,
+              );
+              if (firstIdx !== i) return false;
             }
+            // Skip empty assistant messages
+            if (m.role === "assistant" && !m.content.trim()) return false;
             return true;
           });
           if (msgs.length > 0) setMessages(msgs);
