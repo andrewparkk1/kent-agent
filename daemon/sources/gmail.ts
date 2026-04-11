@@ -359,6 +359,30 @@ export const gtasks: Source = {
 
 // ─── Google Drive ──────────────────────────────────────────────────────────
 
+/** Export Google Doc/Sheet/Slides content as plain text via gws drive export. */
+async function exportFileContent(fileId: string, mimeType: string): Promise<string | null> {
+  try {
+    const exportMime =
+      mimeType === "application/vnd.google-apps.spreadsheet"
+        ? "text/csv"
+        : "text/plain";
+
+    const proc = Bun.spawn(
+      ["gws", "drive", "files", "export", "--fileId", fileId, "--mimeType", exportMime],
+      { stdout: "pipe", stderr: "pipe", env: CLI_ENV },
+    );
+
+    const stdout = await new Response(proc.stdout).text();
+    await proc.exited;
+
+    if (proc.exitCode !== 0 || !stdout.trim()) return null;
+    // Cap at 5000 chars to keep DB manageable
+    return stdout.trim().slice(0, 5000) || null;
+  } catch {
+    return null;
+  }
+}
+
 export const gdrive: Source = {
   name: "gdrive",
 
@@ -389,23 +413,42 @@ export const gdrive: Source = {
       "application/pdf": "PDF",
     };
 
-    const items: Item[] = data.files.map((f: any) => {
+    // Exportable Google Workspace types (not PDFs — those can't be exported as text)
+    const exportableTypes = new Set([
+      "application/vnd.google-apps.document",
+      "application/vnd.google-apps.spreadsheet",
+      "application/vnd.google-apps.presentation",
+    ]);
+
+    const items: Item[] = [];
+
+    for (const f of data.files) {
       const type = mimeLabels[f.mimeType] ?? "File";
       const modified = f.modifiedTime ?? new Date().toISOString();
       const owner = f.owners?.[0]?.displayName ?? "";
 
-      return {
+      // Try to export actual content for Google Workspace files
+      let bodyText: string | null = null;
+      if (exportableTypes.has(f.mimeType)) {
+        bodyText = await exportFileContent(f.id, f.mimeType);
+      }
+
+      const contentParts = [
+        `${type}: ${f.name ?? "(untitled)"}`,
+        owner ? `Owner: ${owner}` : "",
+        `Modified: ${modified}`,
+        f.description ? `Description: ${f.description}` : "",
+        f.webViewLink ? `Link: ${f.webViewLink}` : "",
+      ];
+
+      if (bodyText) {
+        contentParts.push("", bodyText);
+      }
+
+      items.push({
         source: "gdrive",
         externalId: `gdrive-${f.id}`,
-        content: [
-          `${type}: ${f.name ?? "(untitled)"}`,
-          owner ? `Owner: ${owner}` : "",
-          `Modified: ${modified}`,
-          f.description ? `Description: ${f.description}` : "",
-          f.webViewLink ? `Link: ${f.webViewLink}` : "",
-        ]
-          .filter(Boolean)
-          .join("\n"),
+        content: contentParts.filter(Boolean).join("\n"),
         metadata: {
           name: f.name ?? "(untitled)",
           mimeType: f.mimeType,
@@ -413,10 +456,11 @@ export const gdrive: Source = {
           modifiedTime: modified,
           owner,
           webViewLink: f.webViewLink,
+          hasContent: !!bodyText,
         },
         createdAt: Math.floor(new Date(modified).getTime() / 1000),
-      };
-    });
+      });
+    }
 
     if (lastSync > 0) {
       return items.filter((item: Item) => item.createdAt > lastSync);

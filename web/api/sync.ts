@@ -24,6 +24,7 @@ import { appleHealth } from "../../daemon/sources/apple-health.ts";
 import { screenTime } from "../../daemon/sources/screen-time.ts";
 import { recentFiles } from "../../daemon/sources/recent-files.ts";
 import { appleCalendar } from "../../daemon/sources/apple-calendar.ts";
+import { outlook } from "../../daemon/sources/outlook.ts";
 
 const sourceRegistry: Record<string, Source> = {
   imessage,
@@ -50,6 +51,7 @@ const sourceRegistry: Record<string, Source> = {
   screen_time: screenTime,
   recent_files: recentFiles,
   apple_calendar: appleCalendar,
+  outlook,
 };
 
 export async function handleSync(req: Request): Promise<Response> {

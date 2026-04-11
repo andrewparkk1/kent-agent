@@ -245,6 +245,16 @@ export function RecentFilesIcon({ size = 16, className }: IconProps) {
   );
 }
 
+export function OutlookIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" className={className} fill="none">
+      <rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M3 8l9 5 9-5" stroke="currentColor" strokeWidth="1.5" />
+      <ellipse cx="12" cy="13" rx="4" ry="3" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  );
+}
+
 export function AppleCalendarIcon({ size = 16, className }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" className={className} fill="none">

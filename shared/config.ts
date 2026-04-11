@@ -32,6 +32,7 @@ export interface Config {
     spotify_client_id: string;
     spotify_client_secret: string;
     spotify_refresh_token: string;
+    outlook: string;
   };
   sources: {
     imessage: boolean;
@@ -58,6 +59,7 @@ export interface Config {
     screen_time: boolean;
     recent_files: boolean;
     apple_calendar: boolean;
+    outlook: boolean;
   };
   daemon: {
     sync_interval_seconds: number;
@@ -106,6 +108,7 @@ export const DEFAULT_CONFIG: Config = {
     spotify_client_id: "",
     spotify_client_secret: "",
     spotify_refresh_token: "",
+    outlook: "",
   },
   sources: {
     imessage: false,
@@ -132,6 +135,7 @@ export const DEFAULT_CONFIG: Config = {
     screen_time: false,
     recent_files: false,
     apple_calendar: false,
+    outlook: false,
   },
   daemon: {
     sync_interval_seconds: 300,

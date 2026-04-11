@@ -331,6 +331,17 @@ export async function handleSetupCheckSources() {
     ? { ok: true, message: "Calendar.app available" }
     : { ok: false, message: "osascript not found (requires macOS)" };
 
+  // Outlook
+  const outlookDb = join(home, "Library/Group Containers/UBF8T346G9.Office/Outlook/Outlook 15 Profiles/Main Profile/Data/Outlook.sqlite");
+  const hasOutlookToken = !!(process.env.OUTLOOK_TOKEN || (config.keys as Record<string, string>).outlook);
+  if (existsSync(outlookDb)) {
+    results.outlook = { ok: true, message: "Outlook for Mac DB found" };
+  } else if (hasOutlookToken) {
+    results.outlook = { ok: true, message: "Microsoft Graph token configured" };
+  } else {
+    results.outlook = { ok: false, message: "Outlook not installed. Set keys.outlook for Graph API." };
+  }
+
   // Convert to array format expected by frontend: { key, available, connected }
   const sourcesArray = Object.entries(results).map(([key, val]) => ({
     key,

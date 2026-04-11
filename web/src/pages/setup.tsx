@@ -81,6 +81,8 @@ const SOURCE_LIST = [
   { key: "notion", label: "Notion", oauth: false, group: "Productivity" },
   { key: "obsidian", label: "Obsidian", oauth: false, group: "Productivity" },
   { key: "granola", label: "Granola", oauth: false, group: "Productivity" },
+  // Email
+  { key: "outlook", label: "Microsoft Outlook", oauth: false, group: "Email" },
   // Media
   { key: "spotify", label: "Spotify", oauth: false, group: "Media" },
   { key: "apple_music", label: "Apple Music", oauth: false, group: "Media" },

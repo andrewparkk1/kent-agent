@@ -34,6 +34,7 @@ import { appleHealth } from "./sources/apple-health.ts";
 import { screenTime } from "./sources/screen-time.ts";
 import { recentFiles } from "./sources/recent-files.ts";
 import { appleCalendar } from "./sources/apple-calendar.ts";
+import { outlook } from "./sources/outlook.ts";
 
 const sourceRegistry: Record<string, Source> = {
   imessage,
@@ -59,6 +60,7 @@ const sourceRegistry: Record<string, Source> = {
   screen_time: screenTime,
   recent_files: recentFiles,
   apple_calendar: appleCalendar,
+  outlook,
 };
 
 function log(message: string): void {

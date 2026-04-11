@@ -3,7 +3,7 @@ import {
   AppleNotesIcon, GranolaIcon, CalendarIcon, TasksIcon, DriveIcon,
   AiCodingIcon, SafariIcon, RemindersIcon, ContactsIcon, ObsidianIcon,
   WhatsAppIcon, SlackIcon, NotionIcon, SpotifyIcon, AppleMusicIcon,
-  HealthIcon, ScreenTimeIcon, RecentFilesIcon, AppleCalendarIcon,
+  HealthIcon, ScreenTimeIcon, RecentFilesIcon, AppleCalendarIcon, OutlookIcon,
 } from "./icons";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -88,6 +88,7 @@ export const SOURCE_META: Record<string, { icon: any; label: string; color: stri
   recent_files:  { icon: RecentFilesIcon, label: "Recent Files",  color: "text-cyan-500/80",    bg: "bg-cyan-500/8" },
   "apple-calendar": { icon: AppleCalendarIcon, label: "Calendar (Apple)", color: "text-red-500/80", bg: "bg-red-500/8" },
   apple_calendar:   { icon: AppleCalendarIcon, label: "Calendar (Apple)", color: "text-red-500/80", bg: "bg-red-500/8" },
+  outlook:       { icon: OutlookIcon,       label: "Outlook",         color: "text-blue-600/80",   bg: "bg-blue-600/8" },
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
