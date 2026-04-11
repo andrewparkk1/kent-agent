@@ -83,6 +83,11 @@ Bun.serve({
   async fetch(req) {
     const url = new URL(req.url);
 
+    // GET /api/memories/index — memory title index for wiki link resolution
+    if (url.pathname === "/api/memories/index" && req.method === "GET") {
+      return handleMemoryIndex(req);
+    }
+
     // GET /api/memories/:id — single memory with links
     if (url.pathname.match(/^\/api\/memories\/[^/]+$/) && req.method === "GET") {
       return handleMemoryDetail(req);
