@@ -136,10 +136,16 @@ describe("Source implementations exist", () => {
     expect(recentFiles.name).toBe("recent-files");
     expect(typeof recentFiles.fetchNew).toBe("function");
   });
+
+  test("appleCalendar source has name and fetchNew", async () => {
+    const { appleCalendar } = await import("../daemon/sources/apple-calendar.ts");
+    expect(appleCalendar.name).toBe("apple-calendar");
+    expect(typeof appleCalendar.fetchNew).toBe("function");
+  });
 });
 
 describe("Source names match registry keys", () => {
-  test("all 19 sources have correct names matching config keys", async () => {
+  test("all 20 sources have correct names matching config keys", async () => {
     const { imessage } = await import("../daemon/sources/imessage.ts");
     const { signal } = await import("../daemon/sources/signal.ts");
     const { granola } = await import("../daemon/sources/granola.ts");
@@ -159,6 +165,7 @@ describe("Source names match registry keys", () => {
     const { appleHealth } = await import("../daemon/sources/apple-health.ts");
     const { screenTime } = await import("../daemon/sources/screen-time.ts");
     const { recentFiles } = await import("../daemon/sources/recent-files.ts");
+    const { appleCalendar } = await import("../daemon/sources/apple-calendar.ts");
 
     const { DEFAULT_CONFIG } = await import("../shared/config.ts");
 
@@ -185,6 +192,7 @@ describe("Source names match registry keys", () => {
     expect(configKeys).toContain("apple_health");
     expect(configKeys).toContain("screen_time");
     expect(configKeys).toContain("recent_files");
+    expect(configKeys).toContain("apple_calendar");
   });
 });
 

@@ -42,6 +42,8 @@ export async function handleSources() {
       enabled: !!enabled,
       itemCount: counts[key] || counts[dbKey] || 0,
       syncing: running && (daemonState.currentSource === key || daemonState.currentSource === dbKey),
+      lastError: daemonState.lastSyncErrors?.[key] || daemonState.lastSyncErrors?.[dbKey] || null,
+      lastSyncItemCount: daemonState.lastSyncResults?.[key] ?? daemonState.lastSyncResults?.[dbKey] ?? null,
     };
   });
 
@@ -53,6 +55,7 @@ export async function handleSources() {
       intervalSeconds: daemonState.intervalSeconds || config.daemon.sync_interval_seconds,
       lastSyncAt: daemonState.lastSyncAt || null,
       nextSyncAt: daemonState.nextSyncAt || null,
+      lastSyncErrors: daemonState.lastSyncErrors || null,
     },
   });
 }

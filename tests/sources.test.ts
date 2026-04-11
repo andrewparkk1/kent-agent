@@ -143,7 +143,7 @@ describe("Apple Notes source", () => {
 });
 
 describe("Source registry in sync command", () => {
-  test("all 19 sources are importable and conform to Source interface", async () => {
+  test("all 20 sources are importable and conform to Source interface", async () => {
     const sources: Source[] = [
       (await import("@daemon/sources/imessage.ts")).imessage,
       (await import("@daemon/sources/signal.ts")).signal,
@@ -164,9 +164,10 @@ describe("Source registry in sync command", () => {
       (await import("@daemon/sources/apple-health.ts")).appleHealth,
       (await import("@daemon/sources/screen-time.ts")).screenTime,
       (await import("@daemon/sources/recent-files.ts")).recentFiles,
+      (await import("@daemon/sources/apple-calendar.ts")).appleCalendar,
     ];
 
-    expect(sources.length).toBe(19);
+    expect(sources.length).toBe(20);
 
     const names = sources.map((s) => s.name);
     expect(names).toContain("imessage");
@@ -188,6 +189,7 @@ describe("Source registry in sync command", () => {
     expect(names).toContain("apple-health");
     expect(names).toContain("screen-time");
     expect(names).toContain("recent-files");
+    expect(names).toContain("apple-calendar");
 
     for (const source of sources) {
       expect(typeof source.name).toBe("string");

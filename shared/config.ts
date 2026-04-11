@@ -57,6 +57,7 @@ export interface Config {
     apple_health: boolean;
     screen_time: boolean;
     recent_files: boolean;
+    apple_calendar: boolean;
   };
   daemon: {
     sync_interval_seconds: number;
@@ -130,6 +131,7 @@ export const DEFAULT_CONFIG: Config = {
     apple_health: false,
     screen_time: false,
     recent_files: false,
+    apple_calendar: false,
   },
   daemon: {
     sync_interval_seconds: 300,

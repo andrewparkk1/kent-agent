@@ -33,6 +33,7 @@ import { appleMusic } from "./sources/apple-music.ts";
 import { appleHealth } from "./sources/apple-health.ts";
 import { screenTime } from "./sources/screen-time.ts";
 import { recentFiles } from "./sources/recent-files.ts";
+import { appleCalendar } from "./sources/apple-calendar.ts";
 
 const sourceRegistry: Record<string, Source> = {
   imessage,
@@ -57,6 +58,7 @@ const sourceRegistry: Record<string, Source> = {
   apple_health: appleHealth,
   screen_time: screenTime,
   recent_files: recentFiles,
+  apple_calendar: appleCalendar,
 };
 
 function log(message: string): void {

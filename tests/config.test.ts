@@ -78,7 +78,8 @@ describe("DEFAULT_CONFIG", () => {
     expect(sourceKeys).toContain("apple_health");
     expect(sourceKeys).toContain("screen_time");
     expect(sourceKeys).toContain("recent_files");
-    expect(sourceKeys.length).toBe(23);
+    expect(sourceKeys).toContain("apple_calendar");
+    expect(sourceKeys.length).toBe(24);
   });
 
   test("daemon sync interval is a positive number", () => {

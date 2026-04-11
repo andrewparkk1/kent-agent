@@ -1,7 +1,9 @@
 import {
   GmailIcon, ChromeIcon, GitHubIcon, SignalIcon, IMessageIcon,
   AppleNotesIcon, GranolaIcon, CalendarIcon, TasksIcon, DriveIcon,
-  AiCodingIcon,
+  AiCodingIcon, SafariIcon, RemindersIcon, ContactsIcon, ObsidianIcon,
+  WhatsAppIcon, SlackIcon, NotionIcon, SpotifyIcon, AppleMusicIcon,
+  HealthIcon, ScreenTimeIcon, RecentFilesIcon, AppleCalendarIcon,
 } from "./icons";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -37,6 +39,8 @@ export interface SourceInfo {
   enabled: boolean;
   itemCount: number;
   syncing: boolean;
+  lastError: string | null;
+  lastSyncItemCount: number | null;
 }
 
 export interface DaemonInfo {
@@ -45,6 +49,7 @@ export interface DaemonInfo {
   intervalSeconds: number;
   lastSyncAt: number | null;
   nextSyncAt: number | null;
+  lastSyncErrors: Record<string, string> | null;
 }
 
 export type Page = "home" | "workflows" | "workflow-detail" | "activity" | "chat" | "identity" | "sources" | "memories" | "memory-detail" | "settings" | "setup";
@@ -64,6 +69,25 @@ export const SOURCE_META: Record<string, { icon: any; label: string; color: stri
   signal:        { icon: SignalIcon,     label: "Signal",      color: "text-blue-500/80",    bg: "bg-blue-500/8" },
   granola:       { icon: GranolaIcon,    label: "Granola",     color: "text-purple-500/80",  bg: "bg-purple-500/8" },
   ai_coding:     { icon: AiCodingIcon,  label: "Claude & Codex", color: "text-orange-500/80",  bg: "bg-orange-500/8" },
+  safari:        { icon: SafariIcon,     label: "Safari",        color: "text-blue-500/80",     bg: "bg-blue-500/8" },
+  "apple-reminders": { icon: RemindersIcon, label: "Reminders",  color: "text-orange-500/80",   bg: "bg-orange-500/8" },
+  apple_reminders:   { icon: RemindersIcon, label: "Reminders",  color: "text-orange-500/80",   bg: "bg-orange-500/8" },
+  contacts:      { icon: ContactsIcon,   label: "Contacts",      color: "text-neutral-500/80",  bg: "bg-neutral-500/8" },
+  obsidian:      { icon: ObsidianIcon,   label: "Obsidian",      color: "text-violet-500/80",   bg: "bg-violet-500/8" },
+  whatsapp:      { icon: WhatsAppIcon,   label: "WhatsApp",      color: "text-emerald-500/80",  bg: "bg-emerald-500/8" },
+  slack:         { icon: SlackIcon,      label: "Slack",         color: "text-pink-500/80",     bg: "bg-pink-500/8" },
+  notion:        { icon: NotionIcon,     label: "Notion",        color: "text-neutral-600/80",  bg: "bg-neutral-500/8" },
+  spotify:       { icon: SpotifyIcon,    label: "Spotify",       color: "text-green-500/80",    bg: "bg-green-500/8" },
+  "apple-music": { icon: AppleMusicIcon, label: "Apple Music",   color: "text-red-500/80",      bg: "bg-red-500/8" },
+  apple_music:   { icon: AppleMusicIcon, label: "Apple Music",   color: "text-red-500/80",      bg: "bg-red-500/8" },
+  "apple-health": { icon: HealthIcon,    label: "Apple Health",  color: "text-red-400/80",      bg: "bg-red-400/8" },
+  apple_health:  { icon: HealthIcon,     label: "Apple Health",  color: "text-red-400/80",      bg: "bg-red-400/8" },
+  "screen-time": { icon: ScreenTimeIcon, label: "Screen Time",   color: "text-indigo-500/80",   bg: "bg-indigo-500/8" },
+  screen_time:   { icon: ScreenTimeIcon, label: "Screen Time",   color: "text-indigo-500/80",   bg: "bg-indigo-500/8" },
+  "recent-files": { icon: RecentFilesIcon, label: "Recent Files", color: "text-cyan-500/80",    bg: "bg-cyan-500/8" },
+  recent_files:  { icon: RecentFilesIcon, label: "Recent Files",  color: "text-cyan-500/80",    bg: "bg-cyan-500/8" },
+  "apple-calendar": { icon: AppleCalendarIcon, label: "Calendar (Apple)", color: "text-red-500/80", bg: "bg-red-500/8" },
+  apple_calendar:   { icon: AppleCalendarIcon, label: "Calendar (Apple)", color: "text-red-500/80", bg: "bg-red-500/8" },
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

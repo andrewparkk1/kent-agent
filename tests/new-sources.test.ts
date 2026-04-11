@@ -299,10 +299,31 @@ describe("Recent Files source", () => {
   });
 });
 
+// ─── Apple Calendar ─────────────────────────────────────────────────────
+
+describe("Apple Calendar source", () => {
+  test("exports appleCalendar with correct name", async () => {
+    const { appleCalendar } = await import("@daemon/sources/apple-calendar.ts");
+    expect(appleCalendar.name).toBe("apple-calendar");
+    expect(typeof appleCalendar.fetchNew).toBe("function");
+  });
+
+  test("fetchNew returns array (may fail without Calendar.app)", async () => {
+    const { appleCalendar } = await import("@daemon/sources/apple-calendar.ts");
+    const state = new MockSyncState();
+    const items = await appleCalendar.fetchNew(state);
+    expect(items).toBeArray();
+    for (const item of items) {
+      assertItemShape(item, "apple-calendar");
+      expect(item.externalId).toMatch(/^apple-calendar-/);
+    }
+  });
+});
+
 // ─── All sources registry ───────────────────────────────────────────────
 
 describe("All new sources are importable and conform to Source interface", () => {
-  test("all 12 new sources can be imported", async () => {
+  test("all 13 new sources can be imported", async () => {
     const sources: Source[] = [
       (await import("@daemon/sources/safari.ts")).safari,
       (await import("@daemon/sources/apple-reminders.ts")).appleReminders,
@@ -316,9 +337,10 @@ describe("All new sources are importable and conform to Source interface", () =>
       (await import("@daemon/sources/apple-health.ts")).appleHealth,
       (await import("@daemon/sources/screen-time.ts")).screenTime,
       (await import("@daemon/sources/recent-files.ts")).recentFiles,
+      (await import("@daemon/sources/apple-calendar.ts")).appleCalendar,
     ];
 
-    expect(sources.length).toBe(12);
+    expect(sources.length).toBe(13);
 
     for (const source of sources) {
       expect(typeof source.name).toBe("string");
@@ -327,7 +349,7 @@ describe("All new sources are importable and conform to Source interface", () =>
     }
   });
 
-  test("all 12 new source names are unique", async () => {
+  test("all 13 new source names are unique", async () => {
     const sources: Source[] = [
       (await import("@daemon/sources/safari.ts")).safari,
       (await import("@daemon/sources/apple-reminders.ts")).appleReminders,
@@ -341,6 +363,7 @@ describe("All new sources are importable and conform to Source interface", () =>
       (await import("@daemon/sources/apple-health.ts")).appleHealth,
       (await import("@daemon/sources/screen-time.ts")).screenTime,
       (await import("@daemon/sources/recent-files.ts")).recentFiles,
+      (await import("@daemon/sources/apple-calendar.ts")).appleCalendar,
     ];
 
     const names = sources.map((s) => s.name);
@@ -366,6 +389,7 @@ describe("All new sources are importable and conform to Source interface", () =>
       "apple-health": "apple_health",
       "screen-time": "screen_time",
       "recent-files": "recent_files",
+      "apple-calendar": "apple_calendar",
     };
 
     for (const [_sourceName, configKey] of Object.entries(expectedMappings)) {
