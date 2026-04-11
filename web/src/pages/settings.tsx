@@ -11,6 +11,7 @@ interface Config {
   sources: Record<string, boolean>;
   daemon: { sync_interval_seconds: number };
   agent: { provider: ModelProvider; default_model: string; base_url: string; api_key: string };
+  telegram: { bot_token: string; chat_ids: string[] };
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -360,6 +361,49 @@ export function SettingsPage() {
                   />
                 </div>
               ))}
+          </div>
+        </div>
+
+        {/* Channels */}
+        <div className="mb-8">
+          <SectionHeader title="Channels" description="Notification and chat channels — receive workflow notifications and chat with Kent" />
+          <div className="space-y-3">
+            <p className="text-[12px] text-muted-foreground/40 mb-2">Telegram (@kent_personal_bot)</p>
+            <div>
+              <label className="text-[12px] text-muted-foreground/60 mb-1 block">Bot Token</label>
+              <input
+                type="password"
+                value={config.telegram?.bot_token || ""}
+                onChange={(e) => {
+                  const updated = { ...config, telegram: { ...config.telegram, bot_token: e.target.value } };
+                  setConfig(updated);
+                  autoSave(updated, rawKeys);
+                }}
+                placeholder="123456:ABC-DEF..."
+                className="w-full bg-foreground/[0.03] border border-border/50 rounded-lg px-3 py-2 text-[13px] font-mono outline-none focus:border-border"
+              />
+            </div>
+            <div>
+              <label className="text-[12px] text-muted-foreground/60 mb-1 block">Chat IDs (comma-separated — add group chats here)</label>
+              <input
+                type="text"
+                value={(config.telegram?.chat_ids || []).join(", ")}
+                onChange={(e) => {
+                  const chat_ids = e.target.value.split(",").map((s) => s.trim()).filter(Boolean);
+                  const updated = { ...config, telegram: { ...config.telegram, chat_ids } };
+                  setConfig(updated);
+                  autoSave(updated, rawKeys);
+                }}
+                placeholder="123456, -789012 (private chat, group chat, ...)"
+                className="w-full bg-foreground/[0.03] border border-border/50 rounded-lg px-3 py-2 text-[13px] font-mono outline-none focus:border-border"
+              />
+            </div>
+            {config.telegram?.bot_token && (config.telegram?.chat_ids || []).length > 0 && (
+              <p className="text-[11px] text-emerald-500/70 flex items-center gap-1">
+                <Check size={10} />
+                Telegram configured — restart daemon to apply
+              </p>
+            )}
           </div>
         </div>
 

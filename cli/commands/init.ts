@@ -608,7 +608,7 @@ export async function handleInit(): Promise<void> {
     info(`skip iMessage/Apple Notes until access is granted.${NC}\n`);
   }
 
-  const TOTAL_STEPS = 5;
+  const TOTAL_STEPS = 6;
 
   // ------------------------------------------------------------------
   // Step 1: Device Token
@@ -882,9 +882,84 @@ export async function handleInit(): Promise<void> {
   }
 
   // ------------------------------------------------------------------
-  // Step 4: Start Daemon
+  // Step 4: Channels (Telegram, etc.)
   // ------------------------------------------------------------------
-  step(4, TOTAL_STEPS, "Initial Sync");
+  step(4, TOTAL_STEPS, "Channels");
+  info("Channels let Kent send you notifications and let you chat via messaging apps.\n");
+
+  const setupTelegram = await confirm("Set up Telegram? (recommended — @kent_personal_bot)", true);
+  if (setupTelegram) {
+    info("");
+    info(`${BOLD}Telegram Setup:${NC}`);
+    info("  1. Open Telegram and message @BotFather");
+    info("  2. Send /newbot and follow the prompts (or use an existing bot)");
+    info(`  3. Copy the bot token below\n`);
+    info(`${DIM}Default bot: @kent_personal_bot — you can create your own or use this name.${NC}\n`);
+
+    const botToken = await ask("Bot token (e.g. 123456:ABC-DEF...)");
+    if (botToken) {
+      config.telegram.bot_token = botToken;
+
+      info("");
+      info(`${BOLD}To find your chat ID:${NC}`);
+      info("  1. Send any message to your bot in Telegram");
+      info("  2. Then press Enter here — Kent will detect it automatically");
+      info(`${DIM}  You can add more chats (group chats, etc.) later in Settings.${NC}\n`);
+
+      const autoDetect = await confirm("Auto-detect chat ID? (send a message to the bot first)", true);
+      if (autoDetect) {
+        info("Checking for messages...");
+        try {
+          const res = await fetch(`https://api.telegram.org/bot${botToken}/getUpdates`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ timeout: 10 }),
+          });
+          const data = await res.json() as { ok: boolean; result: Array<{ message?: { chat: { id: number }; from?: { first_name: string } } }> };
+          if (data.ok && data.result.length > 0) {
+            const chatId = String(data.result[0]!.message?.chat.id ?? "");
+            const fromName = data.result[0]!.message?.from?.first_name ?? "unknown";
+            if (chatId) {
+              config.telegram.chat_ids = [chatId];
+              success(`Detected chat ID: ${chatId} (from ${fromName})`);
+            } else {
+              warn("No messages found. Enter chat ID manually.");
+              const manualId = await ask("Chat ID");
+              if (manualId) config.telegram.chat_ids = [manualId];
+            }
+          } else {
+            warn("No messages found. Send a message to your bot and enter the chat ID manually.");
+            const manualId = await ask("Chat ID");
+            if (manualId) config.telegram.chat_ids = [manualId];
+          }
+        } catch {
+          warn("Could not reach Telegram API. Enter chat ID manually.");
+          const manualId = await ask("Chat ID");
+          if (manualId) config.telegram.chat_ids = [manualId];
+        }
+      } else {
+        const manualId = await ask("Chat ID");
+        if (manualId) config.telegram.chat_ids = [manualId];
+      }
+
+      if (config.telegram.bot_token && config.telegram.chat_ids.length > 0) {
+        success("Telegram configured — you'll get workflow notifications and can chat with Kent");
+      } else if (config.telegram.bot_token) {
+        success("Bot token saved. Kent will auto-detect chats when you message the bot.");
+      } else {
+        warn("Telegram partially configured. Update in Settings or ~/.kent/config.json later.");
+      }
+    } else {
+      info("Skipping Telegram. You can set it up later in Settings or ~/.kent/config.json");
+    }
+  } else {
+    info("Skipping channels. You can set them up later in Settings or ~/.kent/config.json");
+  }
+
+  // ------------------------------------------------------------------
+  // Step 5: Initial Sync
+  // ------------------------------------------------------------------
+  step(5, TOTAL_STEPS, "Initial Sync");
 
   // Save config first
   saveConfig(config);
@@ -911,9 +986,9 @@ export async function handleInit(): Promise<void> {
   }
 
   // ------------------------------------------------------------------
-  // Step 5: Start Services
+  // Step 6: Start Services
   // ------------------------------------------------------------------
-  step(5, TOTAL_STEPS, "Start Services");
+  step(6, TOTAL_STEPS, "Start Services");
   console.log("");
   const shouldStart = await confirm("Start Kent now? (daemon + web dashboard)", true);
 

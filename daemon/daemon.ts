@@ -35,6 +35,9 @@ import { screenTime } from "./sources/screen-time.ts";
 import { recentFiles } from "./sources/recent-files.ts";
 import { appleCalendar } from "./sources/apple-calendar.ts";
 import { outlook } from "./sources/outlook.ts";
+import { getChannels } from "@shared/channels/index.ts";
+import { notifyAllChannels, formatWorkflowNotification } from "@shared/channels/notify.ts";
+import { startChannelPolling } from "./channel-handler.ts";
 
 const sourceRegistry: Record<string, Source> = {
   imessage,
@@ -75,6 +78,20 @@ function log(message: string): void {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Send a workflow notification to all configured channels. */
+async function notifyWorkflowRun(
+  workflowName: string,
+  threadId: string,
+  success: boolean,
+  output: string,
+): Promise<void> {
+  const channels = getChannels(loadConfig());
+  if (channels.length === 0) return;
+
+  const body = formatWorkflowNotification(workflowName, success, output);
+  await notifyAllChannels(channels, body, threadId, log);
 }
 
 interface DaemonState {
@@ -245,11 +262,14 @@ async function main(): Promise<void> {
             ? Bun.spawn([agentBin], { env, stdout: "pipe", stderr: "pipe" })
             : Bun.spawn([bunPath, "run", agentPath], { env, stdout: "pipe", stderr: "pipe", cwd: projectRoot });
 
-          await new Response(proc.stdout).text();
+          const agentOutput = await new Response(proc.stdout).text();
           await proc.exited;
 
           const success = proc.exitCode === 0;
           await finishThread(threadId, success ? "done" : "error");
+
+          // Send Telegram notification
+          notifyWorkflowRun(wf.name, threadId, success, agentOutput).catch(() => {});
 
           if (success) {
             log(`workflow: "${wf.name}" completed`);
@@ -261,6 +281,7 @@ async function main(): Promise<void> {
           }
         } catch (e) {
           await finishThread(threadId, "error");
+          notifyWorkflowRun(wf.name, threadId, false, String(e)).catch(() => {});
           if (attempt < maxAttempts) {
             log(`workflow: "${wf.name}" error (attempt ${attempt}/${maxAttempts}), retrying — ${e}`);
           } else {
@@ -335,6 +356,17 @@ async function main(): Promise<void> {
       enabledSources: currentNames,
       intervalSeconds: config.daemon.sync_interval_seconds,
     });
+  }
+
+  // ── Channel polling (runs in background per channel) ────────────────
+  const channels = getChannels(config);
+  if (channels.length > 0) {
+    for (const channel of channels) {
+      log(`Channel "${channel.name}" enabled — starting polling`);
+      startChannelPolling(channel, log).catch((e) => log(`${channel.name} polling fatal: ${e}`));
+    }
+  } else {
+    log("No channels configured — skipping. Set telegram.bot_token and telegram.chat_id in config.");
   }
 
   // ── Main loop (60s tick) ───────────────────────────────────────────

@@ -5,6 +5,8 @@ import { getDb } from "../../shared/db/connection.ts";
 import { getWorkflow, updateWorkflow, deleteWorkflow, archiveWorkflow, unarchiveWorkflow } from "../../shared/db/workflows.ts";
 import { createThread, finishThread, addMessage } from "../../shared/db/threads.ts";
 import { loadConfig } from "../../shared/config.ts";
+import { getChannels } from "../../shared/channels/index.ts";
+import { notifyAllChannels, formatWorkflowNotification } from "../../shared/channels/notify.ts";
 import { resolve } from "node:path";
 import { sql } from "kysely";
 
@@ -166,6 +168,16 @@ export async function handleWorkflowRun(req: Request) {
       const success = proc.exitCode === 0 || proc.exitCode === null;
       try {
         await finishThread(threadId, success ? "done" : "error");
+      } catch {}
+
+      // Send notification to all configured channels
+      try {
+        const channels = getChannels(loadConfig());
+        if (channels.length > 0) {
+          const body = formatWorkflowNotification(workflow.name, success, fullOutput);
+          const log = (msg: string) => console.log(`[workflow-run] ${msg}`);
+          notifyAllChannels(channels, body, threadId, log).catch(() => {});
+        }
       } catch {}
 
       try {
