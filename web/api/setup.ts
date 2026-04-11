@@ -152,6 +152,8 @@ export function handleSetupHardware() {
 
 export async function handleSetupCheckSources() {
   const home = homedir();
+  const config = loadConfig();
+  const keys = config.keys as Record<string, string>;
 
   const results: Record<string, { ok: boolean; message: string }> = {};
 
@@ -164,7 +166,7 @@ export async function handleSetupCheckSources() {
     commandExists("mdfind"),
   ]);
 
-  // Run auth checks in parallel too (only if CLIs exist)
+  // Run auth checks in parallel (only if CLIs exist)
   const [gwsAuth, ghAuth] = await Promise.all([
     hasGws
       ? (async () => {
@@ -177,9 +179,7 @@ export async function handleSetupCheckSources() {
               return status.token_valid ? `authenticated as ${status.user}` : "gws found (needs auth)";
             }
             return "gws found (needs setup)";
-          } catch {
-            return "gws found (needs setup)";
-          }
+          } catch { return "gws found (needs setup)"; }
         })()
       : Promise.resolve(null),
     hasGh
@@ -193,165 +193,85 @@ export async function handleSetupCheckSources() {
               return `authenticated as ${match?.[1] ?? "user"}`;
             }
             return "gh found (needs auth)";
-          } catch {
-            return "gh found (needs auth)";
-          }
+          } catch { return "gh found (needs auth)"; }
         })()
       : Promise.resolve(null),
   ]);
 
-  // Now assign results — all file checks are sync and instant
-
-  // iMessage
-  const imessageDb = join(home, "Library/Messages/chat.db");
-  results.imessage = existsSync(imessageDb)
+  // File-based checks (instant)
+  results.imessage = existsSync(join(home, "Library/Messages/chat.db"))
     ? { ok: true, message: "chat.db found" }
-    : { ok: false, message: "chat.db not found. Grant Full Disk Access to your terminal in System Settings > Privacy & Security." };
+    : { ok: false, message: "chat.db not found. Grant Full Disk Access." };
 
-  // Signal
   const signalDb = join(home, "Library/Application Support/Signal/sql/db.sqlite");
-  if (!existsSync(signalDb)) {
-    results.signal = { ok: false, message: "Signal desktop not installed or no database found." };
-  } else {
-    results.signal = hasSqlcipher
+  results.signal = !existsSync(signalDb)
+    ? { ok: false, message: "Signal desktop not installed." }
+    : hasSqlcipher
       ? { ok: true, message: "Signal DB + sqlcipher found" }
       : { ok: false, message: "Requires sqlcipher. Fix: brew install sqlcipher" };
-  }
 
-  // Granola
-  const granolaDir = join(home, "Library/Application Support/Granola");
-  results.granola = existsSync(granolaDir)
+  results.granola = existsSync(join(home, "Library/Application Support/Granola"))
     ? { ok: true, message: "Granola directory found" }
-    : { ok: false, message: "Granola not installed. Download from https://granola.ai" };
+    : { ok: false, message: "Granola not installed" };
 
-  // Gmail / Google
-  results.gmail = hasGws
-    ? { ok: true, message: gwsAuth! }
-    : { ok: false, message: "gws CLI not installed" };
+  results.gmail = hasGws ? { ok: true, message: gwsAuth! } : { ok: false, message: "gws CLI not installed" };
+  results.github = hasGh ? { ok: true, message: ghAuth! } : { ok: false, message: "gh CLI not installed" };
 
-  // GitHub
-  results.github = hasGh
-    ? { ok: true, message: ghAuth! }
-    : { ok: false, message: "gh CLI not installed" };
-
-  // Chrome
-  const chromeDb = join(home, "Library/Application Support/Google/Chrome/Default/History");
-  results.chrome = existsSync(chromeDb)
+  results.chrome = existsSync(join(home, "Library/Application Support/Google/Chrome/Default/History"))
     ? { ok: true, message: "Chrome history DB found" }
-    : { ok: false, message: "Chrome history not found. Is Chrome installed?" };
+    : { ok: false, message: "Chrome not found" };
 
-  // Apple Notes
-  const appleNotesDb = join(home, "Library/Group Containers/group.com.apple.notes/NoteStore.sqlite");
-  results.apple_notes = existsSync(appleNotesDb)
+  results.apple_notes = existsSync(join(home, "Library/Group Containers/group.com.apple.notes/NoteStore.sqlite"))
     ? { ok: true, message: "NoteStore.sqlite found" }
-    : { ok: false, message: "Apple Notes DB not found. Grant Full Disk Access to your terminal in System Settings > Privacy & Security." };
+    : { ok: false, message: "Apple Notes DB not found. Grant Full Disk Access." };
 
-  // AI Coding
   const hasClaudeCode = existsSync(join(home, ".claude/projects"));
   const hasCodex = existsSync(join(home, ".codex/history.jsonl"));
-  if (hasClaudeCode && hasCodex) {
-    results.ai_coding = { ok: true, message: "Claude Code + Codex found" };
-  } else if (hasClaudeCode) {
-    results.ai_coding = { ok: true, message: "Claude Code found" };
-  } else if (hasCodex) {
-    results.ai_coding = { ok: true, message: "Codex found" };
-  } else {
-    results.ai_coding = { ok: false, message: "No Claude Code or Codex data found" };
-  }
+  results.ai_coding = { ok: hasClaudeCode || hasCodex, message: hasClaudeCode && hasCodex ? "Claude Code + Codex found" : hasClaudeCode ? "Claude Code found" : hasCodex ? "Codex found" : "No Claude Code or Codex data found" };
 
-  // Safari
-  const safariDb = join(home, "Library/Safari/History.db");
-  results.safari = existsSync(safariDb)
+  results.safari = existsSync(join(home, "Library/Safari/History.db"))
     ? { ok: true, message: "Safari history DB found" }
-    : { ok: false, message: "Safari history not found. Is Safari installed?" };
+    : { ok: false, message: "Safari not found" };
 
-  // Apple Reminders
-  results.apple_reminders = hasOsascript
-    ? { ok: true, message: "Reminders.app available" }
-    : { ok: false, message: "osascript not found (requires macOS)" };
+  results.apple_reminders = hasOsascript ? { ok: true, message: "Reminders.app available" } : { ok: false, message: "Requires macOS" };
+  results.apple_music = hasOsascript ? { ok: true, message: "Music.app available" } : { ok: false, message: "Requires macOS" };
+  results.apple_calendar = hasOsascript ? { ok: true, message: "Calendar.app available" } : { ok: false, message: "Requires macOS" };
+  results.recent_files = hasMdfind ? { ok: true, message: "Spotlight available" } : { ok: false, message: "Requires macOS" };
 
-  // Contacts
-  const contactsDb = join(home, "Library/Application Support/AddressBook/AddressBook-v22.abcddb");
-  const contactsSources = join(home, "Library/Application Support/AddressBook/Sources");
-  results.contacts = existsSync(contactsDb) || existsSync(contactsSources)
+  results.contacts = existsSync(join(home, "Library/Application Support/AddressBook/AddressBook-v22.abcddb")) || existsSync(join(home, "Library/Application Support/AddressBook/Sources"))
     ? { ok: true, message: "AddressBook found" }
     : { ok: false, message: "AddressBook not found. Grant Full Disk Access." };
 
-  // Obsidian
-  const obsidianConfig = join(home, "Library/Application Support/obsidian/obsidian.json");
-  const hasObsidianEnv = !!process.env.OBSIDIAN_VAULT_PATH;
-  results.obsidian = existsSync(obsidianConfig) || hasObsidianEnv
+  results.obsidian = existsSync(join(home, "Library/Application Support/obsidian/obsidian.json")) || !!process.env.OBSIDIAN_VAULT_PATH
     ? { ok: true, message: "Obsidian vault found" }
     : { ok: false, message: "Obsidian not installed" };
 
-  // WhatsApp
-  const whatsappDb = join(home, "Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite");
-  results.whatsapp = existsSync(whatsappDb)
+  results.whatsapp = existsSync(join(home, "Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite"))
     ? { ok: true, message: "WhatsApp Desktop DB found" }
     : { ok: false, message: "WhatsApp Desktop not installed" };
 
-  // Slack (needs API token)
-  const config = loadConfig();
-  const hasSlackToken = !!(process.env.SLACK_TOKEN || (config.keys as Record<string, string>).slack);
-  results.slack = hasSlackToken
-    ? { ok: true, message: "Slack token configured" }
-    : { ok: false, message: "Needs API token (set keys.slack in config)" };
-
-  // Notion (needs API token)
-  const hasNotionToken = !!(process.env.NOTION_TOKEN || (config.keys as Record<string, string>).notion);
-  results.notion = hasNotionToken
-    ? { ok: true, message: "Notion token configured" }
-    : { ok: false, message: "Needs API token (set keys.notion in config)" };
-
-  // Spotify (needs OAuth credentials)
-  const keys = config.keys as Record<string, string>;
-  const hasSpotify = !!(
-    (process.env.SPOTIFY_CLIENT_ID || keys.spotify_client_id) &&
-    (process.env.SPOTIFY_REFRESH_TOKEN || keys.spotify_refresh_token)
-  );
-  results.spotify = hasSpotify
+  results.slack = process.env.SLACK_TOKEN || keys.slack ? { ok: true, message: "Slack token configured" } : { ok: false, message: "Needs API token (keys.slack)" };
+  results.notion = process.env.NOTION_TOKEN || keys.notion ? { ok: true, message: "Notion token configured" } : { ok: false, message: "Needs API token (keys.notion)" };
+  results.spotify = (process.env.SPOTIFY_CLIENT_ID || keys.spotify_client_id) && (process.env.SPOTIFY_REFRESH_TOKEN || keys.spotify_refresh_token)
     ? { ok: true, message: "Spotify credentials configured" }
-    : { ok: false, message: "Needs OAuth credentials (set keys.spotify_* in config)" };
+    : { ok: false, message: "Needs OAuth credentials (keys.spotify_*)" };
 
-  // Apple Music (needs osascript)
-  results.apple_music = hasOsascript
-    ? { ok: true, message: "Music.app available" }
-    : { ok: false, message: "osascript not found (requires macOS)" };
-
-  // Apple Health
-  const healthDb = join(home, "Library/Health/healthdb.sqlite");
-  results.apple_health = existsSync(healthDb)
+  results.apple_health = existsSync(join(home, "Library/Health/healthdb.sqlite"))
     ? { ok: true, message: "HealthKit database found" }
-    : { ok: false, message: "Health data not synced. Enable Health in iCloud settings." };
+    : { ok: false, message: "Enable Health in iCloud settings" };
 
-  // Screen Time
-  const knowledgeDb = join(home, "Library/Application Support/Knowledge/knowledgeC.db");
-  results.screen_time = existsSync(knowledgeDb)
+  results.screen_time = existsSync(join(home, "Library/Application Support/Knowledge/knowledgeC.db"))
     ? { ok: true, message: "Knowledge store found" }
-    : { ok: false, message: "Screen Time data not found. Enable Screen Time in System Settings." };
+    : { ok: false, message: "Enable Screen Time in System Settings" };
 
-  // Recent Files (needs mdfind / Spotlight)
-  results.recent_files = hasMdfind
-    ? { ok: true, message: "Spotlight indexing available" }
-    : { ok: false, message: "mdfind not found (requires macOS)" };
-
-  // Apple Calendar (needs osascript)
-  results.apple_calendar = hasOsascript
-    ? { ok: true, message: "Calendar.app available" }
-    : { ok: false, message: "osascript not found (requires macOS)" };
-
-  // Outlook
   const outlookDb = join(home, "Library/Group Containers/UBF8T346G9.Office/Outlook/Outlook 15 Profiles/Main Profile/Data/Outlook.sqlite");
-  const hasOutlookToken = !!(process.env.OUTLOOK_TOKEN || (config.keys as Record<string, string>).outlook);
-  if (existsSync(outlookDb)) {
-    results.outlook = { ok: true, message: "Outlook for Mac DB found" };
-  } else if (hasOutlookToken) {
-    results.outlook = { ok: true, message: "Microsoft Graph token configured" };
-  } else {
-    results.outlook = { ok: false, message: "Outlook not installed. Set keys.outlook for Graph API." };
-  }
+  results.outlook = existsSync(outlookDb)
+    ? { ok: true, message: "Outlook for Mac DB found" }
+    : process.env.OUTLOOK_TOKEN || keys.outlook
+      ? { ok: true, message: "Microsoft Graph token configured" }
+      : { ok: false, message: "Outlook not installed" };
 
-  // Convert to array format expected by frontend: { key, available, connected }
+  // Convert to array format
   const sourcesArray = Object.entries(results).map(([key, val]) => ({
     key,
     available: val.ok,
