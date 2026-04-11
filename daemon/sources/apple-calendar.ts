@@ -164,9 +164,9 @@ export const appleCalendar: Source = {
       let daysBefore = 30;
 
       if (lastSync > 0) {
-        const msSinceLastSync = Date.now() - lastSync * 1000;
-        const daysSinceLastSync = Math.ceil(msSinceLastSync / (1000 * 60 * 60 * 24));
-        daysBefore = Math.max(daysSinceLastSync, 1);
+        const secondsSinceLastSync = Math.floor(Date.now() / 1000) - lastSync;
+        const daysSinceLastSync = Math.ceil(secondsSinceLastSync / 86400);
+        daysBefore = Math.min(Math.max(daysSinceLastSync, 1), 365);
       }
 
       const script = buildAppleScript(daysBefore);

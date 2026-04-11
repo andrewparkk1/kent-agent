@@ -105,6 +105,7 @@ export const notion: Source = {
   name: "notion",
 
   async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
+    try {
     const config = loadConfig();
     const token =
       process.env.NOTION_TOKEN ||
@@ -191,5 +192,9 @@ export const notion: Source = {
     } while (cursor);
 
     return items;
+    } catch (e) {
+      console.warn(`[notion] Failed to fetch pages: ${e}`);
+      return [];
+    }
   },
 };

@@ -59,7 +59,10 @@ export const slack: Source = {
 
   async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
     const token = resolveToken();
-    if (!token) return [];
+    if (!token) {
+      console.warn("[slack] No token found — set SLACK_TOKEN env or keys.slack in config");
+      return [];
+    }
 
     const lastSync = state.getLastSync("slack");
     const defaultDays = options?.defaultDays ?? 365;

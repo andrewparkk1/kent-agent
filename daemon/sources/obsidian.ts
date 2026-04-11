@@ -149,6 +149,7 @@ export const obsidian: Source = {
   name: "obsidian",
 
   async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
+    try {
     const vaultPath = findVaultPath();
     if (!vaultPath) {
       console.warn("[obsidian] No Obsidian vault found");
@@ -235,5 +236,9 @@ export const obsidian: Source = {
     }
 
     return items;
+    } catch (e) {
+      console.warn(`[obsidian] Failed to fetch notes: ${e}`);
+      return [];
+    }
   },
 };
