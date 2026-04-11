@@ -27,12 +27,12 @@ describe("Channel interface", () => {
 // ─── TelegramChannel.isConfigured() ────────────────────────────────────────
 
 describe("TelegramChannel.isConfigured", () => {
-  test("returns true when bot_token and chat_ids are set", () => {
-    const channel = new TelegramChannel("123:ABC", ["456"]);
+  test("returns true when bot_token is set (chat_ids optional — auto-discovered)", () => {
+    const channel = new TelegramChannel("123:ABC", []);
     expect(channel.isConfigured()).toBe(true);
   });
 
-  test("returns true with multiple chat_ids", () => {
+  test("returns true with bot_token and chat_ids", () => {
     const channel = new TelegramChannel("123:ABC", ["456", "-789"]);
     expect(channel.isConfigured()).toBe(true);
   });
@@ -42,18 +42,8 @@ describe("TelegramChannel.isConfigured", () => {
     expect(channel.isConfigured()).toBe(false);
   });
 
-  test("returns false when chat_ids is empty array", () => {
-    const channel = new TelegramChannel("123:ABC", []);
-    expect(channel.isConfigured()).toBe(false);
-  });
-
   test("returns false when both are empty", () => {
     const channel = new TelegramChannel("", []);
-    expect(channel.isConfigured()).toBe(false);
-  });
-
-  test("filters out empty strings from chat_ids", () => {
-    const channel = new TelegramChannel("123:ABC", ["", ""]);
     expect(channel.isConfigured()).toBe(false);
   });
 });
@@ -61,23 +51,23 @@ describe("TelegramChannel.isConfigured", () => {
 // ─── getChannels() registry ────────────────────────────────────────────────
 
 describe("getChannels", () => {
-  test("returns empty array when telegram not configured", () => {
+  test("returns empty array when no bot_token", () => {
     const config = { ...DEFAULT_CONFIG };
     const channels = getChannels(config);
     expect(channels).toHaveLength(0);
   });
 
-  test("returns telegram channel when configured", () => {
+  test("returns telegram channel when bot_token set (even without chat_ids)", () => {
     const config: Config = {
       ...DEFAULT_CONFIG,
-      telegram: { bot_token: "123:ABC", chat_ids: ["456"] },
+      telegram: { bot_token: "123:ABC", chat_ids: [] },
     };
     const channels = getChannels(config);
     expect(channels).toHaveLength(1);
     expect(channels[0]!.name).toBe("telegram");
   });
 
-  test("telegram channel is configured in returned list", () => {
+  test("returns telegram channel with chat_ids", () => {
     const config: Config = {
       ...DEFAULT_CONFIG,
       telegram: { bot_token: "123:ABC", chat_ids: ["456"] },

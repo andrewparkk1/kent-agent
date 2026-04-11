@@ -2,8 +2,11 @@
  * Telegram channel implementation.
  * Uses the Telegram Bot API via plain fetch (zero external deps).
  * Supports multiple chat IDs — notifications go to all, replies route to the correct one.
+ * Auto-discovers new chats: when the bot receives a message from an unknown chat,
+ * it auto-adds that chat ID to the config and starts processing messages from it.
  */
 import type { Channel, ChannelMessage } from "./types.ts";
+import { loadConfig, saveConfig } from "@shared/config.ts";
 
 const API_BASE = "https://api.telegram.org/bot";
 const MAX_MESSAGE_LENGTH = 4096;
@@ -125,7 +128,7 @@ export class TelegramChannel implements Channel {
   }
 
   isConfigured(): boolean {
-    return !!(this.botToken && this.chatIds.size > 0);
+    return !!this.botToken;
   }
 
   async sendNotification(text: string): Promise<{ chatId: string; messageId: string }[]> {
@@ -166,7 +169,12 @@ export class TelegramChannel implements Channel {
           if (!update.message?.text) continue;
 
           const msgChatId = String(update.message.chat.id);
-          if (!this.chatIds.has(msgChatId)) continue;
+
+          // Auto-discover: if this chat isn't registered yet, add it
+          if (!this.chatIds.has(msgChatId)) {
+            this.chatIds.add(msgChatId);
+            this.persistChatIds();
+          }
 
           const msg: ChannelMessage = {
             id: String(update.message.message_id),
@@ -191,6 +199,17 @@ export class TelegramChannel implements Channel {
         }
         await sleep(5_000);
       }
+    }
+  }
+
+  /** Persist current chat IDs to config so they survive daemon restarts. */
+  private persistChatIds(): void {
+    try {
+      const config = loadConfig();
+      config.telegram.chat_ids = [...this.chatIds];
+      saveConfig(config);
+    } catch {
+      // Non-fatal — chat will be re-discovered on next message
     }
   }
 }

@@ -944,6 +944,8 @@ export async function handleInit(): Promise<void> {
 
       if (config.telegram.bot_token && config.telegram.chat_ids.length > 0) {
         success("Telegram configured — you'll get workflow notifications and can chat with Kent");
+      } else if (config.telegram.bot_token) {
+        success("Bot token saved. Kent will auto-detect chats when you message the bot.");
       } else {
         warn("Telegram partially configured. Update in Settings or ~/.kent/config.json later.");
       }
