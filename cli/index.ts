@@ -110,6 +110,11 @@ async function main(): Promise<void> {
       }
       break;
     }
+    case "web": {
+      const { handleWeb } = await import("./commands/web.ts");
+      await handleWeb();
+      break;
+    }
     case "daemon":
       await handleDaemon(subArgs);
       break;

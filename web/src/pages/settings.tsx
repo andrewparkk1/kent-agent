@@ -26,6 +26,20 @@ const SOURCE_LABELS: Record<string, string> = {
   signal: "Signal",
   granola: "Granola",
   ai_coding: "Claude & Codex",
+  safari: "Safari",
+  apple_reminders: "Reminders",
+  contacts: "Contacts",
+  obsidian: "Obsidian",
+  whatsapp: "WhatsApp",
+  slack: "Slack",
+  notion: "Notion",
+  spotify: "Spotify",
+  apple_music: "Apple Music",
+  apple_health: "Apple Health",
+  screen_time: "Screen Time",
+  recent_files: "Recent Files",
+  apple_calendar: "Apple Calendar",
+  outlook: "Outlook",
 };
 
 const PROVIDER_OPTIONS: { value: ModelProvider; label: string }[] = [
