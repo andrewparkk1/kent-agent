@@ -1,6 +1,8 @@
 import { memo } from "react";
 import { motion } from "motion/react";
 import { User } from "lucide-react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { Message } from "./types";
 import { formatMessageTime } from "./format-time";
 
@@ -31,7 +33,7 @@ export const MessageBubble = memo(function MessageBubble({ msg }: { msg: Message
           )}
         </div>
         <div className="mt-1 prose-chat">
-          {msg.content}
+          <Markdown remarkPlugins={[remarkGfm]}>{msg.content}</Markdown>
         </div>
       </div>
     </motion.div>
