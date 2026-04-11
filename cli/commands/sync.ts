@@ -28,6 +28,20 @@ import { github } from "@daemon/sources/github.ts";
 import { chrome } from "@daemon/sources/chrome.ts";
 import { appleNotes } from "@daemon/sources/apple-notes.ts";
 import { aiCoding } from "@daemon/sources/ai-coding.ts";
+import { safari } from "@daemon/sources/safari.ts";
+import { appleReminders } from "@daemon/sources/apple-reminders.ts";
+import { contacts } from "@daemon/sources/contacts.ts";
+import { obsidian } from "@daemon/sources/obsidian.ts";
+import { whatsapp } from "@daemon/sources/whatsapp.ts";
+import { slack } from "@daemon/sources/slack.ts";
+import { notion } from "@daemon/sources/notion.ts";
+import { spotify } from "@daemon/sources/spotify.ts";
+import { appleMusic } from "@daemon/sources/apple-music.ts";
+import { appleHealth } from "@daemon/sources/apple-health.ts";
+import { screenTime } from "@daemon/sources/screen-time.ts";
+import { recentFiles } from "@daemon/sources/recent-files.ts";
+import { appleCalendar } from "@daemon/sources/apple-calendar.ts";
+import { outlook } from "@daemon/sources/outlook.ts";
 
 const sourceRegistry: Record<string, Source> = {
   imessage,
@@ -41,6 +55,20 @@ const sourceRegistry: Record<string, Source> = {
   chrome,
   apple_notes: appleNotes,
   ai_coding: aiCoding,
+  safari,
+  apple_reminders: appleReminders,
+  contacts,
+  obsidian,
+  whatsapp,
+  slack,
+  notion,
+  spotify,
+  apple_music: appleMusic,
+  apple_health: appleHealth,
+  screen_time: screenTime,
+  recent_files: recentFiles,
+  apple_calendar: appleCalendar,
+  outlook,
 };
 
 interface SourceStatus {

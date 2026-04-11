@@ -21,6 +21,20 @@ import { github } from "./sources/github.ts";
 import { chrome } from "./sources/chrome.ts";
 import { appleNotes } from "./sources/apple-notes.ts";
 import { aiCoding } from "./sources/ai-coding.ts";
+import { safari } from "./sources/safari.ts";
+import { appleReminders } from "./sources/apple-reminders.ts";
+import { contacts } from "./sources/contacts.ts";
+import { obsidian } from "./sources/obsidian.ts";
+import { whatsapp } from "./sources/whatsapp.ts";
+import { slack } from "./sources/slack.ts";
+import { notion } from "./sources/notion.ts";
+import { spotify } from "./sources/spotify.ts";
+import { appleMusic } from "./sources/apple-music.ts";
+import { appleHealth } from "./sources/apple-health.ts";
+import { screenTime } from "./sources/screen-time.ts";
+import { recentFiles } from "./sources/recent-files.ts";
+import { appleCalendar } from "./sources/apple-calendar.ts";
+import { outlook } from "./sources/outlook.ts";
 
 const sourceRegistry: Record<string, Source> = {
   imessage,
@@ -33,6 +47,20 @@ const sourceRegistry: Record<string, Source> = {
   chrome,
   apple_notes: appleNotes,
   ai_coding: aiCoding,
+  safari,
+  apple_reminders: appleReminders,
+  contacts,
+  obsidian,
+  whatsapp,
+  slack,
+  notion,
+  spotify,
+  apple_music: appleMusic,
+  apple_health: appleHealth,
+  screen_time: screenTime,
+  recent_files: recentFiles,
+  apple_calendar: appleCalendar,
+  outlook,
 };
 
 function log(message: string): void {

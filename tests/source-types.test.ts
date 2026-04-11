@@ -64,10 +64,88 @@ describe("Source implementations exist", () => {
     expect(appleNotes.name).toBe("apple-notes");
     expect(typeof appleNotes.fetchNew).toBe("function");
   });
+
+  test("safari source has name and fetchNew", async () => {
+    const { safari } = await import("../daemon/sources/safari.ts");
+    expect(safari.name).toBe("safari");
+    expect(typeof safari.fetchNew).toBe("function");
+  });
+
+  test("appleReminders source has name and fetchNew", async () => {
+    const { appleReminders } = await import("../daemon/sources/apple-reminders.ts");
+    expect(appleReminders.name).toBe("apple-reminders");
+    expect(typeof appleReminders.fetchNew).toBe("function");
+  });
+
+  test("contacts source has name and fetchNew", async () => {
+    const { contacts } = await import("../daemon/sources/contacts.ts");
+    expect(contacts.name).toBe("contacts");
+    expect(typeof contacts.fetchNew).toBe("function");
+  });
+
+  test("obsidian source has name and fetchNew", async () => {
+    const { obsidian } = await import("../daemon/sources/obsidian.ts");
+    expect(obsidian.name).toBe("obsidian");
+    expect(typeof obsidian.fetchNew).toBe("function");
+  });
+
+  test("whatsapp source has name and fetchNew", async () => {
+    const { whatsapp } = await import("../daemon/sources/whatsapp.ts");
+    expect(whatsapp.name).toBe("whatsapp");
+    expect(typeof whatsapp.fetchNew).toBe("function");
+  });
+
+  test("slack source has name and fetchNew", async () => {
+    const { slack } = await import("../daemon/sources/slack.ts");
+    expect(slack.name).toBe("slack");
+    expect(typeof slack.fetchNew).toBe("function");
+  });
+
+  test("notion source has name and fetchNew", async () => {
+    const { notion } = await import("../daemon/sources/notion.ts");
+    expect(notion.name).toBe("notion");
+    expect(typeof notion.fetchNew).toBe("function");
+  });
+
+  test("spotify source has name and fetchNew", async () => {
+    const { spotify } = await import("../daemon/sources/spotify.ts");
+    expect(spotify.name).toBe("spotify");
+    expect(typeof spotify.fetchNew).toBe("function");
+  });
+
+  test("appleMusic source has name and fetchNew", async () => {
+    const { appleMusic } = await import("../daemon/sources/apple-music.ts");
+    expect(appleMusic.name).toBe("apple-music");
+    expect(typeof appleMusic.fetchNew).toBe("function");
+  });
+
+  test("appleHealth source has name and fetchNew", async () => {
+    const { appleHealth } = await import("../daemon/sources/apple-health.ts");
+    expect(appleHealth.name).toBe("apple-health");
+    expect(typeof appleHealth.fetchNew).toBe("function");
+  });
+
+  test("screenTime source has name and fetchNew", async () => {
+    const { screenTime } = await import("../daemon/sources/screen-time.ts");
+    expect(screenTime.name).toBe("screen-time");
+    expect(typeof screenTime.fetchNew).toBe("function");
+  });
+
+  test("recentFiles source has name and fetchNew", async () => {
+    const { recentFiles } = await import("../daemon/sources/recent-files.ts");
+    expect(recentFiles.name).toBe("recent-files");
+    expect(typeof recentFiles.fetchNew).toBe("function");
+  });
+
+  test("appleCalendar source has name and fetchNew", async () => {
+    const { appleCalendar } = await import("../daemon/sources/apple-calendar.ts");
+    expect(appleCalendar.name).toBe("apple-calendar");
+    expect(typeof appleCalendar.fetchNew).toBe("function");
+  });
 });
 
 describe("Source names match registry keys", () => {
-  test("all 7 sources have correct names matching config keys", async () => {
+  test("all 20 sources have correct names matching config keys", async () => {
     const { imessage } = await import("../daemon/sources/imessage.ts");
     const { signal } = await import("../daemon/sources/signal.ts");
     const { granola } = await import("../daemon/sources/granola.ts");
@@ -75,6 +153,19 @@ describe("Source names match registry keys", () => {
     const { github } = await import("../daemon/sources/github.ts");
     const { chrome } = await import("../daemon/sources/chrome.ts");
     const { appleNotes } = await import("../daemon/sources/apple-notes.ts");
+    const { safari } = await import("../daemon/sources/safari.ts");
+    const { appleReminders } = await import("../daemon/sources/apple-reminders.ts");
+    const { contacts } = await import("../daemon/sources/contacts.ts");
+    const { obsidian } = await import("../daemon/sources/obsidian.ts");
+    const { whatsapp } = await import("../daemon/sources/whatsapp.ts");
+    const { slack } = await import("../daemon/sources/slack.ts");
+    const { notion } = await import("../daemon/sources/notion.ts");
+    const { spotify } = await import("../daemon/sources/spotify.ts");
+    const { appleMusic } = await import("../daemon/sources/apple-music.ts");
+    const { appleHealth } = await import("../daemon/sources/apple-health.ts");
+    const { screenTime } = await import("../daemon/sources/screen-time.ts");
+    const { recentFiles } = await import("../daemon/sources/recent-files.ts");
+    const { appleCalendar } = await import("../daemon/sources/apple-calendar.ts");
 
     const { DEFAULT_CONFIG } = await import("../shared/config.ts");
 
@@ -87,8 +178,21 @@ describe("Source names match registry keys", () => {
     expect(configKeys).toContain(gmail.name);
     expect(configKeys).toContain(github.name);
     expect(configKeys).toContain(chrome.name);
-    // apple-notes source name doesn't match config key apple_notes (known mismatch)
+    expect(configKeys).toContain(safari.name);
+    expect(configKeys).toContain(contacts.name);
+    expect(configKeys).toContain(obsidian.name);
+    expect(configKeys).toContain(whatsapp.name);
+    expect(configKeys).toContain(slack.name);
+    expect(configKeys).toContain(notion.name);
+    expect(configKeys).toContain(spotify.name);
+    // Sources with hyphens use underscores in config keys
     expect(configKeys).toContain("apple_notes");
+    expect(configKeys).toContain("apple_reminders");
+    expect(configKeys).toContain("apple_music");
+    expect(configKeys).toContain("apple_health");
+    expect(configKeys).toContain("screen_time");
+    expect(configKeys).toContain("recent_files");
+    expect(configKeys).toContain("apple_calendar");
   });
 });
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Loader2,
@@ -58,14 +58,39 @@ const PROVIDER_OPTIONS: { value: ModelProvider; label: string; icon: string }[] 
 ];
 
 const SOURCE_LIST = [
-  { key: "gmail", label: "Gmail", oauth: true },
-  { key: "gcal", label: "Google Calendar", oauth: false, linkedTo: "gmail" },
-  { key: "gtasks", label: "Google Tasks", oauth: false, linkedTo: "gmail" },
-  { key: "gdrive", label: "Google Drive", oauth: false, linkedTo: "gmail" },
-  { key: "github", label: "GitHub", oauth: true },
-  { key: "chrome", label: "Chrome History", oauth: false },
-  { key: "apple_notes", label: "Apple Notes", oauth: false },
-  { key: "imessage", label: "iMessage", oauth: false },
+  // Google
+  { key: "gmail", label: "Gmail", oauth: true, group: "Google" },
+  { key: "gcal", label: "Google Calendar", oauth: false, linkedTo: "gmail", group: "Google" },
+  { key: "gtasks", label: "Google Tasks", oauth: false, linkedTo: "gmail", group: "Google" },
+  { key: "gdrive", label: "Google Drive", oauth: false, linkedTo: "gmail", group: "Google" },
+  // Development
+  { key: "github", label: "GitHub", oauth: true, group: "Development" },
+  { key: "ai_coding", label: "Claude Code & Codex", oauth: false, group: "Development" },
+  // Communication
+  { key: "imessage", label: "iMessage", oauth: false, group: "Communication" },
+  { key: "signal", label: "Signal", oauth: false, group: "Communication" },
+  { key: "whatsapp", label: "WhatsApp", oauth: false, group: "Communication" },
+  { key: "slack", label: "Slack", oauth: false, group: "Communication" },
+  // Browsing
+  { key: "chrome", label: "Chrome", oauth: false, group: "Browsing" },
+  { key: "safari", label: "Safari", oauth: false, group: "Browsing" },
+  // Productivity
+  { key: "apple_notes", label: "Apple Notes", oauth: false, group: "Productivity" },
+  { key: "apple_reminders", label: "Apple Reminders", oauth: false, group: "Productivity" },
+  { key: "apple_calendar", label: "Apple Calendar", oauth: false, group: "Productivity" },
+  { key: "notion", label: "Notion", oauth: false, group: "Productivity" },
+  { key: "obsidian", label: "Obsidian", oauth: false, group: "Productivity" },
+  { key: "granola", label: "Granola", oauth: false, group: "Productivity" },
+  // Email
+  { key: "outlook", label: "Microsoft Outlook", oauth: false, group: "Email" },
+  // Media
+  { key: "spotify", label: "Spotify", oauth: false, group: "Media" },
+  { key: "apple_music", label: "Apple Music", oauth: false, group: "Media" },
+  // System
+  { key: "contacts", label: "Contacts", oauth: false, group: "System" },
+  { key: "screen_time", label: "Screen Time", oauth: false, group: "System" },
+  { key: "apple_health", label: "Apple Health", oauth: false, group: "System" },
+  { key: "recent_files", label: "Recent Files", oauth: false, group: "System" },
 ];
 
 const STEP_LABELS = ["Welcome", "AI Provider", "Sources", "Sync", "Done"];
@@ -362,15 +387,30 @@ function StepSources({
 }) {
   const [statuses, setStatuses] = useState<SourceStatus[]>([]);
   const [loading, setLoading] = useState(true);
+  const enabledRef = useRef(enabledSources);
+  enabledRef.current = enabledSources;
 
   useEffect(() => {
-    fetch("/api/setup/check-sources")
-      .then((r) => r.json())
-      .then((data) => {
-        setStatuses(data.sources || []);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+    const es = new EventSource("/api/setup/check-sources");
+    es.onmessage = (e) => {
+      try {
+        const s: SourceStatus = JSON.parse(e.data);
+        setStatuses((prev) => {
+          const exists = prev.find((p) => p.key === s.key);
+          return exists ? prev.map((p) => (p.key === s.key ? s : p)) : [...prev, s];
+        });
+        // Auto-enable if detected as connected
+        if (s.available && s.connected && enabledRef.current[s.key] === undefined) {
+          setEnabledSources({ ...enabledRef.current, [s.key]: true });
+        }
+      } catch {}
+    };
+    es.addEventListener("done", () => {
+      setLoading(false);
+      es.close();
+    });
+    es.onerror = () => { setLoading(false); es.close(); };
+    return () => es.close();
   }, []);
 
   const handleToggle = (key: string) => {
@@ -405,47 +445,54 @@ function StepSources({
         <p className="text-[13px] text-muted-foreground/60">Choose which sources Kent should monitor and sync.</p>
       </div>
 
-      <div className="max-w-md mx-auto space-y-2">
-        {SOURCE_LIST.map((src) => {
-          const status = statuses.find((s) => s.key === src.key);
-          const isEnabled = enabledSources[src.key] ?? false;
-          const needsOAuth = src.oauth && !status?.connected;
+      <div className="max-w-md mx-auto space-y-1">
+        {(() => {
+          let lastGroup = "";
+          return SOURCE_LIST.map((src) => {
+            const status = statuses.find((s) => s.key === src.key);
+            const isEnabled = enabledSources[src.key] ?? false;
+            const needsOAuth = src.oauth && !status?.connected;
+            const showGroup = (src as any).group && (src as any).group !== lastGroup;
+            if (showGroup) lastGroup = (src as any).group;
 
-          return (
-            <div
-              key={src.key}
-              className="flex items-center justify-between bg-foreground/[0.03] border border-border/50 rounded-lg px-4 py-3"
-            >
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => handleToggle(src.key)}
-                  className={`w-5 h-5 rounded border flex items-center justify-center transition-colors cursor-pointer ${
-                    isEnabled
-                      ? "bg-emerald-500 border-emerald-500"
-                      : "border-border bg-transparent"
-                  }`}
-                >
-                  {isEnabled && <Check size={12} className="text-white" />}
-                </button>
-                <span className="text-[13px]">{src.label}</span>
-                {status?.connected && (
-                  <span className="text-[10px] text-emerald-500 bg-emerald-500/10 rounded px-1.5 py-0.5">Connected</span>
+            return (
+              <div key={src.key}>
+                {showGroup && (
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/40 pt-3 pb-1 px-1">{(src as any).group}</div>
                 )}
-                {status && !status.available && !src.oauth && (
-                  <span className="text-[10px] text-muted-foreground/40 bg-foreground/[0.04] rounded px-1.5 py-0.5">Unavailable</span>
-                )}
+                <div className="flex items-center justify-between bg-foreground/[0.03] border border-border/50 rounded-lg px-4 py-2.5">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => handleToggle(src.key)}
+                      className={`w-5 h-5 rounded border flex items-center justify-center transition-colors cursor-pointer ${
+                        isEnabled
+                          ? "bg-emerald-500 border-emerald-500"
+                          : "border-border bg-transparent"
+                      }`}
+                    >
+                      {isEnabled && <Check size={12} className="text-white" />}
+                    </button>
+                    <span className="text-[13px]">{src.label}</span>
+                    {status?.connected && (
+                      <span className="text-[10px] text-emerald-500 bg-emerald-500/10 rounded px-1.5 py-0.5">Connected</span>
+                    )}
+                    {status && !status.available && !src.oauth && (
+                      <span className="text-[10px] text-muted-foreground/40 bg-foreground/[0.04] rounded px-1.5 py-0.5">Unavailable</span>
+                    )}
+                  </div>
+                  {needsOAuth && (
+                    <button
+                      onClick={() => handleConnect(src.key)}
+                      className="flex items-center gap-1 text-[11px] text-foreground/60 hover:text-foreground transition-colors cursor-pointer"
+                    >
+                      Connect <ExternalLink size={10} />
+                    </button>
+                  )}
+                </div>
               </div>
-              {needsOAuth && (
-                <button
-                  onClick={() => handleConnect(src.key)}
-                  className="flex items-center gap-1 text-[11px] text-foreground/60 hover:text-foreground transition-colors cursor-pointer"
-                >
-                  Connect <ExternalLink size={10} />
-                </button>
-              )}
-            </div>
-          );
-        })}
+            );
+          });
+        })()}
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Search, Globe, ChevronDown, ChevronRight, RefreshCw, Calendar, Loader2, Settings2, X, MessageCircle, Users, Download, Bookmark, History, SearchIcon, Terminal } from "lucide-react";
+import { Search, Globe, ChevronDown, ChevronRight, RefreshCw, Calendar, Loader2, Settings2, X, MessageCircle, Users, Download, Bookmark, History, SearchIcon, Terminal, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import Markdown from "react-markdown";
 import { Stagger, StaggerItem } from "@/components/stagger";
@@ -1042,14 +1042,22 @@ export function SourcesPage({ items, loading, filter, setFilter, query, setQuery
                   {enabledSources.map((s) => {
                     const meta = SOURCE_META[s.id] || { icon: Globe, label: s.id, color: "text-neutral-400", bg: "bg-neutral-500/8" };
                     const Icon = meta.icon;
+                    const hasError = !!s.lastError;
                     return (
-                      <div key={s.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-foreground/[0.02]">
-                        <div className={`shrink-0 w-5 h-5 rounded ${meta.bg} flex items-center justify-center`}>
-                          <Icon size={11} className={meta.color} />
+                      <div key={s.id} className="px-2 py-1.5 rounded-lg hover:bg-foreground/[0.02]">
+                        <div className="flex items-center gap-2">
+                          <div className={`shrink-0 w-5 h-5 rounded ${hasError ? "bg-red-500/10" : meta.bg} flex items-center justify-center`}>
+                            {hasError ? <AlertTriangle size={11} className="text-red-500/70" /> : <Icon size={11} className={meta.color} />}
+                          </div>
+                          <span className={`text-[12px] flex-1 ${hasError ? "text-red-500/80" : "text-foreground"}`}>{meta.label}</span>
+                          <span className="text-[10px] text-muted-foreground/40 font-mono mr-1">{s.itemCount}</span>
+                          <SyncButton sourceId={s.id} onSynced={onRefresh} />
                         </div>
-                        <span className="text-[12px] text-foreground flex-1">{meta.label}</span>
-                        <span className="text-[10px] text-muted-foreground/40 font-mono mr-1">{s.itemCount}</span>
-                        <SyncButton sourceId={s.id} onSynced={onRefresh} />
+                        {hasError && (
+                          <div className="ml-7 mt-1 text-[10px] text-red-500/60 leading-tight line-clamp-2">
+                            {s.lastError}
+                          </div>
+                        )}
                       </div>
                     );
                   })}

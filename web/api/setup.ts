@@ -147,116 +147,114 @@ export function handleSetupHardware() {
 }
 
 // ---------------------------------------------------------------------------
-// 4. GET /api/setup/check-sources — check prerequisites for all 8 sources
+// 4. GET /api/setup/check-sources — stream source detection results via SSE
 // ---------------------------------------------------------------------------
 
-export async function handleSetupCheckSources() {
+function sseEvent(key: string, ok: boolean, message: string): string {
+  const connected = ok && !message.includes("needs auth") && !message.includes("needs setup");
+  return `data: ${JSON.stringify({ key, available: ok, connected, message })}\n\n`;
+}
+
+export function handleSetupCheckSources() {
   const home = homedir();
+  const config = loadConfig();
+  const keys = config.keys as Record<string, string>;
+  const enc = new TextEncoder();
 
-  const results: Record<string, { ok: boolean; message: string }> = {};
+  const stream = new ReadableStream({
+    async start(controller) {
+      const emit = (key: string, ok: boolean, msg: string) =>
+        controller.enqueue(enc.encode(sseEvent(key, ok, msg)));
 
-  // iMessage
-  const imessageDb = join(home, "Library/Messages/chat.db");
-  results.imessage = existsSync(imessageDb)
-    ? { ok: true, message: "chat.db found" }
-    : { ok: false, message: "chat.db not found. Grant Full Disk Access to your terminal in System Settings > Privacy & Security." };
+      // ── Instant file/token checks — emit immediately ──────────────
+      const fc = (path: string) => existsSync(path);
 
-  // Signal
-  const signalDb = join(home, "Library/Application Support/Signal/sql/db.sqlite");
-  if (!existsSync(signalDb)) {
-    results.signal = { ok: false, message: "Signal desktop not installed or no database found." };
-  } else {
-    const hasSqlcipher = await commandExists("sqlcipher");
-    results.signal = hasSqlcipher
-      ? { ok: true, message: "Signal DB + sqlcipher found" }
-      : { ok: false, message: "Requires sqlcipher. Fix: brew install sqlcipher" };
-  }
+      emit("imessage", fc(join(home, "Library/Messages/chat.db")), fc(join(home, "Library/Messages/chat.db")) ? "chat.db found" : "chat.db not found. Grant Full Disk Access.");
+      emit("granola", fc(join(home, "Library/Application Support/Granola")), fc(join(home, "Library/Application Support/Granola")) ? "Granola directory found" : "Granola not installed");
+      emit("chrome", fc(join(home, "Library/Application Support/Google/Chrome/Default/History")), fc(join(home, "Library/Application Support/Google/Chrome/Default/History")) ? "Chrome history DB found" : "Chrome not found");
+      emit("apple_notes", fc(join(home, "Library/Group Containers/group.com.apple.notes/NoteStore.sqlite")), fc(join(home, "Library/Group Containers/group.com.apple.notes/NoteStore.sqlite")) ? "NoteStore.sqlite found" : "Apple Notes DB not found. Grant Full Disk Access.");
+      emit("safari", fc(join(home, "Library/Safari/History.db")), fc(join(home, "Library/Safari/History.db")) ? "Safari history DB found" : "Safari not found");
+      emit("whatsapp", fc(join(home, "Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite")), fc(join(home, "Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite")) ? "WhatsApp Desktop DB found" : "WhatsApp Desktop not installed");
+      emit("apple_health", fc(join(home, "Library/Health/healthdb.sqlite")), fc(join(home, "Library/Health/healthdb.sqlite")) ? "HealthKit database found" : "Enable Health in iCloud settings");
+      emit("screen_time", fc(join(home, "Library/Application Support/Knowledge/knowledgeC.db")), fc(join(home, "Library/Application Support/Knowledge/knowledgeC.db")) ? "Knowledge store found" : "Enable Screen Time in System Settings");
+      emit("contacts", fc(join(home, "Library/Application Support/AddressBook/AddressBook-v22.abcddb")) || fc(join(home, "Library/Application Support/AddressBook/Sources")), fc(join(home, "Library/Application Support/AddressBook/AddressBook-v22.abcddb")) || fc(join(home, "Library/Application Support/AddressBook/Sources")) ? "AddressBook found" : "AddressBook not found. Grant Full Disk Access.");
+      emit("obsidian", fc(join(home, "Library/Application Support/obsidian/obsidian.json")) || !!process.env.OBSIDIAN_VAULT_PATH, fc(join(home, "Library/Application Support/obsidian/obsidian.json")) || !!process.env.OBSIDIAN_VAULT_PATH ? "Obsidian vault found" : "Obsidian not installed");
 
-  // Granola
-  const granolaDir = join(home, "Library/Application Support/Granola");
-  results.granola = existsSync(granolaDir)
-    ? { ok: true, message: "Granola directory found" }
-    : { ok: false, message: "Granola not installed. Download from https://granola.ai" };
+      const hasCC = fc(join(home, ".claude/projects")), hasCx = fc(join(home, ".codex/history.jsonl"));
+      emit("ai_coding", hasCC || hasCx, hasCC && hasCx ? "Claude Code + Codex found" : hasCC ? "Claude Code found" : hasCx ? "Codex found" : "No Claude Code or Codex data found");
 
-  // Gmail / Google
-  const hasGws = await commandExists("gws");
-  if (!hasGws) {
-    results.gmail = { ok: false, message: "gws CLI not installed" };
-  } else {
-    try {
-      const proc = Bun.spawn(["gws", "auth", "status", "--format", "json"], { stdout: "pipe", stderr: "pipe" });
-      const code = await proc.exited;
-      if (code === 0) {
-        const output = await new Response(proc.stdout).text();
-        const status = JSON.parse(output);
-        if (status.token_valid) {
-          results.gmail = { ok: true, message: `authenticated as ${status.user}` };
-        } else {
-          results.gmail = { ok: true, message: "gws found (needs auth)" };
-        }
-      } else {
-        results.gmail = { ok: true, message: "gws found (needs setup)" };
-      }
-    } catch {
-      results.gmail = { ok: true, message: "gws found (needs setup)" };
-    }
-  }
+      emit("slack", !!(process.env.SLACK_TOKEN || keys.slack), process.env.SLACK_TOKEN || keys.slack ? "Slack token configured" : "Needs API token (keys.slack)");
+      emit("notion", !!(process.env.NOTION_TOKEN || keys.notion), process.env.NOTION_TOKEN || keys.notion ? "Notion token configured" : "Needs API token (keys.notion)");
+      emit("spotify", !!((process.env.SPOTIFY_CLIENT_ID || keys.spotify_client_id) && (process.env.SPOTIFY_REFRESH_TOKEN || keys.spotify_refresh_token)), (process.env.SPOTIFY_CLIENT_ID || keys.spotify_client_id) && (process.env.SPOTIFY_REFRESH_TOKEN || keys.spotify_refresh_token) ? "Spotify configured" : "Needs OAuth credentials (keys.spotify_*)");
 
-  // GitHub
-  const hasGh = await commandExists("gh");
-  if (!hasGh) {
-    results.github = { ok: false, message: "gh CLI not installed" };
-  } else {
-    try {
-      const proc = Bun.spawn(["gh", "auth", "status"], { stdout: "pipe", stderr: "pipe" });
-      const code = await proc.exited;
-      if (code === 0) {
-        const output = await new Response(proc.stderr).text();
-        const match = output.match(/Logged in to .+ as (.+)/);
-        const user = match?.[1] ?? "authenticated";
-        results.github = { ok: true, message: `authenticated as ${user}` };
-      } else {
-        results.github = { ok: true, message: "gh found (needs auth)" };
-      }
-    } catch {
-      results.github = { ok: true, message: "gh found (needs auth)" };
-    }
-  }
+      const outlookPath = join(home, "Library/Group Containers/UBF8T346G9.Office/Outlook/Outlook 15 Profiles/Main Profile/Data/Outlook.sqlite");
+      emit("outlook", fc(outlookPath) || !!(process.env.OUTLOOK_TOKEN || keys.outlook), fc(outlookPath) ? "Outlook for Mac DB found" : process.env.OUTLOOK_TOKEN || keys.outlook ? "Graph token configured" : "Outlook not installed");
 
-  // Chrome
-  const chromeDb = join(home, "Library/Application Support/Google/Chrome/Default/History");
-  results.chrome = existsSync(chromeDb)
-    ? { ok: true, message: "Chrome history DB found" }
-    : { ok: false, message: "Chrome history not found. Is Chrome installed?" };
+      // ── Slow CLI checks — run in parallel, emit as each resolves ──
+      await Promise.all([
+        // Signal
+        (async () => {
+          if (!fc(join(home, "Library/Application Support/Signal/sql/db.sqlite"))) {
+            emit("signal", false, "Signal desktop not installed");
+            return;
+          }
+          const has = await commandExists("sqlcipher");
+          emit("signal", has, has ? "Signal DB + sqlcipher found" : "Requires sqlcipher. brew install sqlcipher");
+        })(),
 
-  // Apple Notes
-  const appleNotesDb = join(home, "Library/Group Containers/group.com.apple.notes/NoteStore.sqlite");
-  results.apple_notes = existsSync(appleNotesDb)
-    ? { ok: true, message: "NoteStore.sqlite found" }
-    : { ok: false, message: "Apple Notes DB not found. Grant Full Disk Access to your terminal in System Settings > Privacy & Security." };
+        // Gmail + gws auth
+        (async () => {
+          const has = await commandExists("gws");
+          if (!has) { emit("gmail", false, "gws CLI not installed"); return; }
+          try {
+            const proc = Bun.spawn(["gws", "auth", "status", "--format", "json"], { stdout: "pipe", stderr: "pipe" });
+            const code = await proc.exited;
+            if (code === 0) {
+              const out = await new Response(proc.stdout).text();
+              const s = JSON.parse(out);
+              emit("gmail", true, s.token_valid ? `authenticated as ${s.user}` : "gws found (needs auth)");
+            } else { emit("gmail", true, "gws found (needs setup)"); }
+          } catch { emit("gmail", true, "gws found (needs setup)"); }
+        })(),
 
-  // AI Coding
-  const hasClaudeCode = existsSync(join(home, ".claude/projects"));
-  const hasCodex = existsSync(join(home, ".codex/history.jsonl"));
-  if (hasClaudeCode && hasCodex) {
-    results.ai_coding = { ok: true, message: "Claude Code + Codex found" };
-  } else if (hasClaudeCode) {
-    results.ai_coding = { ok: true, message: "Claude Code found" };
-  } else if (hasCodex) {
-    results.ai_coding = { ok: true, message: "Codex found" };
-  } else {
-    results.ai_coding = { ok: false, message: "No Claude Code or Codex data found" };
-  }
+        // GitHub + gh auth
+        (async () => {
+          const has = await commandExists("gh");
+          if (!has) { emit("github", false, "gh CLI not installed"); return; }
+          try {
+            const proc = Bun.spawn(["gh", "auth", "status"], { stdout: "pipe", stderr: "pipe" });
+            const code = await proc.exited;
+            if (code === 0) {
+              const out = await new Response(proc.stderr).text();
+              const m = out.match(/Logged in to .+ as (.+)/);
+              emit("github", true, `authenticated as ${m?.[1] ?? "user"}`);
+            } else { emit("github", true, "gh found (needs auth)"); }
+          } catch { emit("github", true, "gh found (needs auth)"); }
+        })(),
 
-  // Convert to array format expected by frontend: { key, available, connected }
-  const sourcesArray = Object.entries(results).map(([key, val]) => ({
-    key,
-    available: val.ok,
-    connected: val.ok && !val.message.includes("needs auth") && !val.message.includes("needs setup"),
-    message: val.message,
-  }));
+        // osascript → Reminders, Music, Calendar
+        (async () => {
+          const has = await commandExists("osascript");
+          emit("apple_reminders", has, has ? "Reminders.app available" : "Requires macOS");
+          emit("apple_music", has, has ? "Music.app available" : "Requires macOS");
+          emit("apple_calendar", has, has ? "Calendar.app available" : "Requires macOS");
+        })(),
 
-  return Response.json({ sources: sourcesArray });
+        // mdfind → Recent Files
+        (async () => {
+          const has = await commandExists("mdfind");
+          emit("recent_files", has, has ? "Spotlight available" : "Requires macOS");
+        })(),
+      ]);
+
+      controller.enqueue(enc.encode("event: done\ndata: {}\n\n"));
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
+  });
 }
 
 // ---------------------------------------------------------------------------
