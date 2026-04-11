@@ -12,11 +12,12 @@ import { MemoriesPage } from "@/pages/memories";
 import { MemoryDetailPage } from "@/pages/memory-detail";
 import { WorkflowDetailPage } from "@/pages/workflow-detail";
 import { SettingsPage } from "@/pages/settings";
+import { SetupPage } from "@/pages/setup";
 import type { Page, Item, Workflow, SourceInfo, DaemonInfo } from "@/lib/types";
 
 // ─── Clean URL routing ──────────────────────────────────────────────────────
 
-const VALID_PAGES = new Set<Page>(["home", "workflows", "workflow-detail", "activity", "chat", "identity", "sources", "memories", "memory-detail", "settings"]);
+const VALID_PAGES = new Set<Page>(["home", "workflows", "workflow-detail", "activity", "chat", "identity", "sources", "memories", "memory-detail", "settings", "setup"]);
 
 function parsePath(): { page: Page; threadId: string | null; workflowId: string | null; memoryId: string | null } {
   const path = window.location.pathname.replace(/^\//, "");
@@ -33,6 +34,8 @@ function parsePath(): { page: Page; threadId: string | null; workflowId: string 
     case "memory":
       if (id) return { page: "memory-detail", threadId: null, workflowId: null, memoryId: id };
       return { page: "memories", threadId: null, workflowId: null, memoryId: null };
+    case "setup":
+      return { page: "setup", threadId: null, workflowId: null, memoryId: null };
     default:
       if (VALID_PAGES.has(base as Page)) return { page: base as Page, threadId: null, workflowId: null, memoryId: null };
       return { page: "workflows", threadId: null, workflowId: null, memoryId: null };
@@ -57,6 +60,7 @@ function buildPath(page: Page, ids: { threadId?: string | null; workflowId?: str
 export function App() {
   const initial = parsePath();
   const [page, setPageState] = useState<Page>(initial.page);
+  const [checkingSetup, setCheckingSetup] = useState(true);
   const [items, setItems] = useState<Item[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [filter, setFilter] = useState<string | null>(null);
@@ -105,6 +109,22 @@ export function App() {
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  // Check if first-run setup is needed
+  useEffect(() => {
+    fetch("/api/setup/status")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.needsSetup) {
+          setPageState("setup");
+          window.history.replaceState(null, "", "/setup");
+        }
+        setCheckingSetup(false);
+      })
+      .catch(() => {
+        setCheckingSetup(false);
+      });
   }, []);
 
   const openChat = useCallback((threadId?: string, prefill?: string) => {
@@ -208,6 +228,21 @@ export function App() {
     }, 5000);
     return () => clearInterval(interval);
   }, [fetchItems, fetchCounts, fetchWorkflows, fetchSources, fetchUnreadCount, itemsPage]);
+
+  if (checkingSetup) {
+    return <div className="flex h-screen bg-background" />;
+  }
+
+  if (page === "setup") {
+    return (
+      <SetupPage
+        onComplete={() => {
+          setPageState("workflows");
+          window.history.replaceState(null, "", "/workflows");
+        }}
+      />
+    );
+  }
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
