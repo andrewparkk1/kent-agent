@@ -1,10 +1,35 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Moon, Sun, ChevronLeft, ChevronRight, Calendar, Loader2 } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 import { timeAgo } from "@/lib/types";
+
+interface MemoryIndexEntry {
+  id: string;
+  type: string;
+  title: string;
+}
+
+const TYPE_COLORS: Record<string, string> = {
+  person: "text-blue-500/70 hover:text-blue-500 decoration-blue-500/30",
+  project: "text-violet-500/70 hover:text-violet-500 decoration-violet-500/30",
+  topic: "text-amber-500/70 hover:text-amber-500 decoration-amber-500/30",
+  event: "text-emerald-500/70 hover:text-emerald-500 decoration-emerald-500/30",
+  preference: "text-red-500/70 hover:text-red-500 decoration-red-500/30",
+  place: "text-orange-500/70 hover:text-orange-500 decoration-orange-500/30",
+};
+
+function resolveWikiLinks(body: string, index: Record<string, MemoryIndexEntry>): string {
+  return body.replace(/\[\[([^\]]+)\]\]/g, (_match, title: string) => {
+    const entry = index[title.toLowerCase()];
+    if (entry) {
+      return `[${title}](#memory:${encodeURIComponent(entry.id)})`;
+    }
+    return `**⟦${title}⟧**`;
+  });
+}
 
 interface BriefRun {
   id: string;
@@ -100,7 +125,7 @@ function DatePicker({ dates, selected, onSelect, onClose }: {
 
 // ─── Home Page ────────────────────────────────────────────────────────────
 
-export function HomePage() {
+export function HomePage({ onNavigateMemory }: { onNavigateMemory?: (id: string) => void }) {
   const [briefs, setBriefs] = useState<BriefRun[]>([]);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>(toDateStr(new Date()));
@@ -109,6 +134,15 @@ export function HomePage() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [_direction, setDirection] = useState(0);
   const directionRef = useRef(0);
+  const [memoryIndex, setMemoryIndex] = useState<Record<string, MemoryIndexEntry>>({});
+
+  // Fetch memory index for resolving [[Title]] wiki links
+  useEffect(() => {
+    fetch("/api/memories/index")
+      .then((res) => res.json())
+      .then((data) => setMemoryIndex(data.memoryIndex ?? {}))
+      .catch(() => {});
+  }, []);
 
   const morningBrief = briefs.find((b) => b.workflow_name.includes("morning")) || null;
   const eveningBrief = briefs.find((b) => b.workflow_name.includes("evening")) || null;
@@ -171,6 +205,31 @@ export function HomePage() {
     setSelectedDate(date);
     fetchBrief(date);
   };
+
+  // Resolve [[Title]] wiki links in the active brief output
+  const processedOutput = useMemo(() => {
+    if (!activeBrief?.output) return "";
+    return resolveWikiLinks(activeBrief.output, memoryIndex);
+  }, [activeBrief?.output, memoryIndex]);
+
+  // Custom link renderer for #memory: links
+  const linkRenderer = useCallback(({ href, children }: { href?: string; children?: React.ReactNode }) => {
+    if (href?.startsWith("#memory:") && onNavigateMemory) {
+      const id = decodeURIComponent(href.replace("#memory:", ""));
+      const entry = Object.values(memoryIndex).find((e) => e.id === id);
+      const colorClass = entry ? (TYPE_COLORS[entry.type] ?? "text-foreground/70 hover:text-foreground") : "text-foreground/70 hover:text-foreground";
+
+      return (
+        <button
+          onClick={(e) => { e.preventDefault(); onNavigateMemory(id); }}
+          className={`${colorClass} underline underline-offset-2 decoration-1 transition-colors cursor-pointer font-medium`}
+        >
+          {children}
+        </button>
+      );
+    }
+    return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
+  }, [memoryIndex, onNavigateMemory]);
 
   const canGoNewer = availableDates.indexOf(selectedDate) > 0;
   const canGoOlder = availableDates.indexOf(selectedDate) < availableDates.length - 1;
@@ -330,7 +389,7 @@ export function HomePage() {
             </div>
           ) : (
             <div className="prose-brief">
-              <Markdown remarkPlugins={[remarkGfm]}>{activeBrief.output}</Markdown>
+              <Markdown remarkPlugins={[remarkGfm]} components={{ a: linkRenderer }}>{processedOutput}</Markdown>
             </div>
           )}
         </motion.div>

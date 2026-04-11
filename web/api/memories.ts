@@ -26,6 +26,11 @@ async function buildMemoryIndex(): Promise<Record<string, { id: string; type: st
   return index;
 }
 
+export async function handleMemoryIndex(_req: Request) {
+  const index = await buildMemoryIndex();
+  return Response.json({ memoryIndex: index });
+}
+
 export async function handleMemories(req: Request) {
   const url = new URL(req.url);
   const q = url.searchParams.get("q");

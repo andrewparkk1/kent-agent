@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { handleCounts, handleItems } from "./api/items.ts";
 import { handleWorkflows, handleWorkflowDetail, handleWorkflowRun, handleWorkflowToggle, handleWorkflowArchive, handleWorkflowUnarchive, handleWorkflowDelete, handleActivity, handleActivitySeen, handleUnreadCount, handleBrief } from "./api/workflows.ts";
 import { handleSources, handleDaemonState } from "./api/sources.ts";
-import { handleMemories, handleMemoryDetail } from "./api/memories.ts";
+import { handleMemories, handleMemoryDetail, handleMemoryIndex } from "./api/memories.ts";
 import { handleIdentity, handleIdentitySave } from "./api/identity.ts";
 import { handleThreads, handleThreadMessages, handleDeleteThread } from "./api/threads.ts";
 import { handleChat } from "./api/chat.ts";
@@ -63,6 +63,7 @@ Bun.serve({
     "/api/brief":        handleBrief,
     "/api/sources":      handleSources,
     "/api/memories":     handleMemories,
+    "/api/memories/index": handleMemoryIndex,
     "/api/threads":      handleThreads,
     "/api/threads/:id/messages": handleThreadMessages,
     "/api/identity":     handleIdentity,

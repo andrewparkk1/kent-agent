@@ -106,7 +106,7 @@ export function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
   const [showAnthropicKey, setShowAnthropicKey] = useState(false);
-  const [showOpenaiKey, setShowOpenaiKey] = useState(false);
+  const [_showOpenaiKey, _setShowOpenaiKey] = useState(false);
   const [ollamaModels, setOllamaModels] = useState<{ name: string; size: number }[]>([]);
   const [ollamaError, setOllamaError] = useState<string | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);

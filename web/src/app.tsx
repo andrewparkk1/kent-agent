@@ -261,7 +261,7 @@ export function App() {
       <div className="hidden md:block w-[220px] shrink-0" />
 
       <PageTransition pageKey={page === "workflow-detail" ? `workflow-${selectedWorkflowId}` : page === "memory-detail" ? `memory-${selectedMemoryId}` : page}>
-        {page === "home" && <HomePage />}
+        {page === "home" && <HomePage onNavigateMemory={(id) => { setSelectedMemoryId(id); setPage("memory-detail"); }} />}
         {page === "workflows" && (
           <WorkflowsPage
             workflows={workflows}
