@@ -3,7 +3,7 @@ import { resolve, join, extname } from "node:path";
 import { existsSync } from "node:fs";
 import { handleCounts, handleItems } from "./api/items.ts";
 import { handleWorkflows, handleWorkflowDetail, handleWorkflowRun, handleWorkflowToggle, handleWorkflowArchive, handleWorkflowUnarchive, handleWorkflowDelete, handleActivity, handleActivitySeen, handleUnreadCount, handleBrief } from "./api/workflows.ts";
-import { handleSources, handleDaemonState, handleDaemonStart, handleDaemonStop } from "./api/sources.ts";
+import { handleSources, handleDaemonState, handleDaemonStart, handleDaemonStop, handleDaemonSync, handleDaemonRestart } from "./api/sources.ts";
 import { handleMemories, handleMemoryDetail, handleMemoryIndex, handleMemoryArchive, handleMemoryUpdate } from "./api/memories.ts";
 import { handleIdentity, handleIdentitySave } from "./api/identity.ts";
 import { handleThreads, handleThreadMessages, handleDeleteThread } from "./api/threads.ts";
@@ -71,6 +71,8 @@ Bun.serve({
     "/api/daemon-state": handleDaemonState,
     "/api/daemon/start": { POST: handleDaemonStart },
     "/api/daemon/stop":  { POST: handleDaemonStop },
+    "/api/daemon/restart": { POST: handleDaemonRestart },
+    "/api/daemon/sync":  { POST: handleDaemonSync },
     "/api/setup/status":   { GET: handleSetupStatus },
     "/api/setup/hardware": { GET: handleSetupHardware },
     "/api/settings": {

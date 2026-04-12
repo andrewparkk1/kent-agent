@@ -1,5 +1,6 @@
 /** GET /api/settings — return config. POST /api/settings — save config. */
 import { loadConfig, saveConfig } from "../../shared/config.ts";
+import { userInfo } from "node:os";
 
 export function handleSettings() {
   const config = loadConfig();
@@ -13,7 +14,9 @@ export function handleSettings() {
       google: config.keys.google ? maskKey(config.keys.google) : "",
     },
   };
-  return Response.json({ config: masked, raw: config });
+  let osUser = "";
+  try { osUser = userInfo().username; } catch {}
+  return Response.json({ config: masked, raw: config, osUser });
 }
 
 export async function handleSettingsSave(req: Request) {

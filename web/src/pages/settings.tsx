@@ -124,6 +124,8 @@ export function SettingsPage() {
   const [_showOpenaiKey, _setShowOpenaiKey] = useState(false);
   const [ollamaModels, setOllamaModels] = useState<{ name: string; size: number }[]>([]);
   const [ollamaError, setOllamaError] = useState<string | null>(null);
+  const [osUser, setOsUser] = useState<string>("");
+  const [restartingDaemon, setRestartingDaemon] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchOllamaModels = useCallback(async (baseUrl?: string) => {
@@ -145,6 +147,7 @@ export function SettingsPage() {
       const data = await res.json();
       setConfig(data.config);
       setRawKeys({ anthropic: data.raw.keys.anthropic, openai: data.raw.keys.openai, openrouter: data.raw.keys.openrouter, google: data.raw.keys.google });
+      if (data.osUser) setOsUser(data.osUser);
     } catch {
       toast.error("Failed to load settings");
     }
@@ -382,7 +385,32 @@ export function SettingsPage() {
         <div className="mb-8">
           <SectionHeader title="Channels" description="Notification and chat channels — receive workflow notifications and chat with Kent" />
           <div className="space-y-3">
-            <p className="text-[12px] text-muted-foreground/40 mb-2">Telegram (@kent_personal_bot)</p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[12px] text-muted-foreground/40">
+                {osUser ? `${osUser}'s Kent Bot` : "Your Kent Bot"} on Telegram — <a href="https://t.me/kent_personal_bot" target="_blank" rel="noreferrer" className="underline hover:text-foreground/60">@kent_personal_bot</a>
+              </p>
+              <button
+                type="button"
+                disabled={restartingDaemon}
+                onClick={async () => {
+                  setRestartingDaemon(true);
+                  try {
+                    const res = await fetch("/api/daemon/restart", { method: "POST" });
+                    const data = await res.json();
+                    if (data.ok) toast.success("Daemon restarted");
+                    else toast.error(data.error || "Restart failed");
+                  } catch (e: any) {
+                    toast.error(e?.message || "Restart failed");
+                  } finally {
+                    setRestartingDaemon(false);
+                  }
+                }}
+                className="text-[11px] px-2 py-1 rounded bg-foreground/[0.04] hover:bg-foreground/[0.08] border border-border/50 disabled:opacity-50 flex items-center gap-1"
+              >
+                {restartingDaemon ? <Loader2 size={10} className="animate-spin" /> : null}
+                Restart daemon
+              </button>
+            </div>
             <div>
               <label className="text-[12px] text-muted-foreground/60 mb-1 block">Bot Token</label>
               <input
@@ -412,10 +440,10 @@ export function SettingsPage() {
                 className="w-full bg-foreground/[0.03] border border-border/50 rounded-lg px-3 py-2 text-[13px] font-mono outline-none focus:border-border"
               />
             </div>
-            {config.telegram?.bot_token && (config.telegram?.chat_ids || []).length > 0 && (
+            {config.telegram?.bot_token && (
               <p className="text-[11px] text-emerald-500/70 flex items-center gap-1">
                 <Check size={10} />
-                Telegram configured — restart daemon to apply
+                Connected
               </p>
             )}
           </div>

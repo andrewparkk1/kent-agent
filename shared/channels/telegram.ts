@@ -44,6 +44,72 @@ async function callApi<T>(botToken: string, method: string, body?: Record<string
   return res.json() as Promise<T>;
 }
 
+/** Escape HTML special chars. */
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
+ * Convert the markdown the agent produces into Telegram-flavored HTML.
+ * Telegram's allowed tags: b, strong, i, em, u, s, code, pre, a, blockquote.
+ * HTML parse_mode is more forgiving than Markdown/MarkdownV2 (which requires
+ * escaping a dozen special chars and fails the whole message on any mistake).
+ */
+function toTelegramHtml(md: string): string {
+  // Protect code regions from further transforms via placeholders
+  const placeholders: string[] = [];
+  const stash = (html: string): string => {
+    placeholders.push(html);
+    return `\u0000${placeholders.length - 1}\u0000`;
+  };
+
+  let s = md;
+
+  // Fenced code blocks ```lang\n...\n```
+  s = s.replace(/```(\w*)\n?([\s\S]*?)```/g, (_m, _lang, code) =>
+    stash(`<pre>${escapeHtml(String(code).replace(/\s+$/, ""))}</pre>`),
+  );
+
+  // Inline code `...`
+  s = s.replace(/`([^`\n]+)`/g, (_m, code) => stash(`<code>${escapeHtml(String(code))}</code>`));
+
+  // Escape everything else
+  s = escapeHtml(s);
+
+  // Links [text](url) — brackets and parens weren't touched by escapeHtml
+  s = s.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (_m, text, url) => {
+    const safeUrl = String(url).replace(/"/g, "&quot;");
+    return `<a href="${safeUrl}">${text}</a>`;
+  });
+
+  // Bold **text**
+  s = s.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
+
+  // Italic _text_ (single-underscore, word-boundary)
+  s = s.replace(/(^|[\s(])_([^_\n]+)_(?=$|[\s).,!?])/g, "$1<i>$2</i>");
+
+  // Headings # Heading → bold
+  s = s.replace(/^#{1,6}\s+(.+)$/gm, "<b>$1</b>");
+
+  // Bullet lists "- item" / "* item" at line starts → "• item"
+  s = s.replace(/^[\t ]*[-*][\t ]+/gm, "• ");
+
+  // Restore code placeholders
+  s = s.replace(/\u0000(\d+)\u0000/g, (_m, i) => placeholders[Number(i)]);
+
+  return s;
+}
+
+/** Strip HTML tags for plain-text fallback. */
+function stripHtml(s: string): string {
+  return s
+    .replace(/<[^>]+>/g, "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, "&");
+}
+
 /** Send a single message (≤4096 chars). */
 async function apiSendMessage(
   botToken: string,
@@ -55,11 +121,27 @@ async function apiSendMessage(
     ? text.slice(0, MAX_MESSAGE_LENGTH - 4) + "\n..."
     : text;
 
-  const body: Record<string, unknown> = { chat_id: chatId, text: truncated };
+  const html = toTelegramHtml(truncated);
+
+  const body: Record<string, unknown> = {
+    chat_id: chatId,
+    text: html,
+    parse_mode: "HTML",
+    link_preview_options: { is_disabled: true },
+  };
   if (replyToMessageId) body.reply_to_message_id = replyToMessageId;
 
-  const result = await callApi<{ ok: boolean; result?: TgMessage }>(botToken, "sendMessage", body);
-  return result.result?.message_id ?? 0;
+  try {
+    const result = await callApi<{ ok: boolean; result?: TgMessage }>(botToken, "sendMessage", body);
+    return result.result?.message_id ?? 0;
+  } catch {
+    // If HTML parsing fails (mismatched tags, unsupported entity), fall back to plain text
+    const plain = stripHtml(html);
+    const fallbackBody: Record<string, unknown> = { chat_id: chatId, text: plain };
+    if (replyToMessageId) fallbackBody.reply_to_message_id = replyToMessageId;
+    const result = await callApi<{ ok: boolean; result?: TgMessage }>(botToken, "sendMessage", fallbackBody);
+    return result.result?.message_id ?? 0;
+  }
 }
 
 /** Send a long message, splitting into multiple if needed. Returns the last message ID. */

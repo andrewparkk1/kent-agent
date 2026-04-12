@@ -5,6 +5,7 @@
 import { getItemCount } from "../../shared/db.ts";
 import { loadConfig, DAEMON_STATE_PATH, PID_PATH } from "../../shared/config.ts";
 import { readFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { daemonStart, daemonStop } from "../../cli/commands/daemon.ts";
 
 function isDaemonRunning(): boolean {
@@ -72,6 +73,34 @@ export async function handleDaemonStart() {
 export async function handleDaemonStop() {
   try {
     await daemonStop();
+    return Response.json({ ok: true });
+  } catch (e: any) {
+    return Response.json({ ok: false, error: e.message }, { status: 500 });
+  }
+}
+
+export async function handleDaemonRestart() {
+  try {
+    try { await daemonStop(); } catch {}
+    // Small delay so launchd releases the pid file / port
+    await new Promise((r) => setTimeout(r, 500));
+    await daemonStart();
+    return Response.json({ ok: true });
+  } catch (e: any) {
+    return Response.json({ ok: false, error: e.message }, { status: 500 });
+  }
+}
+
+export async function handleDaemonSync() {
+  try {
+    const cliPath = resolve(import.meta.dir, "../../cli/index.ts");
+    const proc = Bun.spawn(["bun", "run", cliPath, "sync"], {
+      stdout: "ignore",
+      stderr: "ignore",
+      stdin: "ignore",
+    });
+    // Don't await — let it run in the background
+    proc.unref();
     return Response.json({ ok: true });
   } catch (e: any) {
     return Response.json({ ok: false, error: e.message }, { status: 500 });

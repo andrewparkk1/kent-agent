@@ -359,14 +359,24 @@ async function main(): Promise<void> {
   }
 
   // ── Channel polling (runs in background per channel) ────────────────
-  const channels = getChannels(config);
-  if (channels.length > 0) {
+  // Channels can be enabled after the daemon is running, so we track which
+  // ones we've already started and re-check on each tick via ensureChannelsStarted().
+  const startedChannels = new Set<string>();
+  function ensureChannelsStarted(): void {
+    const channels = getChannels(config);
     for (const channel of channels) {
+      if (startedChannels.has(channel.name)) continue;
+      startedChannels.add(channel.name);
       log(`Channel "${channel.name}" enabled — starting polling`);
-      startChannelPolling(channel, log).catch((e) => log(`${channel.name} polling fatal: ${e}`));
+      startChannelPolling(channel, log).catch((e) => {
+        log(`${channel.name} polling fatal: ${e}`);
+        startedChannels.delete(channel.name);
+      });
     }
-  } else {
-    log("No channels configured — skipping. Set telegram.bot_token and telegram.chat_id in config.");
+  }
+  ensureChannelsStarted();
+  if (startedChannels.size === 0) {
+    log("No channels configured — will retry each tick. Set telegram.bot_token in config.");
   }
 
   // ── Main loop (60s tick) ───────────────────────────────────────────
@@ -375,6 +385,9 @@ async function main(): Promise<void> {
   while (true) {
     // Reload config each tick so changes take effect without restart
     reloadConfig();
+
+    // Pick up any newly-configured channels (e.g. Telegram bot token added after start)
+    ensureChannelsStarted();
 
     // 1. Check for due workflows
     try {
