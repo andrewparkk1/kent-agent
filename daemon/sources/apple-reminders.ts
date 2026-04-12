@@ -141,27 +141,10 @@ function priorityLabel(priority: number): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Fetch reminders via AppleScript
+// Convert parsed reminders to Items
 // ---------------------------------------------------------------------------
 
-async function fetchViaAppleScript(): Promise<Item[]> {
-  const script = buildAppleScript();
-
-  const proc = Bun.spawn(["osascript", "-e", script], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  const stdout = await new Response(proc.stdout).text();
-  const stderr = await new Response(proc.stderr).text();
-  await proc.exited;
-
-  if (proc.exitCode !== 0) {
-    throw new Error(`AppleScript failed (exit ${proc.exitCode}): ${stderr.slice(0, 200)}`);
-  }
-
-  const reminders = parseAppleScriptOutput(stdout);
-
+function remindersToItems(reminders: ParsedReminder[], nowMs: number): Item[] {
   return reminders
     .filter((r) => r.name)
     .map((r) => {
@@ -200,7 +183,7 @@ async function fetchViaAppleScript(): Promise<Item[]> {
       const createdAt =
         createdDate && !isNaN(createdDate.getTime())
           ? Math.floor(createdDate.getTime() / 1000)
-          : Math.floor(Date.now() / 1000);
+          : Math.floor(nowMs / 1000);
 
       const modifiedDate = r.modifiedAt ? new Date(r.modifiedAt) : null;
       const modifiedAt =
@@ -243,15 +226,60 @@ async function fetchViaAppleScript(): Promise<Item[]> {
 // Source implementation
 // ---------------------------------------------------------------------------
 
-export const appleReminders: Source = {
-  name: "apple-reminders",
+// ---------------------------------------------------------------------------
+// Default AppleScript runner
+// ---------------------------------------------------------------------------
 
-  async fetchNew(state: SyncState, _options?: SyncOptions): Promise<Item[]> {
-    try {
-      return await fetchViaAppleScript();
-    } catch (e) {
-      console.warn(`[apple-reminders] Failed to fetch reminders: ${e}`);
-      return [];
-    }
-  },
+async function defaultRun(): Promise<string> {
+  const script = buildAppleScript();
+  const proc = Bun.spawn(["osascript", "-e", script], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const stdout = await new Response(proc.stdout).text();
+  const stderr = await new Response(proc.stderr).text();
+  await proc.exited;
+  if (proc.exitCode !== 0) {
+    throw new Error(`AppleScript failed (exit ${proc.exitCode}): ${stderr.slice(0, 200)}`);
+  }
+  return stdout;
+}
+
+// ---------------------------------------------------------------------------
+// Factory + Source implementation
+// ---------------------------------------------------------------------------
+
+export interface AppleRemindersConfig {
+  /** Override the AppleScript runner — returns raw stdout. */
+  exec?: () => Promise<string>;
+  /** Override the clock (ms). */
+  now?: () => number;
+}
+
+export function createAppleRemindersSource(config: AppleRemindersConfig = {}): Source {
+  const runner = config.exec ?? defaultRun;
+  const now = config.now ?? (() => Date.now());
+
+  return {
+    name: "apple-reminders",
+
+    async fetchNew(_state: SyncState, _options?: SyncOptions): Promise<Item[]> {
+      try {
+        const stdout = await runner();
+        const reminders = parseAppleScriptOutput(stdout);
+        return remindersToItems(reminders, now());
+      } catch (e) {
+        console.warn(`[apple-reminders] Failed to fetch reminders: ${e}`);
+        return [];
+      }
+    },
+  };
+}
+
+export const appleReminders: Source = createAppleRemindersSource();
+
+// Exposed for tests
+export {
+  parseAppleScriptOutput as _parseAppleScriptOutput,
+  remindersToItems as _remindersToItems,
 };

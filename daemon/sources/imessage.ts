@@ -15,7 +15,7 @@ import { existsSync, readdirSync } from "fs";
 import type { Source, SyncState, SyncOptions, Item } from "./types";
 
 const APPLE_EPOCH_OFFSET = 978307200;
-const DB_PATH = join(homedir(), "Library/Messages/chat.db");
+const DEFAULT_DB_PATH = join(homedir(), "Library/Messages/chat.db");
 
 // --- Contact Resolution ---
 
@@ -28,8 +28,6 @@ const CONTACTS_DB_MAIN = join(
   "Library/Application Support/AddressBook/AddressBook-v22.abcddb"
 );
 
-let contactCache: Map<string, string> | null = null;
-let contactCacheBuiltAt = 0;
 const CACHE_TTL_MS = 5 * 60 * 1000; // refresh every 5 min
 
 /** Normalize a phone number to digits only (strip +, spaces, parens, dashes) */
@@ -117,61 +115,55 @@ function loadContactsFromDb(dbPath: string, cache: Map<string, string>): void {
   }
 }
 
-/** Build a lookup map from phone/email → contact name */
-function buildContactCache(): Map<string, string> {
-  // Return cached if still fresh
-  if (contactCache && (Date.now() - contactCacheBuiltAt) < CACHE_TTL_MS) {
+/** Create a contact resolver bound to a specific set of AddressBook DB paths. */
+function createContactResolver(
+  getDbPaths: () => string[],
+): (identifier: string) => string | null {
+  let contactCache: Map<string, string> | null = null;
+  let contactCacheBuiltAt = 0;
+
+  function buildContactCache(): Map<string, string> {
+    if (contactCache && Date.now() - contactCacheBuiltAt < CACHE_TTL_MS) {
+      return contactCache;
+    }
+    const cache = new Map<string, string>();
+    const dbPaths = getDbPaths();
+    for (const dbPath of dbPaths) {
+      try {
+        loadContactsFromDb(dbPath, cache);
+      } catch (e) {
+        console.warn(`[imessage] Failed to read contacts from ${dbPath}: ${e}`);
+      }
+    }
+    if (cache.size === 0 && dbPaths.length > 0) {
+      console.warn(
+        `[imessage] Contact cache is empty despite ${dbPaths.length} DB(s) found — check Full Disk Access permissions`,
+      );
+    }
+    contactCache = cache;
+    contactCacheBuiltAt = Date.now();
     return contactCache;
   }
 
-  const cache = new Map<string, string>();
-  const dbPaths = findAddressBookDbs();
-
-  for (const dbPath of dbPaths) {
-    try {
-      loadContactsFromDb(dbPath, cache);
-    } catch (e) {
-      console.warn(`[imessage] Failed to read contacts from ${dbPath}: ${e}`);
+  return function resolveContact(identifier: string): string | null {
+    const cache = buildContactCache();
+    const byEmail = cache.get(identifier.toLowerCase());
+    if (byEmail) return byEmail;
+    const normalized = normalizePhone(identifier);
+    if (normalized.length >= 7) {
+      const byPhone = cache.get(normalized);
+      if (byPhone) return byPhone;
+      const last10 = normalized.slice(-10);
+      for (const [key, name] of cache) {
+        if (key.slice(-10) === last10) return name;
+      }
     }
-  }
-
-  if (cache.size === 0 && dbPaths.length > 0) {
-    console.warn(
-      `[imessage] Contact cache is empty despite ${dbPaths.length} DB(s) found — check Full Disk Access permissions`
-    );
-  }
-
-  contactCache = cache;
-  contactCacheBuiltAt = Date.now();
-  return contactCache;
-}
-
-/** Resolve a phone number or email to a contact name */
-function resolveContact(identifier: string): string | null {
-  const cache = buildContactCache();
-
-  // Try direct email lookup
-  const byEmail = cache.get(identifier.toLowerCase());
-  if (byEmail) return byEmail;
-
-  // Try phone number lookup
-  const normalized = normalizePhone(identifier);
-  if (normalized.length >= 7) {
-    const byPhone = cache.get(normalized);
-    if (byPhone) return byPhone;
-
-    // Try matching last 10 digits (handles country code differences)
-    const last10 = normalized.slice(-10);
-    for (const [key, name] of cache) {
-      if (key.slice(-10) === last10) return name;
-    }
-  }
-
-  return null;
+    return null;
+  };
 }
 
 /** Convert Apple Messages timestamp (nanoseconds since 2001-01-01) to unix seconds */
-function appleTimeToUnix(appleTime: number): number {
+export function appleTimeToUnix(appleTime: number): number {
   // Some older messages use seconds instead of nanoseconds
   // Nanosecond timestamps are > 1e17, second timestamps are < 1e10
   const unixSeconds =
@@ -186,7 +178,7 @@ function appleTimeToUnix(appleTime: number): number {
  * When plain text field is empty, iMessage sometimes stores formatted
  * text only in attributedBody.
  */
-function extractFromAttributedBody(buf: Buffer | Uint8Array): string | null {
+export function extractFromAttributedBody(buf: Buffer | Uint8Array): string | null {
   try {
     const b = buf instanceof Buffer ? buf : Buffer.from(buf);
     if (b.length === 0) return null;
@@ -210,17 +202,33 @@ function extractFromAttributedBody(buf: Buffer | Uint8Array): string | null {
   return null;
 }
 
-export const imessage: Source = {
-  name: "imessage",
+export interface ImessageSourceConfig {
+  chatDbPath?: string;
+  /** Explicit list of AddressBook db paths. Pass `[]` to disable contact resolution. */
+  addressBookDbs?: string[];
+  now?: () => number;
+}
 
-  async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
+export function createImessageSource(config: ImessageSourceConfig = {}): Source {
+  const chatDbPath = config.chatDbPath ?? DEFAULT_DB_PATH;
+  const getAddressBookDbs =
+    config.addressBookDbs !== undefined
+      ? () => config.addressBookDbs!
+      : findAddressBookDbs;
+  const resolveContact = createContactResolver(getAddressBookDbs);
+  const now = config.now ?? (() => Math.floor(Date.now() / 1000));
+
+  return {
+    name: "imessage",
+
+    async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
     try {
-      if (!existsSync(DB_PATH)) {
+      if (!existsSync(chatDbPath)) {
         console.warn("[imessage] chat.db not found, skipping");
         return [];
       }
 
-      const db = new Database(DB_PATH, { readonly: true });
+      const db = new Database(chatDbPath, { readonly: true });
       const limit = options?.limit ?? 10000;
 
       const lastSync = state.getLastSync("imessage");
@@ -229,7 +237,7 @@ export const imessage: Source = {
       if (lastSync > 0) {
         cutoffAppleTime = (lastSync - APPLE_EPOCH_OFFSET) * 1_000_000_000;
       } else if (options?.defaultDays && options.defaultDays > 0) {
-        const cutoffUnix = Math.floor(Date.now() / 1000) - options.defaultDays * 86400;
+        const cutoffUnix = now() - options.defaultDays * 86400;
         cutoffAppleTime = (cutoffUnix - APPLE_EPOCH_OFFSET) * 1_000_000_000;
       } else {
         cutoffAppleTime = 0;
@@ -367,5 +375,8 @@ export const imessage: Source = {
       console.warn(`[imessage] Failed to read messages: ${e}`);
       return [];
     }
-  },
-};
+    },
+  };
+}
+
+export const imessage: Source = createImessageSource();

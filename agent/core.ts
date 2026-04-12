@@ -224,12 +224,26 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
   // the client to drop the in-flight bubble so the user never sees the dupe.
   const flushedSegments: string[] = [];
   let currentSegmentRolledBack = false;
+  const ROLLBACK_MIN_CHARS = 20;
+
+  function normalizeSegment(text: string): string {
+    return text.replace(/\s+/g, " ").trim();
+  }
 
   function isDuplicateSegment(text: string): boolean {
-    if (!text) return false;
-    // Exact match OR one contains the other (handles partial regeneration).
+    const normalized = normalizeSegment(text);
+    if (!normalized) return false;
+    // Exact match OR one is a prefix of the other (handles partial regeneration
+    // while avoiding accidental matches on unrelated interior substrings).
     return flushedSegments.some(
-      (prev) => prev === text || prev.includes(text) || text.includes(prev),
+      (prev) => {
+        const prevNormalized = normalizeSegment(prev);
+        return (
+          prevNormalized === normalized
+          || prevNormalized.startsWith(normalized)
+          || normalized.startsWith(prevNormalized)
+        );
+      },
     );
   }
 
@@ -273,7 +287,8 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
           callbacks.onTextDelta?.(ame.delta);
           // Early rollback: as soon as pendingText matches a prior segment,
           // tell the client to drop the bubble before more deltas pile on.
-          if (isDuplicateSegment(pendingText.trim())) {
+          const normalizedPending = normalizeSegment(pendingText);
+          if (normalizedPending.length >= ROLLBACK_MIN_CHARS && isDuplicateSegment(pendingText)) {
             currentSegmentRolledBack = true;
             pendingText = "";
             callbacks.onSegmentRollback?.();
@@ -326,5 +341,12 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
     await flushPromise;   // wait for all writes to complete
   }
 
-  return { threadId, output, hasOutput, error: agentError };
+  // `output` accumulates every streamed delta unconditionally, so it contains
+  // duplicate segments that were later rolled back (model re-emits the same
+  // text after another tool call). `flushedSegments` is the authoritative
+  // deduped list — that's what actually got written to the DB and what the
+  // user should see in the final message.
+  const dedupedOutput = flushedSegments.length > 0 ? flushedSegments.join("\n\n") : output;
+
+  return { threadId, output: dedupedOutput, hasOutput, error: agentError };
 }

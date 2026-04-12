@@ -134,14 +134,25 @@ function coreDataToDateKey(coreDataTs: number): string {
   return coreDataToDate(coreDataTs).toISOString().slice(0, 10);
 }
 
-async function fetchViaSqlite(cutoff: number, limit: number): Promise<Item[]> {
-  // Try the main healthdb first
-  const tempDb = copyToTemp(HEALTH_DB, "healthdb.sqlite");
-  if (!tempDb) return [];
+async function fetchViaSqlite(
+  cutoff: number,
+  limit: number,
+  dbPath?: string,
+): Promise<Item[]> {
+  // If a dbPath is injected (tests), use it directly. Otherwise copy the live
+  // healthdb to a temp location so we can open it read-only without fighting
+  // the Health app for locks.
+  let openPath: string | null;
+  if (dbPath) {
+    openPath = existsSync(dbPath) ? dbPath : null;
+  } else {
+    openPath = copyToTemp(HEALTH_DB, "healthdb.sqlite");
+  }
+  if (!openPath) return [];
 
   let db: InstanceType<typeof Database>;
   try {
-    db = new Database(tempDb, { readonly: true });
+    db = new Database(openPath, { readonly: true });
     db.exec("PRAGMA busy_timeout = 5000");
   } catch (e) {
     console.warn(`[apple-health] Failed to open healthdb: ${e}`);
@@ -240,31 +251,52 @@ async function fetchViaSqlite(cutoff: number, limit: number): Promise<Item[]> {
 
 // ─── Source implementation ───────────────────────────────────────────────
 
-export const appleHealth: Source = {
-  name: "apple-health",
+export interface AppleHealthConfig {
+  /** Override the sqlite path. If set, the file is opened directly (no copy-to-temp). */
+  dbPath?: string;
+  /** Override the clock (ms). */
+  now?: () => number;
+}
 
-  async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
-    const lastSync = state.getLastSync("apple-health");
-    const now = Math.floor(Date.now() / 1000);
-    const defaultDays = options?.defaultDays ?? 365;
-    const cutoff =
-      lastSync > 0
-        ? lastSync
-        : defaultDays === 0
-          ? 0
-          : now - defaultDays * 86400;
-    const limit = options?.limit ?? 5000;
+export function createAppleHealthSource(config: AppleHealthConfig = {}): Source {
+  const nowFn = config.now ?? (() => Date.now());
+  const injectedDbPath = config.dbPath;
 
-    if (!existsSync(HEALTH_DB)) {
-      console.warn("[apple-health] ~/Library/Health/healthdb.sqlite not found — enable Health sync in iCloud settings");
-      return [];
-    }
+  return {
+    name: "apple-health",
 
-    try {
-      return await fetchViaSqlite(cutoff, limit);
-    } catch (e) {
-      console.warn(`[apple-health] Failed to read HealthKit database: ${e}`);
-      return [];
-    }
-  },
-};
+    async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
+      const lastSync = state.getLastSync("apple-health");
+      const nowSec = Math.floor(nowFn() / 1000);
+      const defaultDays = options?.defaultDays ?? 365;
+      const cutoff =
+        lastSync > 0
+          ? lastSync
+          : defaultDays === 0
+            ? 0
+            : nowSec - defaultDays * 86400;
+      const limit = options?.limit ?? 5000;
+
+      const effectiveDb = injectedDbPath ?? HEALTH_DB;
+      if (!existsSync(effectiveDb)) {
+        if (!injectedDbPath) {
+          console.warn("[apple-health] ~/Library/Health/healthdb.sqlite not found — enable Health sync in iCloud settings");
+        }
+        return [];
+      }
+
+      try {
+        return await fetchViaSqlite(cutoff, limit, injectedDbPath);
+      } catch (e) {
+        console.warn(`[apple-health] Failed to read HealthKit database: ${e}`);
+        return [];
+      }
+    },
+  };
+}
+
+export const appleHealth: Source = createAppleHealthSource();
+
+// Exposed for tests
+export { bucketsToItems as _bucketsToItems, coreDataToDateKey as _coreDataToDateKey };
+export { CORE_DATA_EPOCH_OFFSET as _CORE_DATA_EPOCH_OFFSET };

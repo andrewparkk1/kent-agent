@@ -25,12 +25,12 @@ import type { Source, SyncState, SyncOptions, Item } from "./types";
 
 const CORE_DATA_EPOCH_OFFSET = 978307200;
 
-const WHATSAPP_DB = join(
+const DEFAULT_WHATSAPP_DB = join(
   homedir(),
   "Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite"
 );
 
-const TEMP_DIR = join(tmpdir(), "kent-whatsapp");
+const DEFAULT_TEMP_DIR = join(tmpdir(), "kent-whatsapp");
 
 /** Convert Core Data timestamp (seconds since 2001-01-01) to Unix seconds. */
 function coreDataTimeToUnix(coreDataTime: number): number {
@@ -38,19 +38,19 @@ function coreDataTimeToUnix(coreDataTime: number): number {
 }
 
 /** Copy the WhatsApp DB (and WAL/SHM if present) to a temp directory. */
-function copyDbToTemp(): string | null {
-  if (!existsSync(WHATSAPP_DB)) return null;
+function copyDbToTemp(srcDb: string, tempDir: string): string | null {
+  if (!existsSync(srcDb)) return null;
 
-  mkdirSync(TEMP_DIR, { recursive: true });
-  const dest = join(TEMP_DIR, "ChatStorage.sqlite");
+  mkdirSync(tempDir, { recursive: true });
+  const dest = join(tempDir, "ChatStorage.sqlite");
 
   try {
-    copyFileSync(WHATSAPP_DB, dest);
+    copyFileSync(srcDb, dest);
     // Copy WAL and SHM files if they exist for consistency
-    if (existsSync(WHATSAPP_DB + "-wal"))
-      copyFileSync(WHATSAPP_DB + "-wal", dest + "-wal");
-    if (existsSync(WHATSAPP_DB + "-shm"))
-      copyFileSync(WHATSAPP_DB + "-shm", dest + "-shm");
+    if (existsSync(srcDb + "-wal"))
+      copyFileSync(srcDb + "-wal", dest + "-wal");
+    if (existsSync(srcDb + "-shm"))
+      copyFileSync(srcDb + "-shm", dest + "-shm");
     return dest;
   } catch (e) {
     console.warn(`[whatsapp] Failed to copy database to temp: ${e}`);
@@ -58,17 +58,31 @@ function copyDbToTemp(): string | null {
   }
 }
 
-export const whatsapp: Source = {
-  name: "whatsapp",
+export interface WhatsappSourceConfig {
+  dbPath?: string;
+  tempDir?: string;
+  /** If true, skip the copy-to-temp step and open dbPath directly. Useful for tests. */
+  skipCopy?: boolean;
+  now?: () => number;
+}
 
-  async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
+export function createWhatsappSource(config: WhatsappSourceConfig = {}): Source {
+  const dbPath = config.dbPath ?? DEFAULT_WHATSAPP_DB;
+  const tempDir = config.tempDir ?? DEFAULT_TEMP_DIR;
+  const skipCopy = config.skipCopy ?? false;
+  const now = config.now ?? (() => Math.floor(Date.now() / 1000));
+
+  return {
+    name: "whatsapp",
+
+    async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
     try {
-      if (!existsSync(WHATSAPP_DB)) {
+      if (!existsSync(dbPath)) {
         console.warn("[whatsapp] ChatStorage.sqlite not found, skipping");
         return [];
       }
 
-      const tmpDbPath = copyDbToTemp();
+      const tmpDbPath = skipCopy ? dbPath : copyDbToTemp(dbPath, tempDir);
       if (!tmpDbPath) return [];
 
       const db = new Database(tmpDbPath, { readonly: true });
@@ -79,7 +93,7 @@ export const whatsapp: Source = {
       if (lastSync > 0) {
         cutoffCoreData = lastSync - CORE_DATA_EPOCH_OFFSET;
       } else if (options?.defaultDays && options.defaultDays > 0) {
-        const cutoffUnix = Math.floor(Date.now() / 1000) - options.defaultDays * 86400;
+        const cutoffUnix = now() - options.defaultDays * 86400;
         cutoffCoreData = cutoffUnix - CORE_DATA_EPOCH_OFFSET;
       } else {
         cutoffCoreData = 0;
@@ -155,5 +169,8 @@ export const whatsapp: Source = {
       console.warn(`[whatsapp] Failed to read messages: ${e}`);
       return [];
     }
-  },
-};
+    },
+  };
+}
+
+export const whatsapp: Source = createWhatsappSource();

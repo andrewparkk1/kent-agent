@@ -221,10 +221,16 @@ function parseOutlookDate(value: any): number {
 }
 
 /** Fetch messages from the local Outlook SQLite database. */
-function fetchFromSqlite(lastSync: number, options?: SyncOptions): Item[] {
-  if (!existsSync(OUTLOOK_DB_PATH)) return [];
+function fetchFromSqlite(dbPath: string, lastSync: number, options?: SyncOptions): Item[] {
+  if (!existsSync(dbPath)) return [];
 
-  const tempPath = copyToTemp(OUTLOOK_DB_PATH, "Outlook.sqlite");
+  // For injected test paths, skip the temp-copy step to allow fixtures
+  let tempPath: string | null;
+  if (dbPath === OUTLOOK_DB_PATH) {
+    tempPath = copyToTemp(dbPath, "Outlook.sqlite");
+  } else {
+    tempPath = dbPath;
+  }
   if (!tempPath) return [];
 
   try {
@@ -306,6 +312,7 @@ function fetchFromSqlite(lastSync: number, options?: SyncOptions): Item[] {
 // ─── Microsoft Graph API fallback ──────────────────────────────────────────
 
 async function fetchFromGraphApi(
+  fetcher: typeof fetch,
   token: string,
   lastSync: number,
   options?: SyncOptions,
@@ -334,7 +341,7 @@ async function fetchFromGraphApi(
   const maxPages = 5;
 
   while (url && pageCount < maxPages) {
-    const res = await fetch(url, {
+    const res = await fetcher(url, {
       headers: { Authorization: `Bearer ${token}` },
     });
 
@@ -398,31 +405,46 @@ async function fetchFromGraphApi(
 
 // ─── Exported source ───────────────────────────────────────────────────────
 
-export const outlook: Source = {
-  name: "outlook",
+export function createOutlookSource(
+  config: {
+    dbPath?: string;
+    fetcher?: typeof fetch;
+    token?: string | null;
+  } = {},
+): Source {
+  const dbPath = config.dbPath ?? OUTLOOK_DB_PATH;
+  const fetcher = config.fetcher ?? fetch;
+  const getToken = () =>
+    config.token !== undefined ? config.token : resolveToken();
 
-  async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
-    try {
-      const lastSync = state.getLastSync("outlook");
+  return {
+    name: "outlook",
 
-      // 1. Try local SQLite database first
-      const sqliteItems = fetchFromSqlite(lastSync, options);
-      if (sqliteItems.length > 0) return sqliteItems;
+    async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
+      try {
+        const lastSync = state.getLastSync("outlook");
 
-      // 2. Fall back to Microsoft Graph API if token is available
-      const token = resolveToken();
-      if (token) {
-        return await fetchFromGraphApi(token, lastSync, options);
+        // 1. Try local SQLite database first
+        const sqliteItems = fetchFromSqlite(dbPath, lastSync, options);
+        if (sqliteItems.length > 0) return sqliteItems;
+
+        // 2. Fall back to Microsoft Graph API if token is available
+        const token = getToken();
+        if (token) {
+          return await fetchFromGraphApi(fetcher, token, lastSync, options);
+        }
+
+        // No data source available
+        console.warn(
+          "[outlook] No local Outlook database found and no OUTLOOK_TOKEN configured, skipping",
+        );
+        return [];
+      } catch (e) {
+        console.warn(`[outlook] Failed to fetch data: ${e}`);
+        return [];
       }
+    },
+  };
+}
 
-      // No data source available
-      console.warn(
-        "[outlook] No local Outlook database found and no OUTLOOK_TOKEN configured, skipping",
-      );
-      return [];
-    } catch (e) {
-      console.warn(`[outlook] Failed to fetch data: ${e}`);
-      return [];
-    }
-  },
-};
+export const outlook: Source = createOutlookSource();

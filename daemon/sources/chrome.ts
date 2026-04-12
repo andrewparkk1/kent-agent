@@ -116,12 +116,24 @@ function categorizeDomain(url: string): string {
   }
 }
 
-export const chrome: Source = {
+export interface ChromeSourceConfig {
+  /** Explicit path to a Chrome History sqlite db. If provided, skips profile discovery. */
+  historyDbPath?: string;
+  /** Explicit path to a Chrome Bookmarks JSON file. If provided, skips profile discovery. */
+  bookmarksJsonPath?: string;
+  /** Clock injection for deterministic tests. Returns unix seconds. */
+  now?: () => number;
+}
+
+export function createChromeSource(config: ChromeSourceConfig = {}): Source {
+  return {
   name: "chrome",
 
   async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
     try {
-      const historyPaths = getAllProfileHistoryPaths();
+      const historyPaths = config.historyDbPath
+        ? [config.historyDbPath]
+        : getAllProfileHistoryPaths();
       if (historyPaths.length === 0) {
         console.warn("[chrome] Chrome profile directory not found, skipping");
         return [];
@@ -136,7 +148,11 @@ export const chrome: Source = {
         const profilePath = historyPaths[pi]!;
 
         // --- History ---
-        const historyTemp = copyToTemp(profilePath, `History-${pi}`);
+        // When an explicit path is injected (tests), read it directly
+        // without the copy-to-temp dance.
+        const historyTemp = config.historyDbPath
+          ? profilePath
+          : copyToTemp(profilePath, `History-${pi}`);
         if (historyTemp) {
           try {
             const db = new Database(historyTemp, { readonly: true });
@@ -236,9 +252,10 @@ export const chrome: Source = {
       }
 
       // --- Bookmarks (from first profile with Bookmarks file) ---
-      for (const profilePath of historyPaths) {
-        const profileDir = join(profilePath, "..");
-        const bookmarksPath = join(profileDir, "Bookmarks");
+      const bookmarkCandidates = config.bookmarksJsonPath
+        ? [config.bookmarksJsonPath]
+        : historyPaths.map((p) => join(p, "..", "Bookmarks"));
+      for (const bookmarksPath of bookmarkCandidates) {
         if (existsSync(bookmarksPath)) {
           try {
             const raw = readFileSync(bookmarksPath, "utf-8");
@@ -289,7 +306,9 @@ export const chrome: Source = {
 
       // --- Downloads (from first profile) ---
       if (historyPaths.length > 0) {
-        const downloadsTemp = copyToTemp(historyPaths[0]!, "History-downloads");
+        const downloadsTemp = config.historyDbPath
+          ? historyPaths[0]!
+          : copyToTemp(historyPaths[0]!, "History-downloads");
         if (downloadsTemp) {
           try {
             const db = new Database(downloadsTemp, { readonly: true });
@@ -345,4 +364,7 @@ export const chrome: Source = {
       return [];
     }
   },
-};
+  };
+}
+
+export const chrome: Source = createChromeSource();

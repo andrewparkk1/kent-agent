@@ -16,7 +16,10 @@ function buildCliEnv(): Record<string, string> {
 
 const CLI_ENV = buildCliEnv();
 
-async function runGh(args: string[]): Promise<string | null> {
+/** Runner type: takes gh cli args, returns stdout (trimmed) or null on failure. */
+export type GhRunner = (args: string[]) => Promise<string | null>;
+
+async function defaultGhRunner(args: string[]): Promise<string | null> {
   try {
     const proc = Bun.spawn(["gh", ...args], {
       stdout: "pipe",
@@ -32,8 +35,8 @@ async function runGh(args: string[]): Promise<string | null> {
   }
 }
 
-async function runGhJson(args: string[]): Promise<any | null> {
-  const raw = await runGh(args);
+async function runGhJsonWith(runner: GhRunner, args: string[]): Promise<any | null> {
+  const raw = await runner(args);
   if (!raw) return null;
   try {
     return JSON.parse(raw);
@@ -57,19 +60,26 @@ async function runGhJson(args: string[]): Promise<any | null> {
 }
 
 /** Detect the authenticated GitHub username, or null if gh is unavailable/not logged in. */
-async function detectAccount(): Promise<string | null> {
-  const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000));
-  const check = runGh(["api", "user", "--jq", ".login"]).then(
+async function detectAccountWith(runner: GhRunner, timeoutMs = 3000): Promise<string | null> {
+  const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs));
+  const check = runner(["api", "user", "--jq", ".login"]).then(
     (raw) => (raw && raw.length > 0 ? raw : null),
   );
   return Promise.race([check, timeout]);
 }
 
-export const github: Source = {
-  name: "github",
+export function createGithubSource(
+  config: { runner?: GhRunner; now?: () => number; detectTimeoutMs?: number } = {},
+): Source {
+  const runner = config.runner ?? defaultGhRunner;
+  const now = config.now ?? (() => Date.now());
+  const detectTimeoutMs = config.detectTimeoutMs ?? 3000;
 
-  async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
-    const account = await detectAccount().catch(() => null);
+  return {
+    name: "github",
+
+    async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
+    const account = await detectAccountWith(runner, detectTimeoutMs).catch(() => null);
     if (!account) {
       return [];
     }
@@ -81,13 +91,13 @@ export const github: Source = {
       ? new Date(lastSync * 1000).toISOString()
       : defaultDays === 0
         ? new Date(0).toISOString()
-        : new Date(Date.now() - defaultDays * 24 * 60 * 60 * 1000).toISOString();
+        : new Date(now() - defaultDays * 24 * 60 * 60 * 1000).toISOString();
 
     // -- Phase 1: Notifications + repo list in parallel ------------------
     const [notifications, ownedRaw, contribRaw] = await Promise.all([
-      runGhJson(["api", "notifications", "--paginate"]),
-      runGh(["api", "user/repos?sort=pushed&per_page=100&type=owner", "--paginate", "--jq", ".[].full_name"]),
-      runGh(["api", `users/${account}/repos?sort=pushed&per_page=100&type=member`, "--paginate", "--jq", ".[].full_name"]),
+      runGhJsonWith(runner, ["api", "notifications", "--paginate"]),
+      runner(["api", "user/repos?sort=pushed&per_page=100&type=owner", "--paginate", "--jq", ".[].full_name"]),
+      runner(["api", `users/${account}/repos?sort=pushed&per_page=100&type=member`, "--paginate", "--jq", ".[].full_name"]),
     ]);
 
     if (Array.isArray(notifications)) {
@@ -106,7 +116,7 @@ export const github: Source = {
           },
           createdAt: n.updated_at
             ? Math.floor(new Date(n.updated_at).getTime() / 1000)
-            : Math.floor(Date.now() / 1000),
+            : Math.floor(now() / 1000),
         });
       }
     }
@@ -123,7 +133,7 @@ export const github: Source = {
       const batch = repoNames.slice(i, i + BATCH_SIZE);
       const results = await Promise.all(
         batch.map((repo) =>
-          runGhJson(["api", `repos/${repo}/commits?since=${sinceDate}&per_page=100&author=${account}`, "--paginate"])
+          runGhJsonWith(runner, ["api", `repos/${repo}/commits?since=${sinceDate}&per_page=100&author=${account}`, "--paginate"])
             .then((commits) => ({ repo, commits }))
         )
       );
@@ -149,11 +159,11 @@ export const github: Source = {
 
     // -- Phase 3: PRs + Issues in parallel --------------------------------
     const [prs, issues] = await Promise.all([
-      runGhJson([
+      runGhJsonWith(runner, [
         "api", `search/issues?q=author:${account}+type:pr+updated:>=${sinceDate.slice(0, 10)}&per_page=100`, "--paginate",
         "--jq", ".items",
       ]),
-      runGhJson([
+      runGhJsonWith(runner, [
         "api", `search/issues?q=involves:${account}+type:issue+updated:>=${sinceDate.slice(0, 10)}&per_page=100`, "--paginate",
         "--jq", ".items",
       ]),
@@ -205,5 +215,8 @@ export const github: Source = {
       return items.filter((item) => item.createdAt > lastSync);
     }
     return items;
-  },
-};
+    },
+  };
+}
+
+export const github: Source = createGithubSource();

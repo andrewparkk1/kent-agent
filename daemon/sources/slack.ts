@@ -6,14 +6,6 @@
 import type { Source, SyncState, SyncOptions, Item } from "./types";
 import { loadConfig } from "@shared/config.ts";
 
-/** Thin wrapper around Slack Web API GET endpoints. */
-async function slackApi(method: string, params: Record<string, string>, token: string): Promise<any> {
-  const url = new URL(`https://slack.com/api/${method}`);
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
-  return res.json();
-}
-
 /** Resolve token from env or config. Returns null if unavailable. */
 function resolveToken(): string | null {
   if (process.env.SLACK_TOKEN) return process.env.SLACK_TOKEN;
@@ -27,38 +19,62 @@ function resolveToken(): string | null {
   return null;
 }
 
-/** Cache for user ID → display name lookups. */
-const userCache = new Map<string, string>();
-
-async function resolveUserName(userId: string, token: string): Promise<string> {
-  const cached = userCache.get(userId);
-  if (cached !== undefined) return cached;
-
-  try {
-    const data = await slackApi("users.info", { user: userId }, token);
-    const name =
-      data?.user?.profile?.display_name ||
-      data?.user?.profile?.real_name ||
-      data?.user?.name ||
-      userId;
-    userCache.set(userId, name);
-    return name;
-  } catch {
-    userCache.set(userId, userId);
-    return userId;
-  }
-}
-
 /** Small delay to avoid hitting Slack rate limits. */
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export const slack: Source = {
-  name: "slack",
+export function createSlackSource(
+  config: {
+    fetcher?: typeof fetch;
+    token?: string | null;
+    now?: () => number;
+    delayMs?: number;
+  } = {},
+): Source {
+  const fetcher = config.fetcher ?? fetch;
+  const getToken = () => (config.token !== undefined ? config.token : resolveToken());
+  const delayMs = config.delayMs ?? 100;
 
-  async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
-    const token = resolveToken();
+  /** Thin wrapper around Slack Web API GET endpoints. */
+  async function slackApi(
+    method: string,
+    params: Record<string, string>,
+    token: string,
+  ): Promise<any> {
+    const url = new URL(`https://slack.com/api/${method}`);
+    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+    const res = await fetcher(url.toString(), {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return res.json();
+  }
+
+  const userCache = new Map<string, string>();
+
+  async function resolveUserName(userId: string, token: string): Promise<string> {
+    const cached = userCache.get(userId);
+    if (cached !== undefined) return cached;
+    try {
+      const data = await slackApi("users.info", { user: userId }, token);
+      const name =
+        data?.user?.profile?.display_name ||
+        data?.user?.profile?.real_name ||
+        data?.user?.name ||
+        userId;
+      userCache.set(userId, name);
+      return name;
+    } catch {
+      userCache.set(userId, userId);
+      return userId;
+    }
+  }
+
+  return {
+    name: "slack",
+
+    async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
+    const token = getToken();
     if (!token) {
       console.warn("[slack] No token found — set SLACK_TOKEN env or keys.slack in config");
       return [];
@@ -71,7 +87,7 @@ export const slack: Source = {
         ? String(lastSync)
         : defaultDays === 0
           ? "0"
-          : String(Math.floor(Date.now() / 1000 - defaultDays * 24 * 60 * 60));
+          : String(Math.floor((config.now?.() ?? Date.now()) / 1000 - defaultDays * 24 * 60 * 60));
 
     // Identify the authenticated user so we can tag isFromMe
     let authUserId = "";
@@ -159,7 +175,9 @@ export const slack: Source = {
               channel: ch.id,
               channelName: ch.name,
               channelType: ch.type,
+              user: userId,
               userName,
+              threadTs: msg.thread_ts ?? null,
               isFromMe: userId === authUserId,
             },
             createdAt: Math.floor(parseFloat(ts)),
@@ -172,9 +190,12 @@ export const slack: Source = {
       options?.onProgress?.(items.length);
 
       // Rate limit: small delay between channel history fetches
-      await delay(100);
+      if (delayMs > 0) await delay(delayMs);
     }
 
     return items;
-  },
-};
+    },
+  };
+}
+
+export const slack: Source = createSlackSource();

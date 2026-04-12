@@ -10,6 +10,45 @@ import {
   type Message,
 } from "@/components/chat";
 
+function normalizeAssistantText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function isDuplicateAssistantSegment(text: string, finalizedSegments: string[]): boolean {
+  const normalized = normalizeAssistantText(text);
+  if (!normalized) return false;
+  return finalizedSegments.some(
+    (prev) => prev === normalized || prev.startsWith(normalized) || normalized.startsWith(prev),
+  );
+}
+
+function dedupeLoadedMessages(allMsgs: Message[]): Message[] {
+  const normalizedAssistantTexts: string[] = allMsgs
+    .filter((m: Message) => m.role === "assistant")
+    .map((m: Message) => normalizeAssistantText(m.content))
+    .filter(Boolean);
+
+  return allMsgs.filter((m: Message, i: number, arr: Message[]) => {
+    if (i > 0) {
+      const prev = arr[i - 1];
+      if (m.role === prev.role && m.content === prev.content) return false;
+    }
+    if (m.role === "assistant") {
+      const normalized = normalizeAssistantText(m.content);
+      if (!normalized) return false;
+      const hasLongerVariant = normalizedAssistantTexts.some(
+        (other) => other !== normalized && other.startsWith(normalized),
+      );
+      if (hasLongerVariant) return false;
+      const firstIdx = allMsgs.findIndex(
+        (om) => om.role === "assistant" && normalizeAssistantText(om.content) === normalized,
+      );
+      if (firstIdx !== i) return false;
+    }
+    return true;
+  });
+}
+
 // ─── Chat Page ──────────────────────────────────────────────────────────────
 
 export function ChatPage({ threadId: initialThreadId, initialInput: initialInputProp, onThreadCreated }: {
@@ -71,30 +110,7 @@ export function ChatPage({ threadId: initialThreadId, initialInput: initialInput
         .then((r) => r.json())
         .then((data) => {
           const allMsgs: Message[] = data.messages || [];
-          const assistantTexts: string[] = allMsgs
-            .filter((m: Message) => m.role === "assistant" && m.content.trim())
-            .map((m: Message) => m.content.trim());
-
-          const msgs: Message[] = allMsgs.filter((m: Message, i: number, arr: Message[]) => {
-            if (i > 0) {
-              const prev = arr[i - 1];
-              if (m.role === prev.role && m.content === prev.content) return false;
-            }
-            if (m.role === "assistant" && m.content.trim()) {
-              const text = m.content.trim();
-              const isDuplOrSubstring = assistantTexts.some(
-                (other) => other !== text && other.includes(text),
-              );
-              if (isDuplOrSubstring) return false;
-              const firstIdx = allMsgs.findIndex(
-                (om) => om.role === "assistant" && om.content.trim() === text,
-              );
-              if (firstIdx !== i) return false;
-            }
-            if (m.role === "assistant" && !m.content.trim()) return false;
-            return true;
-          });
-          setMessages(msgs);
+          setMessages(dedupeLoadedMessages(allMsgs));
           setThreadStatus(data.thread?.status ?? null);
           setWorkflowName(data.thread?.workflow_name ?? null);
         })
@@ -184,7 +200,21 @@ export function ChatPage({ threadId: initialThreadId, initialInput: initialInput
 
     let currentAssistantId = genId();
     let currentText = "";
-    const allFinalizedTexts = new Set<string>();  // Track all finalized text segments to deduplicate
+    let currentSegmentRolledBack = false;
+    const LIVE_ROLLBACK_MIN_CHARS = 20;
+    // Finalized segments, in normalized form. Prefix matching lets us treat
+    // regenerated partials as duplicates while avoiding broad interior-substring matches.
+    const finalizedSegments: string[] = [];
+    const isDupOfFinalized = (text: string): boolean => {
+      return isDuplicateAssistantSegment(text, finalizedSegments);
+    };
+    // Drop the current bubble entirely (not just clear its content) — an empty
+    // bubble in the DOM is ugly and looks like a ghost message.
+    const dropCurrentBubble = () => {
+      const dropId = currentAssistantId;
+      setMessages((prev) => prev.filter((m) => m.id !== dropId));
+      currentText = "";
+    };
 
     setMessages((prev) => [...prev, { id: currentAssistantId, role: "assistant", content: "", created_at: Math.floor(Date.now() / 1000) }]);
 
@@ -239,22 +269,19 @@ export function ChatPage({ threadId: initialThreadId, initialInput: initialInput
                 const toolEvent = JSON.parse(parsed.tool);
                 if (toolEvent.event === "segment_rollback") {
                   // Server detected this segment duplicates one already committed.
-                  // Drop whatever we've streamed into the current bubble.
-                  currentText = "";
-                  const rollbackId = currentAssistantId;
-                  setMessages((prev) => prev.map((m) => m.id === rollbackId ? { ...m, content: "" } : m));
+                  // Drop the bubble entirely — don't leave an empty ghost in the DOM.
+                  currentSegmentRolledBack = true;
+                  dropCurrentBubble();
                 } else if (toolEvent.event === "tool_start") {
                   const trimmed = currentText.trim();
-                  if (trimmed && !allFinalizedTexts.has(trimmed)) {
-                    // New unique text — finalize it
-                    allFinalizedTexts.add(trimmed);
+                  if (trimmed && !isDupOfFinalized(trimmed)) {
+                    finalizedSegments.push(normalizeAssistantText(trimmed));
                     const finalText = currentText;
                     const finalId = currentAssistantId;
                     setMessages((prev) => prev.map((m) => m.id === finalId ? { ...m, content: finalText } : m));
                   } else {
-                    // Empty or duplicate text from parallel tool responses — remove it
-                    const emptyId = currentAssistantId;
-                    setMessages((prev) => prev.filter((m) => m.id !== emptyId));
+                    // Empty, rolled-back, or duplicate — drop the bubble
+                    dropCurrentBubble();
                   }
 
                   const toolMsg: Message = {
@@ -267,6 +294,7 @@ export function ChatPage({ threadId: initialThreadId, initialInput: initialInput
                   setMessages((prev) => [...prev, toolMsg]);
 
                   currentText = "";
+                  currentSegmentRolledBack = false;
                   currentAssistantId = genId();
                   setMessages((prev) => [...prev, { id: currentAssistantId, role: "assistant", content: "", created_at: Math.floor(Date.now() / 1000) }]);
                 } else if (toolEvent.event === "tool_end") {
@@ -298,7 +326,22 @@ export function ChatPage({ threadId: initialThreadId, initialInput: initialInput
             }
 
             if (parsed.delta) {
+              // Already flagged as duplicate — swallow further deltas until
+              // the next tool_start resets the flag.
+              if (currentSegmentRolledBack) continue;
               currentText += parsed.delta;
+              const trimmedNow = currentText.trim();
+              // Live dedup: if the growing segment already matches (substring
+              // in either direction) a prior finalized segment, the model is
+              // regenerating the same content after another tool call. Drop
+              // the bubble immediately so the user never sees the duplicate
+              // mid-stream. 20-char threshold avoids false positives from
+              // short common openings like "I'll" or "Sure,".
+              if (normalizeAssistantText(trimmedNow).length >= LIVE_ROLLBACK_MIN_CHARS && isDupOfFinalized(trimmedNow)) {
+                currentSegmentRolledBack = true;
+                dropCurrentBubble();
+                continue;
+              }
               const textNow = currentText;
               const idNow = currentAssistantId;
               setMessages((prev) => prev.map((m) => m.id === idNow ? { ...m, content: textNow } : m));
@@ -355,35 +398,7 @@ export function ChatPage({ threadId: initialThreadId, initialInput: initialInput
         try {
           const res = await fetch(`/api/threads/${threadId}/messages`);
           const data = await res.json();
-          // Deduplicate: remove assistant messages whose content is a substring of another
-          // (partial flushes before tool calls are subsets of later, fuller text)
-          const assistantTexts: string[] = (data.messages || [])
-            .filter((m: Message) => m.role === "assistant" && m.content.trim())
-            .map((m: Message) => m.content.trim());
-
-          const msgs: Message[] = (data.messages || []).filter((m: Message, i: number, arr: Message[]) => {
-            // Consecutive same-role same-content dedup
-            if (i > 0) {
-              const prev = arr[i - 1];
-              if (m.role === prev.role && m.content === prev.content) return false;
-            }
-            // Skip assistant messages that are exact duplicates or substrings of another
-            if (m.role === "assistant" && m.content.trim()) {
-              const text = m.content.trim();
-              const isDuplOrSubstring = assistantTexts.some(
-                (other) => other !== text && other.includes(text),
-              );
-              if (isDuplOrSubstring) return false;
-              // Exact duplicate check (keep only first occurrence)
-              const firstIdx = (data.messages as Message[]).findIndex(
-                (om) => om.role === "assistant" && om.content.trim() === text,
-              );
-              if (firstIdx !== i) return false;
-            }
-            // Skip empty assistant messages
-            if (m.role === "assistant" && !m.content.trim()) return false;
-            return true;
-          });
+          const msgs: Message[] = dedupeLoadedMessages(data.messages || []);
           if (msgs.length > 0) setMessages(msgs);
         } catch {
           toast.error("Failed to reload messages");

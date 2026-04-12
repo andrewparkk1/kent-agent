@@ -391,7 +391,7 @@ describe("runAgent — event handling & persistence", () => {
     expect(assistantMsgs).toHaveLength(2);
     expect(assistantMsgs[0].content).toBe("calling tool");
     expect(assistantMsgs[1].content).toBe("done");
-    expect(result.output).toBe("calling tooldone");
+    expect(result.output).toBe("calling tool\n\ndone");
   });
 
   test("marks tool error when isError=true", async () => {
@@ -428,6 +428,26 @@ describe("runAgent — event handling & persistence", () => {
     expect(assistantMsgs).toHaveLength(1);
     expect(assistantMsgs[0].content).toBe("final answer");
     expect(rollbacks.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("does not rollback distinct post-tool text that only shares a prefix", async () => {
+    state.nextAgentEvents = [
+      textDelta("No existing lesson memory."),
+      toolStart("t1", "list_workflows", {}),
+      toolEnd("t1", "list_workflows", "[]"),
+      textDelta("Now I'll set up the workflow and memory."),
+    ];
+    const rollbacks: number[] = [];
+    await core.runAgent({
+      prompt: "q",
+      timezone: "UTC",
+      callbacks: { onSegmentRollback: () => rollbacks.push(1) },
+    });
+    const assistantMsgs = state.messages.filter((m) => m.role === "assistant");
+    expect(assistantMsgs).toHaveLength(2);
+    expect(assistantMsgs[0].content).toBe("No existing lesson memory.");
+    expect(assistantMsgs[1].content).toBe("Now I'll set up the workflow and memory.");
+    expect(rollbacks).toHaveLength(0);
   });
 
   test("reports agent error via callback and result.error", async () => {

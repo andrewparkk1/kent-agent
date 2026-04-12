@@ -6,17 +6,23 @@
 import type { Source, SyncState, SyncOptions, Item } from "./types";
 import { loadConfig } from "@shared/config.ts";
 
-async function notionApi(endpoint: string, body: any, token: string): Promise<any> {
-  const res = await fetch(`https://api.notion.com/v1${endpoint}`, {
-    method: body ? "POST" : "GET",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Notion-Version": "2022-06-28",
-      "Content-Type": "application/json",
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  return res.json();
+function makeNotionApi(fetcher: typeof fetch) {
+  return async function notionApi(
+    endpoint: string,
+    body: any,
+    token: string,
+  ): Promise<any> {
+    const res = await fetcher(`https://api.notion.com/v1${endpoint}`, {
+      method: body ? "POST" : "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Notion-Version": "2022-06-28",
+        "Content-Type": "application/json",
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return res.json();
+  };
 }
 
 /** Extract the title string from a Notion page object. */
@@ -80,37 +86,54 @@ function blockToText(block: any): string {
   }
 }
 
-/** Fetch all block children for a page, converting to plain text. */
-async function fetchPageContent(pageId: string, token: string): Promise<string> {
-  const lines: string[] = [];
-  let cursor: string | undefined;
-
-  do {
-    const endpoint = `/blocks/${pageId}/children${cursor ? `?start_cursor=${cursor}` : ""}`;
-    const result = await notionApi(endpoint, null, token);
-    const blocks = result.results ?? [];
-
-    for (const block of blocks) {
-      const text = blockToText(block);
-      if (text) lines.push(text);
-    }
-
-    cursor = result.has_more ? result.next_cursor : undefined;
-  } while (cursor);
-
-  return lines.join("\n");
-}
-
-export const notion: Source = {
-  name: "notion",
-
-  async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
-    try {
+function resolveNotionToken(): string {
+  try {
     const config = loadConfig();
-    const token =
+    return (
       process.env.NOTION_TOKEN ||
       (config.keys as Record<string, string>).notion ||
-      "";
+      ""
+    );
+  } catch {
+    return process.env.NOTION_TOKEN || "";
+  }
+}
+
+export function createNotionSource(
+  config: {
+    fetcher?: typeof fetch;
+    token?: string | null;
+    now?: () => number;
+  } = {},
+): Source {
+  const fetcher = config.fetcher ?? fetch;
+  const notionApi = makeNotionApi(fetcher);
+  const getToken = () =>
+    config.token !== undefined ? config.token : resolveNotionToken();
+  const now = config.now ?? (() => Date.now());
+
+  async function fetchPageContent(pageId: string, token: string): Promise<string> {
+    const lines: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const endpoint = `/blocks/${pageId}/children${cursor ? `?start_cursor=${cursor}` : ""}`;
+      const result = await notionApi(endpoint, null, token);
+      const blocks = result.results ?? [];
+      for (const block of blocks) {
+        const text = blockToText(block);
+        if (text) lines.push(text);
+      }
+      cursor = result.has_more ? result.next_cursor : undefined;
+    } while (cursor);
+    return lines.join("\n");
+  }
+
+  return {
+    name: "notion",
+
+    async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
+    try {
+    const token = getToken();
 
     if (!token) {
       return [];
@@ -123,7 +146,7 @@ export const notion: Source = {
         ? lastSync
         : defaultDays === 0
           ? 0
-          : Math.floor((Date.now() - defaultDays * 24 * 60 * 60 * 1000) / 1000);
+          : Math.floor((now() - defaultDays * 24 * 60 * 60 * 1000) / 1000);
 
     const items: Item[] = [];
     const limit = options?.limit ?? 100;
@@ -159,7 +182,7 @@ export const notion: Source = {
         const title = extractTitle(page);
         const createdTime = page.created_time
           ? Math.floor(new Date(page.created_time).getTime() / 1000)
-          : Math.floor(Date.now() / 1000);
+          : Math.floor(now() / 1000);
 
         // Fetch page block content
         const content = await fetchPageContent(page.id, token);
@@ -196,5 +219,8 @@ export const notion: Source = {
       console.warn(`[notion] Failed to fetch pages: ${e}`);
       return [];
     }
-  },
-};
+    },
+  };
+}
+
+export const notion: Source = createNotionSource();

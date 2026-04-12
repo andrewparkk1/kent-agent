@@ -87,12 +87,22 @@ function categorizeDomain(url: string): string {
   }
 }
 
-export const safari: Source = {
+export interface SafariSourceConfig {
+  /** Explicit path to a Safari History.db. If provided, skips the copy-to-temp dance. */
+  historyDbPath?: string;
+  /** Clock injection for deterministic tests. Returns unix seconds. */
+  now?: () => number;
+}
+
+export function createSafariSource(config: SafariSourceConfig = {}): Source {
+  return {
   name: "safari",
 
   async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
     try {
-      const dbPath = copyDbToTemp();
+      const dbPath = config.historyDbPath
+        ? (existsSync(config.historyDbPath) ? config.historyDbPath : null)
+        : copyDbToTemp();
       if (!dbPath) {
         console.warn("[safari] Safari History.db not found, skipping");
         return [];
@@ -164,4 +174,7 @@ export const safari: Source = {
       return [];
     }
   },
-};
+  };
+}
+
+export const safari: Source = createSafariSource();

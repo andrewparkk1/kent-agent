@@ -191,12 +191,19 @@ function formatContact(
   return parts.join("\n");
 }
 
-export const contacts: Source = {
-  name: "contacts",
+export interface ContactsConfig {
+  /** Override AddressBook database paths. When provided, files are opened directly (no /tmp copy). */
+  abPaths?: string[];
+  now?: () => number;
+}
 
-  async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
+export function createContactsSource(config: ContactsConfig = {}): Source {
+  return {
+    name: "contacts",
+
+    async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
     try {
-      const dbPaths = getAllDbPaths();
+      const dbPaths = config.abPaths && config.abPaths.length > 0 ? config.abPaths : getAllDbPaths();
       if (dbPaths.length === 0) {
         console.warn("[contacts] AddressBook database not found, skipping");
         return [];
@@ -214,7 +221,7 @@ export const contacts: Source = {
 
       for (let di = 0; di < dbPaths.length; di++) {
         const dbPath = dbPaths[di]!;
-        const tempPath = copyToTemp(dbPath, `AddressBook-${di}.abcddb`);
+        const tempPath = config.abPaths ? dbPath : copyToTemp(dbPath, `AddressBook-${di}.abcddb`);
         if (!tempPath) continue;
 
         try {
@@ -379,5 +386,8 @@ export const contacts: Source = {
       console.warn(`[contacts] Failed to fetch contacts: ${e}`);
       return [];
     }
-  },
-};
+    },
+  };
+}
+
+export const contacts: Source = createContactsSource();

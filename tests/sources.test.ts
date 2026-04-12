@@ -1,199 +1,92 @@
 import { test, expect, describe } from "bun:test";
-import type { SyncState, Item, Source } from "@daemon/sources/types.ts";
+import type { Source } from "@daemon/sources/types.ts";
 
-// Mock SyncState for testing
-class MockSyncState implements SyncState {
-  private timestamps: Record<string, number> = {};
+// Per-source behavioral + LIVE tests live under tests/sources/<name>.test.ts.
+// This file is the registry / interface conformance check across all 22 source
+// files (25 source exports — gmail.ts contributes gmail/gcal/gtasks/gdrive).
 
-  getLastSync(source: string): number {
-    return this.timestamps[source] || 0;
-  }
-
-  markSynced(source: string): void {
-    this.timestamps[source] = Math.floor(Date.now() / 1000);
-  }
-}
-
-describe("Source types", () => {
-  test("Item interface has required fields", () => {
-    const item: Item = {
-      source: "test",
-      externalId: "test-1",
-      content: "hello",
-      metadata: {},
-      createdAt: Date.now(),
-    };
-
-    expect(item.source).toBe("test");
-    expect(item.externalId).toBe("test-1");
-    expect(item.content).toBe("hello");
-    expect(item.metadata).toEqual({});
-    expect(item.createdAt).toBeGreaterThan(0);
-  });
-
-  test("SyncState mock works correctly", () => {
-    const state = new MockSyncState();
-
-    expect(state.getLastSync("test")).toBe(0);
-    state.markSynced("test");
-    expect(state.getLastSync("test")).toBeGreaterThan(0);
-  });
-});
-
-describe("iMessage source", () => {
-  test("imessage source has correct name", async () => {
-    const { imessage } = await import("@daemon/sources/imessage.ts");
-
-    expect(imessage.name).toBe("imessage");
-    expect(typeof imessage.fetchNew).toBe("function");
-  });
-
-  test("imessage fetchNew returns array (may be empty without DB access)", async () => {
-    const { imessage } = await import("@daemon/sources/imessage.ts");
-    const state = new MockSyncState();
-
-    const items = await imessage.fetchNew(state);
-    expect(items).toBeArray();
-    // Each item should have the right shape if any exist
-    for (const item of items) {
-      expect(item.source).toBe("imessage");
-      expect(item.externalId).toMatch(/^imessage-/);
-      expect(item.content).toBeString();
-      expect(item.createdAt).toBeNumber();
-    }
-  });
-});
-
-describe("Gmail source", () => {
-  test("gmail source has correct name", async () => {
-    const { gmail } = await import("@daemon/sources/gmail.ts");
-
-    expect(gmail.name).toBe("gmail");
-    expect(typeof gmail.fetchNew).toBe("function");
-  });
-
-  test("gmail fetchNew returns array (may be empty without gws)", async () => {
-    const { gmail } = await import("@daemon/sources/gmail.ts");
-    const state = new MockSyncState();
-
-    const items = await gmail.fetchNew(state);
-    expect(items).toBeArray();
-    for (const item of items) {
-      expect(item.source).toBe("gmail");
-      expect(item.externalId).toMatch(/^(gmail-|gcal-|gtask-)/);
-    }
-  });
-});
-
-describe("GitHub source", () => {
-  test("github source has correct name", async () => {
-    const { github } = await import("@daemon/sources/github.ts");
-
-    expect(github.name).toBe("github");
-    expect(typeof github.fetchNew).toBe("function");
-  });
-
-  test("github fetchNew returns array", async () => {
-    const { github } = await import("@daemon/sources/github.ts");
-    const state = new MockSyncState();
-
-    const items = await github.fetchNew(state, { limit: 5 });
-    expect(items).toBeArray();
-    for (const item of items) {
-      expect(item.source).toBe("github");
-      expect(item.externalId).toMatch(/^github-/);
-    }
-  }, 30_000);
-});
-
-describe("Signal source", () => {
-  test("signal source has correct name", async () => {
-    const { signal } = await import("@daemon/sources/signal.ts");
-
-    expect(signal.name).toBe("signal");
-    expect(typeof signal.fetchNew).toBe("function");
-  });
-});
-
-describe("Granola source", () => {
-  test("granola source has correct name", async () => {
-    const { granola } = await import("@daemon/sources/granola.ts");
-
-    expect(granola.name).toBe("granola");
-    expect(typeof granola.fetchNew).toBe("function");
-  });
-});
-
-describe("Chrome source", () => {
-  test("chrome source has correct name", async () => {
-    const { chrome } = await import("@daemon/sources/chrome.ts");
-
-    expect(chrome.name).toBe("chrome");
-    expect(typeof chrome.fetchNew).toBe("function");
-  });
-});
-
-describe("Apple Notes source", () => {
-  test("apple notes source has correct name", async () => {
-    const { appleNotes } = await import("@daemon/sources/apple-notes.ts");
-
-    expect(appleNotes.name).toBe("apple-notes");
-    expect(typeof appleNotes.fetchNew).toBe("function");
-  });
-});
-
-describe("Source registry in sync command", () => {
-  test("all 20 sources are importable and conform to Source interface", async () => {
+describe("Source registry", () => {
+  test("all 22 source files export Source-conformant objects (25 exports total)", async () => {
     const sources: Source[] = [
       (await import("@daemon/sources/imessage.ts")).imessage,
       (await import("@daemon/sources/signal.ts")).signal,
+      (await import("@daemon/sources/whatsapp.ts")).whatsapp,
       (await import("@daemon/sources/granola.ts")).granola,
       (await import("@daemon/sources/gmail.ts")).gmail,
+      (await import("@daemon/sources/gmail.ts")).gcal,
+      (await import("@daemon/sources/gmail.ts")).gtasks,
+      (await import("@daemon/sources/gmail.ts")).gdrive,
+      (await import("@daemon/sources/outlook.ts")).outlook,
       (await import("@daemon/sources/github.ts")).github,
       (await import("@daemon/sources/chrome.ts")).chrome,
-      (await import("@daemon/sources/apple-notes.ts")).appleNotes,
       (await import("@daemon/sources/safari.ts")).safari,
+      (await import("@daemon/sources/apple-notes.ts")).appleNotes,
+      (await import("@daemon/sources/apple-calendar.ts")).appleCalendar,
       (await import("@daemon/sources/apple-reminders.ts")).appleReminders,
+      (await import("@daemon/sources/apple-health.ts")).appleHealth,
+      (await import("@daemon/sources/apple-music.ts")).appleMusic,
       (await import("@daemon/sources/contacts.ts")).contacts,
       (await import("@daemon/sources/obsidian.ts")).obsidian,
-      (await import("@daemon/sources/whatsapp.ts")).whatsapp,
-      (await import("@daemon/sources/slack.ts")).slack,
       (await import("@daemon/sources/notion.ts")).notion,
+      (await import("@daemon/sources/slack.ts")).slack,
       (await import("@daemon/sources/spotify.ts")).spotify,
-      (await import("@daemon/sources/apple-music.ts")).appleMusic,
-      (await import("@daemon/sources/apple-health.ts")).appleHealth,
       (await import("@daemon/sources/screen-time.ts")).screenTime,
       (await import("@daemon/sources/recent-files.ts")).recentFiles,
-      (await import("@daemon/sources/apple-calendar.ts")).appleCalendar,
+      (await import("@daemon/sources/ai-coding.ts")).aiCoding,
     ];
 
-    expect(sources.length).toBe(20);
+    expect(sources.length).toBe(25);
 
-    const names = sources.map((s) => s.name);
-    expect(names).toContain("imessage");
-    expect(names).toContain("signal");
-    expect(names).toContain("granola");
-    expect(names).toContain("gmail");
-    expect(names).toContain("github");
-    expect(names).toContain("chrome");
-    expect(names).toContain("apple-notes");
-    expect(names).toContain("safari");
-    expect(names).toContain("apple-reminders");
-    expect(names).toContain("contacts");
-    expect(names).toContain("obsidian");
-    expect(names).toContain("whatsapp");
-    expect(names).toContain("slack");
-    expect(names).toContain("notion");
-    expect(names).toContain("spotify");
-    expect(names).toContain("apple-music");
-    expect(names).toContain("apple-health");
-    expect(names).toContain("screen-time");
-    expect(names).toContain("recent-files");
-    expect(names).toContain("apple-calendar");
+    const expectedNames = new Set([
+      "imessage", "signal", "whatsapp", "granola",
+      "gmail", "gcal", "gtasks", "gdrive",
+      "outlook", "github",
+      "chrome", "safari",
+      "apple-notes", "apple-calendar", "apple-reminders", "apple-health", "apple-music",
+      "contacts", "obsidian", "notion", "slack", "spotify",
+      "screen-time", "recent-files", "ai_coding",
+    ]);
+
+    const names = new Set(sources.map((s) => s.name));
+    expect(names).toEqual(expectedNames);
 
     for (const source of sources) {
       expect(typeof source.name).toBe("string");
+      expect(source.name.length).toBeGreaterThan(0);
       expect(typeof source.fetchNew).toBe("function");
     }
+  });
+
+  test("source names are unique", async () => {
+    const sources: Source[] = [
+      (await import("@daemon/sources/imessage.ts")).imessage,
+      (await import("@daemon/sources/signal.ts")).signal,
+      (await import("@daemon/sources/whatsapp.ts")).whatsapp,
+      (await import("@daemon/sources/granola.ts")).granola,
+      (await import("@daemon/sources/gmail.ts")).gmail,
+      (await import("@daemon/sources/gmail.ts")).gcal,
+      (await import("@daemon/sources/gmail.ts")).gtasks,
+      (await import("@daemon/sources/gmail.ts")).gdrive,
+      (await import("@daemon/sources/outlook.ts")).outlook,
+      (await import("@daemon/sources/github.ts")).github,
+      (await import("@daemon/sources/chrome.ts")).chrome,
+      (await import("@daemon/sources/safari.ts")).safari,
+      (await import("@daemon/sources/apple-notes.ts")).appleNotes,
+      (await import("@daemon/sources/apple-calendar.ts")).appleCalendar,
+      (await import("@daemon/sources/apple-reminders.ts")).appleReminders,
+      (await import("@daemon/sources/apple-health.ts")).appleHealth,
+      (await import("@daemon/sources/apple-music.ts")).appleMusic,
+      (await import("@daemon/sources/contacts.ts")).contacts,
+      (await import("@daemon/sources/obsidian.ts")).obsidian,
+      (await import("@daemon/sources/notion.ts")).notion,
+      (await import("@daemon/sources/slack.ts")).slack,
+      (await import("@daemon/sources/spotify.ts")).spotify,
+      (await import("@daemon/sources/screen-time.ts")).screenTime,
+      (await import("@daemon/sources/recent-files.ts")).recentFiles,
+      (await import("@daemon/sources/ai-coding.ts")).aiCoding,
+    ];
+
+    const names = sources.map((s) => s.name);
+    expect(new Set(names).size).toBe(names.length);
   });
 });

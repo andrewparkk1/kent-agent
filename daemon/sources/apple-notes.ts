@@ -496,6 +496,15 @@ function extractNoteText(data: Buffer | Uint8Array): string | null {
     // Fallback: extract all UTF-8 strings from protobuf
     return extractProtobufStrings(buf).join("\n").trim() || null;
   } catch {
+    // Fallback for tests/non-gzipped: try decoding raw bytes as UTF-8 if they look text-like
+    try {
+      const raw = Buffer.from(data);
+      const text = new TextDecoder("utf-8", { fatal: true }).decode(raw);
+      const printable = text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "");
+      if (printable.length > text.length * 0.8 && text.length >= 1) {
+        return printable.trim() || null;
+      }
+    } catch {}
     return null;
   }
 }
@@ -626,23 +635,26 @@ function extractProtobufStrings(buf: Buffer, depth = 0): string[] {
   return results;
 }
 
-async function fetchViaSqlite(state: SyncState): Promise<Item[]> {
-  if (!existsSync(NOTES_DB)) {
+async function fetchViaSqlite(state: SyncState, dbPathOverride?: string): Promise<Item[]> {
+  const sourceDb = dbPathOverride ?? NOTES_DB;
+  if (!existsSync(sourceDb)) {
     throw new Error("Permission denied — NoteStore.sqlite not accessible (likely missing Full Disk Access)");
   }
 
-  let dbPath = NOTES_DB;
-  try {
-    const tempDir = join(tmpdir(), "kent-apple-notes");
-    mkdirSync(tempDir, { recursive: true });
-    const tmpDb = join(tempDir, "NoteStore.sqlite");
-    copyFileSync(NOTES_DB, tmpDb);
-    const walPath = NOTES_DB + "-wal";
-    const shmPath = NOTES_DB + "-shm";
-    if (existsSync(walPath)) copyFileSync(walPath, tmpDb + "-wal");
-    if (existsSync(shmPath)) copyFileSync(shmPath, tmpDb + "-shm");
-    dbPath = tmpDb;
-  } catch {}
+  let dbPath = sourceDb;
+  if (!dbPathOverride) {
+    try {
+      const tempDir = join(tmpdir(), "kent-apple-notes");
+      mkdirSync(tempDir, { recursive: true });
+      const tmpDb = join(tempDir, "NoteStore.sqlite");
+      copyFileSync(NOTES_DB, tmpDb);
+      const walPath = NOTES_DB + "-wal";
+      const shmPath = NOTES_DB + "-shm";
+      if (existsSync(walPath)) copyFileSync(walPath, tmpDb + "-wal");
+      if (existsSync(shmPath)) copyFileSync(shmPath, tmpDb + "-shm");
+      dbPath = tmpDb;
+    } catch {}
+  }
 
   let db: InstanceType<typeof Database>;
   try {
@@ -730,22 +742,37 @@ async function fetchViaSqlite(state: SyncState): Promise<Item[]> {
 // Source implementation
 // ---------------------------------------------------------------------------
 
-export const appleNotes: Source = {
-  name: "apple-notes",
+export interface AppleNotesConfig {
+  /** Override NoteStore.sqlite path — forces SQLite path and skips AppleScript. */
+  dbPath?: string;
+  now?: () => number;
+}
 
-  async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
-    const lastSync = state.getLastSync("apple-notes");
+export function createAppleNotesSource(config: AppleNotesConfig = {}): Source {
+  return {
+    name: "apple-notes",
 
-    // Try AppleScript first (gives us rich HTML with all formatting)
-    try {
-      const items = await fetchViaAppleScript(lastSync);
-      return items;
-    } catch (e) {
-      const msg = String(e);
-      console.warn(`[apple-notes] AppleScript failed, falling back to SQLite: ${msg.slice(0, 100)}`);
-    }
+    async fetchNew(state: SyncState, _options?: SyncOptions): Promise<Item[]> {
+      // When dbPath is explicitly provided, skip AppleScript entirely (test path).
+      if (config.dbPath) {
+        return fetchViaSqlite(state, config.dbPath);
+      }
 
-    // Fallback: SQLite + protobuf (plain text only)
-    return fetchViaSqlite(state);
-  },
-};
+      const lastSync = state.getLastSync("apple-notes");
+
+      // Try AppleScript first (gives us rich HTML with all formatting)
+      try {
+        const items = await fetchViaAppleScript(lastSync);
+        return items;
+      } catch (e) {
+        const msg = String(e);
+        console.warn(`[apple-notes] AppleScript failed, falling back to SQLite: ${msg.slice(0, 100)}`);
+      }
+
+      // Fallback: SQLite + protobuf (plain text only)
+      return fetchViaSqlite(state);
+    },
+  };
+}
+
+export const appleNotes: Source = createAppleNotesSource();

@@ -16,10 +16,8 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import type { Source, SyncState, SyncOptions, Item } from "./types";
 
-const CLAUDE_PROJECTS = join(homedir(), ".claude", "projects");
-const CODEX_DIR = join(homedir(), ".codex");
-const CODEX_HISTORY = join(CODEX_DIR, "history.jsonl");
-const CODEX_ARCHIVES = join(CODEX_DIR, "archived_sessions");
+const DEFAULT_CLAUDE_PROJECTS = join(homedir(), ".claude", "projects");
+const DEFAULT_CODEX_DIR = join(homedir(), ".codex");
 
 /** Max chars of assistant response to store (keeps DB size in check). */
 const MAX_RESPONSE_LEN = 1500;
@@ -33,7 +31,7 @@ function decodeProjectSlug(slug: string): string {
 
 // ── Claude Code ──────────────────────────────────────────────────────────────
 
-async function ingestClaudeCode(items: Item[], lastSync: number): Promise<void> {
+async function ingestClaudeCode(items: Item[], lastSync: number, CLAUDE_PROJECTS: string): Promise<void> {
   let projectDirs: string[];
   try {
     projectDirs = readdirSync(CLAUDE_PROJECTS, { withFileTypes: true })
@@ -140,7 +138,7 @@ async function ingestClaudeCode(items: Item[], lastSync: number): Promise<void> 
 
 // ── Codex ────────────────────────────────────────────────────────────────────
 
-async function ingestCodexHistory(items: Item[], lastSync: number): Promise<void> {
+async function ingestCodexHistory(items: Item[], lastSync: number, CODEX_HISTORY: string): Promise<void> {
   let content: string;
   try {
     content = await Bun.file(CODEX_HISTORY).text();
@@ -173,7 +171,7 @@ async function ingestCodexHistory(items: Item[], lastSync: number): Promise<void
   }
 }
 
-async function ingestCodexSessions(items: Item[], lastSync: number): Promise<void> {
+async function ingestCodexSessions(items: Item[], lastSync: number, CODEX_ARCHIVES: string): Promise<void> {
   let archiveFiles: string[];
   try {
     archiveFiles = readdirSync(CODEX_ARCHIVES).filter((f) => f.endsWith(".jsonl"));
@@ -266,19 +264,33 @@ function extractCodexText(payload: any): string | null {
 
 // ── Source export ─────────────────────────────────────────────────────────────
 
-export const aiCoding: Source = {
-  name: "ai_coding",
+export interface AiCodingConfig {
+  claudeDir?: string;
+  codexDir?: string;
+  now?: () => number;
+}
 
-  async fetchNew(state: SyncState, _options?: SyncOptions): Promise<Item[]> {
-    const lastSync = state.getLastSync("ai_coding");
-    const items: Item[] = [];
+export function createAiCodingSource(config: AiCodingConfig = {}): Source {
+  const CLAUDE_PROJECTS = config.claudeDir ?? DEFAULT_CLAUDE_PROJECTS;
+  const CODEX_DIR = config.codexDir ?? DEFAULT_CODEX_DIR;
+  const CODEX_HISTORY = join(CODEX_DIR, "history.jsonl");
+  const CODEX_ARCHIVES = join(CODEX_DIR, "archived_sessions");
+  return {
+    name: "ai_coding",
 
-    await Promise.all([
-      ingestClaudeCode(items, lastSync),
-      ingestCodexHistory(items, lastSync),
-      ingestCodexSessions(items, lastSync),
-    ]);
+    async fetchNew(state: SyncState, _options?: SyncOptions): Promise<Item[]> {
+      const lastSync = state.getLastSync("ai_coding");
+      const items: Item[] = [];
 
-    return items;
-  },
-};
+      await Promise.all([
+        ingestClaudeCode(items, lastSync, CLAUDE_PROJECTS),
+        ingestCodexHistory(items, lastSync, CODEX_HISTORY),
+        ingestCodexSessions(items, lastSync, CODEX_ARCHIVES),
+      ]);
+
+      return items;
+    },
+  };
+}
+
+export const aiCoding: Source = createAiCodingSource();

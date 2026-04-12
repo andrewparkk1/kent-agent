@@ -6,6 +6,7 @@
  */
 import { join, basename, extname, dirname } from "path";
 import { homedir } from "os";
+import { readdirSync, statSync } from "fs";
 import type { Source, SyncState, SyncOptions, Item } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -237,15 +238,48 @@ async function statFile(filePath: string): Promise<FileStat | null> {
 // Source implementation
 // ---------------------------------------------------------------------------
 
-export const recentFiles: Source = {
-  name: SOURCE_NAME,
+/** Recursive walk of a directory tree, returning absolute file paths. */
+function walkFiles(root: string): string[] {
+  const out: string[] = [];
+  let entries: import("fs").Dirent[];
+  try {
+    entries = readdirSync(root, { withFileTypes: true }) as import("fs").Dirent[];
+  } catch {
+    return out;
+  }
+  for (const ent of entries) {
+    const name = String(ent.name);
+    const full = join(root, name);
+    if (ent.isDirectory()) {
+      if (NOISE_DIRS.has(name)) continue;
+      out.push(...walkFiles(full));
+    } else if (ent.isFile()) {
+      out.push(full);
+    }
+  }
+  return out;
+}
 
-  async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
+export interface RecentFilesConfig {
+  /** Override default search roots (absolute paths). */
+  roots?: string[];
+  /** Inject clock for deterministic tests (seconds since epoch). */
+  now?: () => number;
+  /** If true, use the macOS mdfind-based scanner (production). Defaults true. */
+  useMdfind?: boolean;
+}
+
+export function createRecentFilesSource(config: RecentFilesConfig = {}): Source {
+  const useMdfind = config.useMdfind ?? true;
+  return {
+    name: SOURCE_NAME,
+
+    async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
     const lastSync = state.getLastSync(SOURCE_NAME);
     const limit = options?.limit ?? DEFAULT_LIMIT;
 
     // Calculate how many days back to look
-    const now = Date.now() / 1000;
+    const now = config.now ? config.now() : Date.now() / 1000;
     let daysBack: number;
     if (lastSync > 0) {
       const secondsSinceSync = now - lastSync;
@@ -257,11 +291,19 @@ export const recentFiles: Source = {
     // Cap to something reasonable
     daysBack = Math.min(daysBack, 90);
 
+    const cutoffSec = now - daysBack * 86400;
+
     let paths: string[];
     try {
-      paths = await runMdfind(daysBack);
+      if (useMdfind) {
+        paths = await runMdfind(daysBack);
+      } else {
+        const roots = config.roots ?? SEARCH_DIRS.map((d) => join(homedir(), d));
+        paths = [];
+        for (const root of roots) paths.push(...walkFiles(root));
+      }
     } catch (e) {
-      console.warn(`[${SOURCE_NAME}] mdfind failed: ${e}`);
+      console.warn(`[${SOURCE_NAME}] scan failed: ${e}`);
       return [];
     }
 
@@ -288,8 +330,12 @@ export const recentFiles: Source = {
       const directory = dirname(filePath);
       const mtimeUnix = Math.floor(stats.mtimeMs / 1000);
 
-      // Only include files modified after last sync
-      if (lastSync > 0 && mtimeUnix <= lastSync) continue;
+      // Only include files modified after last sync, or within the days-back window on first sync
+      if (lastSync > 0) {
+        if (mtimeUnix <= lastSync) continue;
+      } else {
+        if (mtimeUnix < cutoffSec) continue;
+      }
 
       items.push({
         source: SOURCE_NAME,
@@ -310,5 +356,8 @@ export const recentFiles: Source = {
     }
 
     return items;
-  },
-};
+    },
+  };
+}
+
+export const recentFiles: Source = createRecentFilesSource();

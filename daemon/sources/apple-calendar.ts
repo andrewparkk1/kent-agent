@@ -152,43 +152,65 @@ function eventsToItems(events: ParsedEvent[]): Item[] {
 }
 
 // ---------------------------------------------------------------------------
-// Source implementation
+// Default AppleScript runner
 // ---------------------------------------------------------------------------
 
-export const appleCalendar: Source = {
-  name: "apple-calendar",
+async function defaultRun(daysBefore: number): Promise<string> {
+  const script = buildAppleScript(daysBefore);
+  const proc = Bun.spawn(["osascript", "-e", script], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const stdout = await new Response(proc.stdout).text();
+  const stderr = await new Response(proc.stderr).text();
+  await proc.exited;
+  if (proc.exitCode !== 0) {
+    throw new Error(`AppleScript failed (exit ${proc.exitCode}): ${stderr.slice(0, 200)}`);
+  }
+  return stdout;
+}
 
-  async fetchNew(state: SyncState, _options?: SyncOptions): Promise<Item[]> {
-    try {
-      const lastSync = state.getLastSync("apple-calendar");
-      let daysBefore = 30;
+// ---------------------------------------------------------------------------
+// Factory + Source implementation
+// ---------------------------------------------------------------------------
 
-      if (lastSync > 0) {
-        const secondsSinceLastSync = Math.floor(Date.now() / 1000) - lastSync;
-        const daysSinceLastSync = Math.ceil(secondsSinceLastSync / 86400);
-        daysBefore = Math.min(Math.max(daysSinceLastSync, 1), 365);
+export interface AppleCalendarConfig {
+  /** Override the AppleScript runner. Receives `daysBefore`, returns raw stdout. */
+  exec?: (daysBefore: number) => Promise<string>;
+  /** Override the clock (ms). */
+  now?: () => number;
+}
+
+export function createAppleCalendarSource(config: AppleCalendarConfig = {}): Source {
+  const runner = config.exec ?? defaultRun;
+  const now = config.now ?? (() => Date.now());
+
+  return {
+    name: "apple-calendar",
+
+    async fetchNew(state: SyncState, _options?: SyncOptions): Promise<Item[]> {
+      try {
+        const lastSync = state.getLastSync("apple-calendar");
+        let daysBefore = 30;
+
+        if (lastSync > 0) {
+          const secondsSinceLastSync = Math.floor(now() / 1000) - lastSync;
+          const daysSinceLastSync = Math.ceil(secondsSinceLastSync / 86400);
+          daysBefore = Math.min(Math.max(daysSinceLastSync, 1), 365);
+        }
+
+        const stdout = await runner(daysBefore);
+        const events = parseAppleScriptOutput(stdout);
+        return eventsToItems(events);
+      } catch (e) {
+        console.warn(`[apple-calendar] Failed to fetch events: ${e}`);
+        return [];
       }
+    },
+  };
+}
 
-      const script = buildAppleScript(daysBefore);
+export const appleCalendar: Source = createAppleCalendarSource();
 
-      const proc = Bun.spawn(["osascript", "-e", script], {
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-
-      const stdout = await new Response(proc.stdout).text();
-      const stderr = await new Response(proc.stderr).text();
-      await proc.exited;
-
-      if (proc.exitCode !== 0) {
-        throw new Error(`AppleScript failed (exit ${proc.exitCode}): ${stderr.slice(0, 200)}`);
-      }
-
-      const events = parseAppleScriptOutput(stdout);
-      return eventsToItems(events);
-    } catch (e) {
-      console.warn(`[apple-calendar] Failed to fetch events: ${e}`);
-      return [];
-    }
-  },
-};
+// Exposed for tests
+export { parseAppleScriptOutput as _parseAppleScriptOutput, eventsToItems as _eventsToItems };

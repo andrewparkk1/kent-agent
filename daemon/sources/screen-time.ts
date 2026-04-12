@@ -168,12 +168,19 @@ interface AggregatedUsage {
   sessions: number;
 }
 
-export const screenTime: Source = {
-  name: "screen-time",
+export interface ScreenTimeConfig {
+  /** Override knowledgeC.db path. When set, file is opened directly (no /tmp copy). */
+  dbPath?: string;
+  now?: () => number;
+}
 
-  async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
+export function createScreenTimeSource(config: ScreenTimeConfig = {}): Source {
+  return {
+    name: "screen-time",
+
+    async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
     try {
-      const dbPath = copyDbToTemp();
+      const dbPath = config.dbPath ?? copyDbToTemp();
       if (!dbPath) {
         console.warn(
           "[screen-time] knowledgeC.db not found, skipping"
@@ -271,5 +278,8 @@ export const screenTime: Source = {
       console.warn(`[screen-time] Failed to fetch data: ${e}`);
       return [];
     }
-  },
-};
+    },
+  };
+}
+
+export const screenTime: Source = createScreenTimeSource();

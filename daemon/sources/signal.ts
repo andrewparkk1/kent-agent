@@ -15,6 +15,7 @@
  *
  * Falls back gracefully if Signal is not installed or key is inaccessible.
  */
+import { Database } from "bun:sqlite";
 import { join } from "path";
 import { homedir, tmpdir } from "os";
 import {
@@ -27,10 +28,10 @@ import { execFileSync } from "child_process";
 import { pbkdf2Sync, createDecipheriv } from "crypto";
 import type { Source, SyncState, SyncOptions, Item } from "./types";
 
-const SIGNAL_BASE = join(homedir(), "Library/Application Support/Signal");
-const SIGNAL_DB = join(SIGNAL_BASE, "sql/db.sqlite");
-const SIGNAL_CONFIG = join(SIGNAL_BASE, "config.json");
-const TEMP_DIR = join(tmpdir(), "kent-signal");
+const DEFAULT_SIGNAL_BASE = join(homedir(), "Library/Application Support/Signal");
+const DEFAULT_SIGNAL_DB = join(DEFAULT_SIGNAL_BASE, "sql/db.sqlite");
+const DEFAULT_SIGNAL_CONFIG = join(DEFAULT_SIGNAL_BASE, "config.json");
+const DEFAULT_TEMP_DIR = join(tmpdir(), "kent-signal");
 
 // Ensure brew-installed CLIs are discoverable
 const CLI_PATH = ["/opt/homebrew/bin", "/usr/local/bin", process.env.PATH ?? ""].join(":");
@@ -38,11 +39,11 @@ const CLI_PATH = ["/opt/homebrew/bin", "/usr/local/bin", process.env.PATH ?? ""]
 /**
  * Get the decrypted Signal SQLCipher key.
  */
-function getSignalKey(): string | null {
+function getSignalKey(configPath: string): string | null {
   try {
-    if (!existsSync(SIGNAL_CONFIG)) return null;
+    if (!existsSync(configPath)) return null;
 
-    const config = JSON.parse(readFileSync(SIGNAL_CONFIG, "utf-8"));
+    const config = JSON.parse(readFileSync(configPath, "utf-8"));
     const encryptedKeyHex = config.encryptedKey;
     if (!encryptedKeyHex) {
       console.warn("[signal] No encryptedKey in config.json");
@@ -97,19 +98,24 @@ function getSignalKey(): string | null {
  * Query Signal's encrypted database via the sqlcipher CLI.
  * Returns parsed JSON rows or null on failure.
  */
-function querySignalDb(sql: string): any[] | null {
-  const key = getSignalKey();
+function querySignalDb(
+  sql: string,
+  dbPath: string,
+  configPath: string,
+  tempDir: string,
+): any[] | null {
+  const key = getSignalKey(configPath);
   if (!key) return null;
 
   // Copy DB to temp to avoid WAL lock contention
-  mkdirSync(TEMP_DIR, { recursive: true });
-  const tmpDb = join(TEMP_DIR, "db.sqlite");
+  mkdirSync(tempDir, { recursive: true });
+  const tmpDb = join(tempDir, "db.sqlite");
   try {
-    copyFileSync(SIGNAL_DB, tmpDb);
-    if (existsSync(SIGNAL_DB + "-wal"))
-      copyFileSync(SIGNAL_DB + "-wal", tmpDb + "-wal");
-    if (existsSync(SIGNAL_DB + "-shm"))
-      copyFileSync(SIGNAL_DB + "-shm", tmpDb + "-shm");
+    copyFileSync(dbPath, tmpDb);
+    if (existsSync(dbPath + "-wal"))
+      copyFileSync(dbPath + "-wal", tmpDb + "-wal");
+    if (existsSync(dbPath + "-shm"))
+      copyFileSync(dbPath + "-shm", tmpDb + "-shm");
   } catch (e) {
     console.warn(`[signal] Failed to copy database: ${e}`);
     return null;
@@ -144,33 +150,53 @@ function querySignalDb(sql: string): any[] | null {
   }
 }
 
-export const signal: Source = {
-  name: "signal",
+export interface SignalSourceConfig {
+  dbPath?: string;
+  configPath?: string;
+  tempDir?: string;
+  /** If set, bypasses sqlcipher/key lookup and queries the db with a plain bun:sqlite connection. */
+  unencrypted?: boolean;
+  now?: () => number;
+}
 
-  async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
+export function createSignalSource(config: SignalSourceConfig = {}): Source {
+  const dbPath = config.dbPath ?? DEFAULT_SIGNAL_DB;
+  const configPath = config.configPath ?? DEFAULT_SIGNAL_CONFIG;
+  const tempDir = config.tempDir ?? DEFAULT_TEMP_DIR;
+  const unencrypted = config.unencrypted ?? false;
+  // `now` is accepted for API symmetry with other chat sources but the Signal
+  // query uses `lastSync` directly — no default-days cutoff path.
+  void config.now;
+
+  return {
+    name: "signal",
+
+    async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
     try {
-      if (!existsSync(SIGNAL_DB)) {
+      if (!existsSync(dbPath)) {
         console.warn("[signal] Signal database not found, skipping");
         return [];
       }
 
-      // Check sqlcipher CLI is available
-      try {
-        execFileSync("which", ["sqlcipher"], {
-          encoding: "utf-8",
-          env: { ...process.env, PATH: CLI_PATH },
-        });
-      } catch {
-        console.warn(
-          "[signal] sqlcipher CLI not found. Install with: brew install sqlcipher"
-        );
-        return [];
+      if (!unencrypted) {
+        // Check sqlcipher CLI is available
+        try {
+          execFileSync("which", ["sqlcipher"], {
+            encoding: "utf-8",
+            env: { ...process.env, PATH: CLI_PATH },
+          });
+        } catch {
+          console.warn(
+            "[signal] sqlcipher CLI not found. Install with: brew install sqlcipher"
+          );
+          return [];
+        }
       }
 
       const lastSync = state.getLastSync("signal");
       const lastSyncMs = lastSync > 0 ? lastSync * 1000 : 0;
 
-      const rows = querySignalDb(`
+      const sql = `
         SELECT
           m.rowid,
           m.body,
@@ -189,7 +215,21 @@ export const signal: Source = {
           AND m.body IS NOT NULL AND m.body != ''
         ORDER BY m.sent_at DESC
         LIMIT ${options?.limit ?? 10000};
-      `);
+      `;
+
+      let rows: any[] | null;
+      if (unencrypted) {
+        try {
+          const db = new Database(dbPath, { readonly: true });
+          rows = db.query(sql).all() as any[];
+          db.close();
+        } catch (e) {
+          console.warn(`[signal] plain sqlite query failed: ${e}`);
+          rows = null;
+        }
+      } else {
+        rows = querySignalDb(sql, dbPath, configPath, tempDir);
+      }
 
       if (!rows) {
         console.warn("[signal] Failed to query database");
@@ -224,5 +264,8 @@ export const signal: Source = {
       console.warn(`[signal] Failed to read messages: ${e}`);
       return [];
     }
-  },
-};
+    },
+  };
+}
+
+export const signal: Source = createSignalSource();

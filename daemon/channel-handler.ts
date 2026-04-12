@@ -84,11 +84,12 @@ async function handleIncomingMessage(
 
   let agentOutput = "";
   try {
-    const result = await runner.run(msg.text, undefined, (chunk: string, type: "text" | "tool") => {
-      if (type === "text") agentOutput += chunk;
-    }, { threadId, conversationHistory });
+    // No streaming callback — channel messages are sent as a single reply
+    // at the end, and `result.output` is the authoritative deduped text
+    // (duplicated segments get stripped inside runAgent).
+    const result = await runner.run(msg.text, undefined, undefined, { threadId, conversationHistory });
 
-    agentOutput = result.output || agentOutput;
+    agentOutput = result.output || "";
     await finishThread(threadId, result.exitCode === 0 ? "done" : "error");
 
     if (!agentOutput.trim()) {

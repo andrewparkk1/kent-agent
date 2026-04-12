@@ -15,13 +15,13 @@ import {
 } from "fs";
 import type { Source, SyncState, SyncOptions, Item } from "./types";
 
-const GRANOLA_DIR = join(
+const DEFAULT_GRANOLA_DIR = join(
   homedir(),
   "Library/Application Support/Granola"
 );
 
 /** Find highest cache-v*.json version dynamically */
-function getGranolaCachePath(): string | null {
+function getGranolaCachePath(GRANOLA_DIR: string): string | null {
   try {
     const entries = readdirSync(GRANOLA_DIR);
     const cacheFiles = entries
@@ -44,8 +44,8 @@ function getGranolaCachePath(): string | null {
 }
 
 /** Read and parse Granola cache. Returns the state object or null. */
-function readCache(): any | null {
-  const cachePath = getGranolaCachePath();
+function readCache(GRANOLA_DIR: string): any | null {
+  const cachePath = getGranolaCachePath(GRANOLA_DIR);
   if (!cachePath || !existsSync(cachePath)) return null;
 
   try {
@@ -69,11 +69,11 @@ function readCache(): any | null {
 
 // ─── Granola API ───────────────────────────────────────────────────────────
 
-const SUPABASE_PATH = join(GRANOLA_DIR, "supabase.json");
 const GRANOLA_API = "https://api.granola.ai/v1";
 
 /** Read access token from Granola's local auth storage. */
-function getAccessToken(): string | null {
+function getAccessToken(GRANOLA_DIR: string): string | null {
+  const SUPABASE_PATH = join(GRANOLA_DIR, "supabase.json");
   try {
     if (!existsSync(SUPABASE_PATH)) return null;
     const data = JSON.parse(readFileSync(SUPABASE_PATH, "utf-8"));
@@ -82,7 +82,7 @@ function getAccessToken(): string | null {
     const payload = JSON.parse(Buffer.from(tokens.access_token.split(".")[1], "base64url").toString());
     if (Date.now() > payload.exp * 1000) {
       console.warn("[granola] Access token expired, will try refresh");
-      return refreshToken(tokens.refresh_token);
+      return refreshToken(tokens.refresh_token, SUPABASE_PATH);
     }
     return tokens.access_token;
   } catch (e) {
@@ -92,7 +92,7 @@ function getAccessToken(): string | null {
 }
 
 /** Refresh the access token using the refresh token (synchronous via Bun.spawnSync). */
-function refreshToken(token: string): string | null {
+function refreshToken(token: string, SUPABASE_PATH: string): string | null {
   try {
     const res = Bun.spawnSync(["curl", "-s", "-X", "POST",
       "https://api.granola.ai/v1/auth/refresh",
@@ -318,17 +318,27 @@ function getChapters(doc: any): string[] {
     .filter(Boolean);
 }
 
-export const granola: Source = {
-  name: "granola",
+export interface GranolaConfig {
+  dataDir?: string;
+  now?: () => number;
+  /** If false, skip network API fallback (useful in tests). Default true. */
+  enableApiFetch?: boolean;
+}
 
-  async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
+export function createGranolaSource(config: GranolaConfig = {}): Source {
+  const GRANOLA_DIR = config.dataDir ?? DEFAULT_GRANOLA_DIR;
+  const enableApi = config.enableApiFetch ?? true;
+  return {
+    name: "granola",
+
+    async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
     try {
       if (!existsSync(GRANOLA_DIR)) {
         console.warn("[granola] Granola directory not found, skipping");
         return [];
       }
 
-      const cacheState = readCache();
+      const cacheState = readCache(GRANOLA_DIR);
       if (!cacheState) {
         console.warn("[granola] Could not read Granola cache");
         return [];
@@ -337,7 +347,7 @@ export const granola: Source = {
       const lastSync = state.getLastSync("granola");
       const lastSyncDate = lastSync > 0 ? new Date(lastSync * 1000) : new Date(0);
       const items: Item[] = [];
-      const token = getAccessToken();
+      const token = enableApi ? getAccessToken(GRANOLA_DIR) : null;
 
       // --- Meetings (documents) ---
       if (cacheState.documents && typeof cacheState.documents === "object") {
@@ -445,9 +455,10 @@ export const granola: Source = {
 
       // --- Calendar events ---
       if (Array.isArray(cacheState.events)) {
-        const now = new Date();
+        const nowMs = config.now ? config.now() * 1000 : Date.now();
+        const now = new Date(nowMs);
         const twoWeeksOut = new Date(
-          now.getTime() + 14 * 24 * 60 * 60 * 1000
+          nowMs + 14 * 24 * 60 * 60 * 1000
         );
 
         for (const e of cacheState.events) {
@@ -506,7 +517,7 @@ export const granola: Source = {
             },
             createdAt: createdAt
               ? Math.floor(createdAt.getTime() / 1000)
-              : Math.floor(Date.now() / 1000),
+              : (config.now ? config.now() : Math.floor(Date.now() / 1000)),
           });
         }
       }
@@ -516,5 +527,8 @@ export const granola: Source = {
       console.warn(`[granola] Failed to read meetings: ${e}`);
       return [];
     }
-  },
-};
+    },
+  };
+}
+
+export const granola: Source = createGranolaSource();

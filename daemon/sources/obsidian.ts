@@ -146,19 +146,25 @@ function walkMarkdownFiles(dir: string): string[] {
 // Source implementation
 // ---------------------------------------------------------------------------
 
-export const obsidian: Source = {
-  name: "obsidian",
+export interface ObsidianConfig {
+  vaultPath?: string;
+  now?: () => number;
+}
 
-  async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
-    try {
-    const vaultPath = findVaultPath();
+export function createObsidianSource(config: ObsidianConfig = {}): Source {
+  return {
+    name: "obsidian",
+
+    async fetchNew(state: SyncState, options?: SyncOptions): Promise<Item[]> {
+      try {
+    const vaultPath = config.vaultPath ?? findVaultPath();
     if (!vaultPath) {
       console.warn("[obsidian] No Obsidian vault found");
       return [];
     }
 
     const lastSync = state.getLastSync("obsidian");
-    const now = Math.floor(Date.now() / 1000);
+    const now = config.now ? config.now() : Math.floor(Date.now() / 1000);
     const defaultDays = options?.defaultDays ?? 365;
     const cutoff =
       lastSync > 0
@@ -237,9 +243,12 @@ export const obsidian: Source = {
     }
 
     return items;
-    } catch (e) {
-      console.warn(`[obsidian] Failed to fetch notes: ${e}`);
-      return [];
-    }
-  },
-};
+      } catch (e) {
+        console.warn(`[obsidian] Failed to fetch notes: ${e}`);
+        return [];
+      }
+    },
+  };
+}
+
+export const obsidian: Source = createObsidianSource();

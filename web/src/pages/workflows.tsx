@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion } from "motion/react";
-import { Zap, Play, ChevronRight, Clock, Sparkles, Archive, Plus, ArchiveRestore, Loader2, Timer, Search } from "lucide-react";
+import { Zap, Play, ChevronRight, Clock, Sparkles, Archive, Plus, ArchiveRestore, Loader2, Timer, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Stagger, StaggerItem } from "@/components/stagger";
 import { type Workflow, cronToHuman, timeAgo, nextCronRun, formatCountdown } from "@/lib/types";
@@ -167,6 +167,21 @@ export function WorkflowsPage({ workflows, loading, onSelect, onRefresh, openCha
       onRefresh?.();
     } catch {
       toast.error("Failed to unarchive workflow");
+    }
+  };
+
+  const deleteWorkflow = async (id: string) => {
+    if (!confirm("Delete this workflow permanently? This cannot be undone.")) return;
+    try {
+      await fetch("/api/workflow/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      toast.success("Workflow deleted");
+      onRefresh?.();
+    } catch {
+      toast.error("Failed to delete workflow");
     }
   };
 
@@ -338,13 +353,22 @@ export function WorkflowsPage({ workflows, loading, onSelect, onRefresh, openCha
                 workflow={w}
                 onClick={() => onSelect?.(w.id)}
                 actions={
-                  <button
-                    onClick={(e) => { e.stopPropagation(); unarchiveWorkflow(w.id); }}
-                    className="p-1.5 rounded-md hover:bg-foreground/5 text-muted-foreground/50 hover:text-foreground transition-colors cursor-pointer"
-                    title="Unarchive"
-                  >
-                    <ArchiveRestore size={13} />
-                  </button>
+                  <>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); unarchiveWorkflow(w.id); }}
+                      className="p-1.5 rounded-md hover:bg-foreground/5 text-muted-foreground/50 hover:text-foreground transition-colors cursor-pointer"
+                      title="Unarchive"
+                    >
+                      <ArchiveRestore size={13} />
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); deleteWorkflow(w.id); }}
+                      className="p-1.5 rounded-md hover:bg-foreground/5 text-muted-foreground/50 hover:text-red-500 transition-colors cursor-pointer"
+                      title="Delete permanently"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </>
                 }
               />
             ) : (

@@ -83,39 +83,17 @@ function parseAppleScriptOutput(raw: string): ParsedTrack[] {
 }
 
 // ---------------------------------------------------------------------------
-// Fetcher
+// Convert parsed tracks to Items
 // ---------------------------------------------------------------------------
 
-async function fetchViaAppleScript(lastSyncEpoch: number): Promise<Item[]> {
-  const now = Date.now() / 1000;
-  const secondsSinceSync = lastSyncEpoch > 0 ? now - lastSyncEpoch : 365 * 24 * 3600;
-  const daysBack = Math.max(1, Math.ceil(secondsSinceSync / 86400) + 1);
-
-  const script = buildAppleScript(Math.min(daysBack, 365));
-
-  // osascript with static script — no user input reaches the shell
-  const proc = Bun.spawn(["osascript", "-e", script], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  const stdout = await new Response(proc.stdout).text();
-  const stderr = await new Response(proc.stderr).text();
-  await proc.exited;
-
-  if (proc.exitCode !== 0) {
-    throw new Error(`AppleScript failed (exit ${proc.exitCode}): ${stderr.slice(0, 200)}`);
-  }
-
-  const tracks = parseAppleScriptOutput(stdout);
-
+function tracksToItems(tracks: ParsedTrack[], nowMs: number): Item[] {
   return tracks
     .filter((t) => t.trackName)
     .map((t) => {
       const playDate = new Date(t.playedAt);
       const createdAt = !isNaN(playDate.getTime())
         ? Math.floor(playDate.getTime() / 1000)
-        : Math.floor(Date.now() / 1000);
+        : Math.floor(nowMs / 1000);
 
       return {
         source: "apple-music",
@@ -137,19 +115,65 @@ async function fetchViaAppleScript(lastSyncEpoch: number): Promise<Item[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Source implementation
+// Default AppleScript runner
 // ---------------------------------------------------------------------------
 
-export const appleMusic: Source = {
-  name: "apple-music",
+async function defaultRun(daysBack: number): Promise<string> {
+  const script = buildAppleScript(daysBack);
+  // osascript with static script — no user input reaches the shell
+  const proc = Bun.spawn(["osascript", "-e", script], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const stdout = await new Response(proc.stdout).text();
+  const stderr = await new Response(proc.stderr).text();
+  await proc.exited;
+  if (proc.exitCode !== 0) {
+    throw new Error(`AppleScript failed (exit ${proc.exitCode}): ${stderr.slice(0, 200)}`);
+  }
+  return stdout;
+}
 
-  async fetchNew(state: SyncState, _options?: SyncOptions): Promise<Item[]> {
-    try {
-      const lastSync = state.getLastSync("apple-music");
-      return await fetchViaAppleScript(lastSync);
-    } catch (e) {
-      console.warn(`[apple-music] Failed to fetch tracks: ${e}`);
-      return [];
-    }
-  },
+// ---------------------------------------------------------------------------
+// Factory + Source implementation
+// ---------------------------------------------------------------------------
+
+export interface AppleMusicConfig {
+  /** Override the AppleScript runner. Receives `daysBack` and returns raw stdout. */
+  exec?: (daysBack: number) => Promise<string>;
+  /** Override the clock (ms). */
+  now?: () => number;
+}
+
+export function createAppleMusicSource(config: AppleMusicConfig = {}): Source {
+  const runner = config.exec ?? defaultRun;
+  const now = config.now ?? (() => Date.now());
+
+  return {
+    name: "apple-music",
+
+    async fetchNew(state: SyncState, _options?: SyncOptions): Promise<Item[]> {
+      try {
+        const lastSync = state.getLastSync("apple-music");
+        const nowSec = now() / 1000;
+        const secondsSinceSync = lastSync > 0 ? nowSec - lastSync : 365 * 24 * 3600;
+        const daysBack = Math.max(1, Math.ceil(secondsSinceSync / 86400) + 1);
+
+        const stdout = await runner(Math.min(daysBack, 365));
+        const tracks = parseAppleScriptOutput(stdout);
+        return tracksToItems(tracks, now());
+      } catch (e) {
+        console.warn(`[apple-music] Failed to fetch tracks: ${e}`);
+        return [];
+      }
+    },
+  };
+}
+
+export const appleMusic: Source = createAppleMusicSource();
+
+// Exposed for tests
+export {
+  parseAppleScriptOutput as _parseAppleScriptOutput,
+  tracksToItems as _tracksToItems,
 };
