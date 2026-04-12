@@ -3,16 +3,25 @@
  * Text deltas go directly from the Anthropic stream to the SSE response.
  */
 import { BaseRunner, type RunResult, type StreamCallback, type TypedStreamCallback } from "./runner-base.ts";
-import { runAgent, type AgentCallbacks } from "../agent/core.ts";
+import { runAgent as _runAgentDefault, type AgentCallbacks, type RunAgentOptions, type AgentResult } from "../agent/core.ts";
 import type { Config } from "@shared/config.ts";
+
+type RunAgentFn = (opts: RunAgentOptions) => Promise<AgentResult>;
 
 export class InProcessRunner extends BaseRunner {
   private config: Config;
   private aborted = false;
+  private _runAgent: RunAgentFn;
 
-  constructor(config: Config) {
+  /**
+   * @param config - Agent configuration
+   * @param _runAgentOverride - Optional override for the runAgent function,
+   *   used in tests to avoid real LLM calls without requiring module mocks.
+   */
+  constructor(config: Config, _runAgentOverride?: RunAgentFn) {
     super();
     this.config = config;
+    this._runAgent = _runAgentOverride ?? _runAgentDefault;
   }
 
   async run(
@@ -74,7 +83,7 @@ export class InProcessRunner extends BaseRunner {
     }
 
     try {
-      const result = await runAgent({
+      const result = await this._runAgent({
         prompt,
         threadId: options?.threadId,
         modelName: this.config.agent.default_model,

@@ -1,0 +1,4 @@
+[test]
+# Exclude Playwright e2e test files — they use @playwright/test which is
+# incompatible with bun's test runner and must be run via `playwright test`.
+exclude = ["web/tests/**"]

@@ -11,7 +11,7 @@
  * IMPORTANT: all `mock.module` calls must execute *before* importing core.ts
  * so that core.ts picks up the mocked modules at evaluation time.
  */
-import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
 
 // ─── Shared in-memory state that mock implementations read/write ───────────
 
@@ -142,6 +142,10 @@ mock.module("@mariozechner/pi-agent-core", () => ({
 
 const core = await import("../agent/core.ts");
 const toolsIndex = await import("../agent/tools/index.ts");
+
+// Restore module mocks after all tests to prevent leaking into other test files
+// when bun shares worker processes (observed on Linux CI with bun 1.3.x).
+afterAll(() => mock.restore());
 
 // ─── Helpers to build fake events ──────────────────────────────────────────
 

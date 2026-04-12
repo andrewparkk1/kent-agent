@@ -7,7 +7,7 @@
  *   - Use in-memory state to verify full routing behavior.
  *   - Use a fake Channel that captures all outbound calls.
  */
-import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
 
 // ─── In-memory state ───────────────────────────────────────────────────────
 
@@ -43,6 +43,8 @@ function resetState() {
 
 // ─── Mocks ────────────────────────────────────────────────────────────────
 
+const _KENT_DIR = "/tmp/kent-test-channel-handler";
+
 mock.module("@shared/config.ts", () => ({
   loadConfig: () => ({
     core: { device_token: "", timezone: "UTC" },
@@ -52,9 +54,18 @@ mock.module("@shared/config.ts", () => ({
     daemon: { sync_interval_seconds: 300 },
     sources: {},
   }),
-  KENT_DIR: "/tmp/kent-test-channel-handler",
+  KENT_DIR: _KENT_DIR,
+  CONFIG_PATH: `${_KENT_DIR}/config.json`,
+  PID_PATH: `${_KENT_DIR}/daemon.pid`,
+  LOG_PATH: `${_KENT_DIR}/daemon.log`,
+  DAEMON_STATE_PATH: `${_KENT_DIR}/daemon-state.json`,
+  PROMPTS_DIR: `${_KENT_DIR}/prompts`,
   ensureKentDir: () => {},
 }));
+
+// Restore module mocks after all tests to prevent leaking into other test files
+// when bun shares worker processes (observed on Linux CI with bun 1.3.x).
+afterAll(() => mock.restore());
 
 mock.module("@shared/db.ts", () => ({
   createThread: async (title: string, meta?: any) => {

@@ -3,10 +3,11 @@
  *
  * Strategy:
  *   - runner-base: verify abstract shape (cannot instantiate directly; check via subclass)
- *   - InProcessRunner: mock agent/core.ts so no real LLM calls happen
+ *   - InProcessRunner: pass a fake runAgent via constructor injection so no real LLM
+ *     calls happen and module mocks don't leak into other test files.
  *   - LocalRunner: stub Bun.spawn to simulate a subprocess without spawning bun
  */
-import { test, expect, describe, beforeEach, afterEach, mock } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 
 // ─── Shared mock state ─────────────────────────────────────────────────────
 
@@ -23,25 +24,25 @@ const agentState = {
   emitToolEvents: false,
 };
 
-// Mock agent/core.ts before importing InProcessRunner
-mock.module("../agent/core.ts", () => ({
-  runAgent: async (opts: any) => {
-    agentState.lastCall = opts;
-    if (agentState.throwOnRun) throw agentState.throwOnRun;
+// Fake runAgent injected into InProcessRunner via its constructor.
+// This avoids mock.module("../agent/core.ts") which was leaking into
+// agent-core.test.ts on Linux CI where bun shares worker module registries.
+const fakeRunAgent = async (opts: any) => {
+  agentState.lastCall = opts;
+  if (agentState.throwOnRun) throw agentState.throwOnRun;
 
-    if (agentState.emitTextDelta && opts.callbacks?.onTextDelta) {
-      opts.callbacks.onTextDelta(agentState.emitTextDelta);
-    }
-    if (agentState.emitToolEvents && opts.callbacks) {
-      opts.callbacks.onToolStart?.("fake_tool", { foo: "bar" });
-      opts.callbacks.onToolEnd?.("fake_tool", { result: "ok" }, false);
-    }
+  if (agentState.emitTextDelta && opts.callbacks?.onTextDelta) {
+    opts.callbacks.onTextDelta(agentState.emitTextDelta);
+  }
+  if (agentState.emitToolEvents && opts.callbacks) {
+    opts.callbacks.onToolStart?.("fake_tool", { foo: "bar" });
+    opts.callbacks.onToolEnd?.("fake_tool", { result: "ok" }, false);
+  }
 
-    return agentState.nextResult;
-  },
-}));
+  return agentState.nextResult;
+};
 
-// Now import the runners
+// Import runners (no mock.module needed — fakeRunAgent is injected via constructor)
 const { BaseRunner } = await import("@daemon/runner-base.ts");
 const { InProcessRunner } = await import("@daemon/inprocess-runner.ts");
 const { LocalRunner } = await import("@daemon/local-runner.ts");
@@ -63,7 +64,7 @@ function fakeConfig(): any {
 
 describe("BaseRunner", () => {
   test("is an abstract class with run and kill methods on subclasses", () => {
-    const r = new InProcessRunner(fakeConfig());
+    const r = new InProcessRunner(fakeConfig(), fakeRunAgent);
     expect(r).toBeInstanceOf(BaseRunner);
     expect(typeof r.run).toBe("function");
     expect(typeof r.kill).toBe("function");
@@ -83,7 +84,7 @@ describe("InProcessRunner", () => {
 
   test("run returns RunResult with runId, output, files", async () => {
     agentState.nextResult = { output: "the answer", error: false };
-    const r = new InProcessRunner(fakeConfig());
+    const r = new InProcessRunner(fakeConfig(), fakeRunAgent);
     const result = await r.run("what is 2+2?");
 
     expect(typeof result.runId).toBe("string");
@@ -95,14 +96,14 @@ describe("InProcessRunner", () => {
 
   test("exitCode is 1 when agent result has error", async () => {
     agentState.nextResult = { output: "partial", error: true };
-    const r = new InProcessRunner(fakeConfig());
+    const r = new InProcessRunner(fakeConfig(), fakeRunAgent);
     const result = await r.run("prompt");
     expect(result.exitCode).toBe(1);
   });
 
   test("exitCode is 1 when agent throws; captures error in stderr", async () => {
     agentState.throwOnRun = new Error("boom");
-    const r = new InProcessRunner(fakeConfig());
+    const r = new InProcessRunner(fakeConfig(), fakeRunAgent);
     const result = await r.run("prompt");
     expect(result.exitCode).toBe(1);
     expect(result.output).toBe("");
@@ -110,7 +111,7 @@ describe("InProcessRunner", () => {
   });
 
   test("passes prompt, modelName, threadId, conversationHistory to agent", async () => {
-    const r = new InProcessRunner(fakeConfig());
+    const r = new InProcessRunner(fakeConfig(), fakeRunAgent);
     await r.run("hello", "wf-1", undefined, {
       threadId: "thread-42",
       conversationHistory: "Human: prev\nAssistant: reply",
@@ -124,7 +125,7 @@ describe("InProcessRunner", () => {
   });
 
   test("skipUserMessage is false when no threadId provided", async () => {
-    const r = new InProcessRunner(fakeConfig());
+    const r = new InProcessRunner(fakeConfig(), fakeRunAgent);
     await r.run("hi");
     expect(agentState.lastCall.skipUserMessage).toBe(false);
   });
@@ -132,7 +133,7 @@ describe("InProcessRunner", () => {
   test("legacy 1-arg stream callback receives text deltas", async () => {
     agentState.emitTextDelta = "streamed chunk";
     const chunks: string[] = [];
-    const r = new InProcessRunner(fakeConfig());
+    const r = new InProcessRunner(fakeConfig(), fakeRunAgent);
     await r.run("p", undefined, (chunk: string) => chunks.push(chunk));
     expect(chunks).toContain("streamed chunk");
   });
@@ -141,7 +142,7 @@ describe("InProcessRunner", () => {
     agentState.emitTextDelta = "text piece";
     agentState.emitToolEvents = true;
     const calls: Array<{ chunk: string; type: "text" | "tool" }> = [];
-    const r = new InProcessRunner(fakeConfig());
+    const r = new InProcessRunner(fakeConfig(), fakeRunAgent);
     await r.run("p", undefined, (chunk: string, type: "text" | "tool") => {
       calls.push({ chunk, type });
     });
@@ -155,7 +156,7 @@ describe("InProcessRunner", () => {
   });
 
   test("kill() marks runner as aborted; subsequent callbacks silent", async () => {
-    const r = new InProcessRunner(fakeConfig());
+    const r = new InProcessRunner(fakeConfig(), fakeRunAgent);
     await r.kill(); // safe to call before run
     // Calling run after kill still works (aborted resets)
     agentState.nextResult = { output: "ok", error: false };
@@ -165,7 +166,7 @@ describe("InProcessRunner", () => {
 
   test("stderr captures tool event JSON", async () => {
     agentState.emitToolEvents = true;
-    const r = new InProcessRunner(fakeConfig());
+    const r = new InProcessRunner(fakeConfig(), fakeRunAgent);
     const result = await r.run("p");
     expect(result.stderr).toContain("tool_start");
     expect(result.stderr).toContain("tool_end");
@@ -175,7 +176,7 @@ describe("InProcessRunner", () => {
     delete process.env.ANTHROPIC_API_KEY;
     const cfg = fakeConfig();
     cfg.keys.anthropic = "cfg-key-123";
-    const r = new InProcessRunner(cfg);
+    const r = new InProcessRunner(cfg, fakeRunAgent);
     await r.run("p");
     expect(process.env.ANTHROPIC_API_KEY).toBe("cfg-key-123");
   });

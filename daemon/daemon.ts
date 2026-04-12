@@ -140,6 +140,26 @@ async function main(): Promise<void> {
   writeFileSync(PID_PATH, String(process.pid), "utf-8");
   log(`Daemon started (PID ${process.pid})`);
 
+  // Register signal handlers immediately after writing the PID file so that
+  // SIGTERM / SIGINT sent right after process start are handled gracefully.
+  // On Linux the default SIGINT disposition exits with code 130 (128+2) if no
+  // handler is installed, which caused test flakiness when signals were sent
+  // before the handler was registered further down in the startup sequence.
+  const shutdown = () => {
+    log("Daemon shutting down");
+    try {
+      const { unlinkSync } = require("node:fs");
+      unlinkSync(PID_PATH);
+      unlinkSync(DAEMON_STATE_PATH);
+    } catch {
+      // files may already be removed
+    }
+    process.exit(0);
+  };
+
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+
   let config = loadConfig();
   let intervalMs = config.daemon.sync_interval_seconds * 1000;
 
@@ -177,22 +197,6 @@ async function main(): Promise<void> {
   }
 
   log(`Sync interval: ${config.daemon.sync_interval_seconds}s`);
-
-  // Handle graceful shutdown
-  const shutdown = () => {
-    log("Daemon shutting down");
-    try {
-      const { unlinkSync } = require("node:fs");
-      unlinkSync(PID_PATH);
-      unlinkSync(DAEMON_STATE_PATH);
-    } catch {
-      // files may already be removed
-    }
-    process.exit(0);
-  };
-
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT", shutdown);
 
   const syncState = new FileSyncState();
   let lastSyncAt = 0;
