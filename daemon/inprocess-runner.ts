@@ -43,6 +43,9 @@ export class InProcessRunner extends BaseRunner {
       onError: (error) => {
         if (!this.aborted) emit?.(JSON.stringify({ event: "agent_error", error }), "tool");
       },
+      onSegmentRollback: () => {
+        if (!this.aborted) emit?.(JSON.stringify({ event: "segment_rollback" }), "tool");
+      },
     };
 
     let stderrOutput = "";

@@ -91,13 +91,13 @@ export const getThreadMessages: AgentTool<any> = {
   description: "Get all messages from a specific thread. Use to review past conversations for context about people, topics, or decisions.",
   parameters: Type.Object({
     thread_id: Type.String({ description: "Thread ID to load messages from" }),
-    limit: Type.Optional(Type.Number({ description: "Max messages (default 100)" })),
+    limit: Type.Optional(Type.Number({ description: "Max messages (default 200)" })),
   }),
   execute: async (_id, params) => {
     try {
-      const msgs = await getMessages(params.thread_id, params.limit ?? 100);
+      const msgs = await getMessages(params.thread_id, params.limit ?? 200);
       return json(msgs.map((m) => ({
-        role: m.role, content: m.content.slice(0, 500),
+        role: m.role, content: m.content,
         ...(m.metadata ? { metadata: JSON.parse(m.metadata) } : {}),
       })));
     } catch (e) {

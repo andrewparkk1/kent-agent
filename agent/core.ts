@@ -135,6 +135,9 @@ export interface AgentCallbacks {
   onToolStart?: (name: string, args: any) => void;
   onToolEnd?: (name: string, result: string, isError: boolean) => void;
   onError?: (error: string) => void;
+  /** Fires when the agent re-emits text identical to (or a prefix of) an already-flushed segment.
+   *  UI should drop the in-flight assistant bubble to avoid visible duplication. */
+  onSegmentRollback?: () => void;
 }
 
 export interface RunAgentOptions {
@@ -215,12 +218,36 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
   let flushPromise: Promise<void> = Promise.resolve();
   const toolCallMap = new Map<string, { name: string; args: any }>();
 
+  // Dedup state: track every assistant segment we've already committed this run.
+  // If the model re-emits the same text in a later turn (common when it calls
+  // another tool after "finishing" an answer), we skip the DB write AND signal
+  // the client to drop the in-flight bubble so the user never sees the dupe.
+  const flushedSegments: string[] = [];
+  let currentSegmentRolledBack = false;
+
+  function isDuplicateSegment(text: string): boolean {
+    if (!text) return false;
+    // Exact match OR one contains the other (handles partial regeneration).
+    return flushedSegments.some(
+      (prev) => prev === text || prev.includes(text) || text.includes(prev),
+    );
+  }
+
   function flushText() {
     const text = pendingText.trim();
-    pendingText = "";  // Reset immediately to prevent duplicate flushes from parallel tool_starts
-    if (text) {
-      flushPromise = flushPromise.then(async () => { await addMessage(threadId, "assistant", text, modelMeta); });
+    pendingText = "";  // Reset immediately to prevent duplicate flushes from parallel tool_starts.
+    const wasRolledBack = currentSegmentRolledBack;
+    currentSegmentRolledBack = false;
+    if (!text) return flushPromise;
+    if (wasRolledBack || isDuplicateSegment(text)) {
+      // Already committed this content earlier — don't write again.
+      // If we detected it late (not already rolled back live), signal the
+      // client now so it can drop whatever it was showing.
+      if (!wasRolledBack) callbacks.onSegmentRollback?.();
+      return flushPromise;
     }
+    flushedSegments.push(text);
+    flushPromise = flushPromise.then(async () => { await addMessage(threadId, "assistant", text, modelMeta); });
     return flushPromise;
   }
 
@@ -235,9 +262,22 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
         const ame = event.assistantMessageEvent;
         if (ame.type === "text_delta") {
           hasOutput = true;
-          pendingText += ame.delta;
           output += ame.delta;
+          if (currentSegmentRolledBack) {
+            // Segment already flagged as duplicate — keep consuming deltas
+            // so `output` stays accurate, but don't forward to the client
+            // or accumulate into pendingText (it won't be flushed).
+            break;
+          }
+          pendingText += ame.delta;
           callbacks.onTextDelta?.(ame.delta);
+          // Early rollback: as soon as pendingText matches a prior segment,
+          // tell the client to drop the bubble before more deltas pile on.
+          if (isDuplicateSegment(pendingText.trim())) {
+            currentSegmentRolledBack = true;
+            pendingText = "";
+            callbacks.onSegmentRollback?.();
+          }
         }
         break;
       }

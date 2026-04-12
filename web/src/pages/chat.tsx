@@ -237,7 +237,13 @@ export function ChatPage({ threadId: initialThreadId, initialInput: initialInput
             if (parsed.tool) {
               try {
                 const toolEvent = JSON.parse(parsed.tool);
-                if (toolEvent.event === "tool_start") {
+                if (toolEvent.event === "segment_rollback") {
+                  // Server detected this segment duplicates one already committed.
+                  // Drop whatever we've streamed into the current bubble.
+                  currentText = "";
+                  const rollbackId = currentAssistantId;
+                  setMessages((prev) => prev.map((m) => m.id === rollbackId ? { ...m, content: "" } : m));
+                } else if (toolEvent.event === "tool_start") {
                   const trimmed = currentText.trim();
                   if (trimmed && !allFinalizedTexts.has(trimmed)) {
                     // New unique text — finalize it
