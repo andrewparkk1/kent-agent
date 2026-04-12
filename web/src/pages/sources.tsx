@@ -1003,6 +1003,22 @@ export function SourcesPage({ items, loading, filter, setFilter, query, setQuery
                 Start
               </button>
             )}
+            {daemon.status !== "stopped" && daemon.status !== "syncing" && (
+              <button
+                onClick={async () => {
+                  try {
+                    await fetch("/api/daemon/sync", { method: "POST" });
+                    toast.success("Sync triggered");
+                    setTimeout(onRefresh, 1000);
+                  } catch {
+                    toast.error("Failed to trigger sync");
+                  }
+                }}
+                className="text-[12px] text-blue-500/70 hover:text-blue-500 transition-colors cursor-pointer ml-1"
+              >
+                Sync Now
+              </button>
+            )}
           </motion.div>
         </div>
 

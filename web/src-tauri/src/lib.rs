@@ -3,6 +3,7 @@ use std::process::{Child, Command};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::Manager;
+use tauri_plugin_updater::UpdaterExt;
 
 type ChildHandle = Arc<Mutex<Option<Child>>>;
 
@@ -43,6 +44,32 @@ pub fn run() {
                         .build(),
                 )?;
             }
+
+            // Check for updates in the background (non-blocking)
+            let updater_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                // Wait a few seconds to let the app settle before checking
+                std::thread::sleep(Duration::from_secs(5));
+                tauri::async_runtime::block_on(async {
+                    match updater_handle.updater() {
+                        Ok(updater) => {
+                            match updater.check().await {
+                                Ok(Some(update)) => {
+                                    log::info!("Update available: v{}", update.version);
+                                    // dialog: true in tauri.conf.json shows a native
+                                    // prompt — user chooses to install or skip
+                                    if let Err(e) = update.download_and_install(|_, _| {}, || {}).await {
+                                        log::error!("Failed to install update: {e}");
+                                    }
+                                }
+                                Ok(None) => log::info!("App is up to date"),
+                                Err(e) => log::error!("Update check failed: {e}"),
+                            }
+                        }
+                        Err(e) => log::error!("Updater not available: {e}"),
+                    }
+                });
+            });
 
             let handle = app.handle().clone();
             let server_setup = server.clone();
