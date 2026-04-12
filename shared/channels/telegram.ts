@@ -95,7 +95,7 @@ function toTelegramHtml(md: string): string {
   s = s.replace(/^[\t ]*[-*][\t ]+/gm, "• ");
 
   // Restore code placeholders
-  s = s.replace(/\u0000(\d+)\u0000/g, (_m, i) => placeholders[Number(i)]);
+  s = s.replace(/\u0000(\d+)\u0000/g, (_m, i) => placeholders[Number(i)] ?? "");
 
   return s;
 }
