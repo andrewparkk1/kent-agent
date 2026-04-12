@@ -10,6 +10,8 @@ import {
   type Message,
 } from "@/components/chat";
 
+const ASSISTANT_DUPLICATE_MIN_CHARS = 20;
+
 function normalizeAssistantText(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
@@ -49,6 +51,10 @@ function dedupeLoadedMessages(allMsgs: Message[]): Message[] {
   });
 }
 
+function messageRenderKey(message: Message, index: number, scope = "msg"): string {
+  return `${scope}:${message.id}:${message.role}:${message.created_at}:${index}`;
+}
+
 // ─── Chat Page ──────────────────────────────────────────────────────────────
 
 export function ChatPage({ threadId: initialThreadId, initialInput: initialInputProp, onThreadCreated }: {
@@ -64,10 +70,12 @@ export function ChatPage({ threadId: initialThreadId, initialInput: initialInput
   const [queued, setQueued] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const nextIdRef = useRef(Date.now());
+  // Use negative IDs for client-side optimistic messages so they never collide
+  // with persisted DB message IDs (positive autoincrement integers).
+  const nextIdRef = useRef(-1);
   const abortRef = useRef<AbortController | null>(null);
 
-  const genId = () => nextIdRef.current++;
+  const genId = () => nextIdRef.current--;
 
   const scrollToBottom = useCallback((instant?: boolean) => {
     messagesEndRef.current?.scrollIntoView({ behavior: instant ? "instant" : "smooth" });
@@ -135,7 +143,7 @@ export function ChatPage({ threadId: initialThreadId, initialInput: initialInput
       try {
         const res = await fetch(`/api/threads/${threadId}/messages`);
         const data = await res.json();
-        setMessages(data.messages || []);
+        setMessages(dedupeLoadedMessages(data.messages || []));
         if (data.thread?.status !== "running") {
           setThreadStatus(data.thread?.status ?? null);
           clearInterval(poll);
@@ -201,7 +209,6 @@ export function ChatPage({ threadId: initialThreadId, initialInput: initialInput
     let currentAssistantId = genId();
     let currentText = "";
     let currentSegmentRolledBack = false;
-    const LIVE_ROLLBACK_MIN_CHARS = 20;
     // Finalized segments, in normalized form. Prefix matching lets us treat
     // regenerated partials as duplicates while avoiding broad interior-substring matches.
     const finalizedSegments: string[] = [];
@@ -337,7 +344,7 @@ export function ChatPage({ threadId: initialThreadId, initialInput: initialInput
               // the bubble immediately so the user never sees the duplicate
               // mid-stream. 20-char threshold avoids false positives from
               // short common openings like "I'll" or "Sure,".
-              if (normalizeAssistantText(trimmedNow).length >= LIVE_ROLLBACK_MIN_CHARS && isDupOfFinalized(trimmedNow)) {
+              if (normalizeAssistantText(trimmedNow).length >= ASSISTANT_DUPLICATE_MIN_CHARS && isDupOfFinalized(trimmedNow)) {
                 currentSegmentRolledBack = true;
                 dropCurrentBubble();
                 continue;
@@ -514,7 +521,7 @@ export function ChatPage({ threadId: initialThreadId, initialInput: initialInput
                 while (i < nonSystem.length) {
                   const msg = nonSystem[i]!;
                   if (msg.role === "user") {
-                    elements.push(<MessageBubble key={msg.id} msg={msg} />);
+                    elements.push(<MessageBubble key={messageRenderKey(msg, i, "user")} msg={msg} />);
                     i++;
                   } else if (msg.role === "assistant" || msg.role === "tool") {
                     // Gather consecutive assistant + tool messages into one Kent group
@@ -525,7 +532,7 @@ export function ChatPage({ threadId: initialThreadId, initialInput: initialInput
                       j++;
                     }
                     elements.push(
-                      <AssistantGroup key={msg.id} items={groupItems} streaming={streaming && j >= nonSystem.length} />
+                      <AssistantGroup key={messageRenderKey(msg, i, "assistant-group")} items={groupItems} streaming={streaming && j >= nonSystem.length} />
                     );
                     i = j;
                   } else {

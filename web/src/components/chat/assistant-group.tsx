@@ -10,6 +10,78 @@ import { StreamingMarkdown } from "./streaming-markdown";
 import { formatMessageTime } from "./format-time";
 import type { Message } from "./types";
 
+const ASSISTANT_DUPLICATE_MIN_CHARS = 20;
+
+function normalizeAssistantText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function dedupeAssistantItemsForRender(items: Message[]): Message[] {
+  const keptAssistants: Array<{ normalized: string; outIndex: number }> = [];
+  const hiddenOutIndices = new Set<number>();
+  const out: Message[] = [];
+
+  for (const item of items) {
+    if (item.role !== "assistant") {
+      out.push(item);
+      continue;
+    }
+
+    const normalized = normalizeAssistantText(item.content);
+    if (!normalized) {
+      out.push(item);
+      continue;
+    }
+
+    let skipCurrent = false;
+    const replacedIndices: number[] = [];
+
+    for (let i = 0; i < keptAssistants.length; i++) {
+      const kept = keptAssistants[i]!;
+      if (kept.normalized === normalized) {
+        skipCurrent = true;
+        break;
+      }
+
+      const comparable = kept.normalized.length >= ASSISTANT_DUPLICATE_MIN_CHARS
+        && normalized.length >= ASSISTANT_DUPLICATE_MIN_CHARS;
+      if (!comparable) continue;
+
+      if (kept.normalized.startsWith(normalized)) {
+        skipCurrent = true;
+        break;
+      }
+      if (normalized.startsWith(kept.normalized)) {
+        replacedIndices.push(i);
+      }
+    }
+
+    if (skipCurrent) continue;
+
+    for (const idx of replacedIndices.reverse()) {
+      const replaced = keptAssistants[idx]!;
+      hiddenOutIndices.add(replaced.outIndex);
+      keptAssistants.splice(idx, 1);
+    }
+
+    out.push(item);
+    keptAssistants.push({ normalized, outIndex: out.length - 1 });
+  }
+
+  if (hiddenOutIndices.size === 0) return out;
+  return out.filter((_m, idx) => !hiddenOutIndices.has(idx));
+}
+
+function sortAssistantGroupItemsForDisplay(items: Message[]): Message[] {
+  const tools = items.filter((item) => item.role === "tool");
+  const others = items.filter((item) => item.role !== "tool");
+  return [...tools, ...others];
+}
+
+function messageRenderKey(message: Message, index: number, scope = "msg"): string {
+  return `${scope}:${message.id}:${message.role}:${message.created_at}:${index}`;
+}
+
 function getModelLabel(items: Message[]): string | null {
   const first = items.find((m) => m.role === "assistant" && m.metadata);
   if (!first?.metadata) return null;
@@ -20,15 +92,16 @@ function getModelLabel(items: Message[]): string | null {
 }
 
 export function AssistantGroup({ items, streaming }: { items: Message[]; streaming: boolean }) {
-  const lastItem = items[items.length - 1]!;
-  const hasRunningTool = items.some((m) => m.role === "tool" && m.content.startsWith("Calling "));
+  const displayItems = sortAssistantGroupItemsForDisplay(dedupeAssistantItemsForRender(items));
+  const lastItem = displayItems[displayItems.length - 1]!;
+  const hasRunningTool = displayItems.some((m) => m.role === "tool" && m.content.startsWith("Calling "));
   const showLoading = streaming && lastItem.role === "assistant" && !lastItem.content && !hasRunningTool;
-  const modelLabel = getModelLabel(items);
+  const modelLabel = getModelLabel(displayItems);
 
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
-    const text = items
+    const text = displayItems
       .filter((m) => m.role === "assistant" && m.content.trim())
       .map((m) => m.content.trim())
       .join("\n\n");
@@ -74,18 +147,18 @@ export function AssistantGroup({ items, streaming }: { items: Message[]; streami
           </button>
         </div>
         <div className="mt-1 space-y-1">
-          {items.map((msg) => {
+          {displayItems.map((msg, idx) => {
             if (msg.role === "tool") {
               let meta: any = null;
               if (msg.metadata) { try { meta = JSON.parse(msg.metadata); } catch {} }
-              return <ToolCallBlock key={msg.id} content={msg.content} metadata={meta} />;
+              return <ToolCallBlock key={messageRenderKey(msg, idx, "tool")} content={msg.content} metadata={meta} />;
             }
             if (!msg.content && msg !== lastItem) return null;
             if (!msg.content && showLoading) return null;
             if (!msg.content) return null;
             const isStreamingThis = streaming && msg === lastItem;
             return (
-              <div key={msg.id} className="prose-chat">
+              <div key={messageRenderKey(msg, idx, "assistant")} className="prose-chat">
                 {isStreamingThis ? (
                   <StreamingMarkdown content={msg.content} />
                 ) : (
