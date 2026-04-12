@@ -180,6 +180,64 @@ export function SettingsPage() {
     }, 500);
   }, []);
 
+  /**
+   * Toggle a source on/off. Saves immediately (no debounce) so the daemon
+   * picks up the change on its next tick. When turning a source ON, also
+   * fires an immediate /api/sync so the user sees progress and any errors
+   * (e.g. permission denied, missing creds) right away instead of waiting
+   * for the daemon's next sync interval.
+   */
+  const toggleSource = useCallback(async (key: string, enabled: boolean) => {
+    if (!config) return;
+    const updated = { ...config, sources: { ...config.sources, [key]: enabled } };
+    setConfig(updated);
+
+    // Cancel any pending debounced save — we're saving immediately below
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+
+    const label = SOURCE_LABELS[key] || key;
+
+    // Save config immediately so /api/sync sees the source as enabled
+    try {
+      const res = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ config: { ...updated, keys: rawKeys } }),
+      });
+      if (!res.ok) throw new Error("save failed");
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    } catch {
+      toast.error(`Failed to ${enabled ? "enable" : "disable"} ${label}`);
+      return;
+    }
+
+    // Only trigger an immediate sync when turning a source ON
+    if (!enabled) return;
+
+    const toastId = toast.loading(`Syncing ${label}...`);
+    try {
+      const res = await fetch("/api/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: key }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(`${label} sync failed`, { id: toastId, description: data.error });
+      } else if (data.itemCount > 0) {
+        toast.success(label, { id: toastId, description: `Synced ${data.itemCount} items` });
+      } else {
+        toast.info(label, { id: toastId, description: "No new items found" });
+      }
+    } catch (e) {
+      toast.error(`${label} sync failed`, { id: toastId, description: String(e) });
+    }
+  }, [config, rawKeys]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -370,11 +428,7 @@ export function SettingsPage() {
                   <span className="text-[13px] text-foreground/80">{SOURCE_LABELS[key] || key}</span>
                   <Toggle
                     checked={enabled}
-                    onChange={(v) => {
-                      const updated = { ...config, sources: { ...config.sources, [key]: v } };
-                      setConfig(updated);
-                      autoSave(updated, rawKeys);
-                    }}
+                    onChange={(v) => toggleSource(key, v)}
                   />
                 </div>
               ))}
