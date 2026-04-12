@@ -1,6 +1,6 @@
 [package]
 name = "kent"
-version = "0.1.10"
+version = "0.1.0"
 description = "Personal AI agent that runs on your Mac"
 authors = ["Andrew Park"]
 license = "MIT"

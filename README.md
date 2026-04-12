@@ -6,6 +6,14 @@ Ask it what to focus on today. Get a daily brief of your meetings, emails, and P
 
 ## Install
 
+Three ways to install Kent on macOS. Pick whichever you prefer — they all end up running the same code.
+
+### 1. Desktop app (easiest)
+
+Download the latest `.dmg` from the [releases page](https://github.com/andrewparkk1/kent-agent/releases), drag **Kent** into Applications, and launch it. The app bundles the daemon, web dashboard, and CLI — you don't need Bun or any other tools installed. The app walks you through setup on first launch.
+
+### 2. npm (CLI-first)
+
 ```bash
 # requires macOS and Bun (https://bun.sh)
 bun install -g meet-kent
@@ -14,6 +22,17 @@ kent start
 ```
 
 `kent init` walks you through connecting sources, adding your API keys, runs your first sync, starts the daemon, and opens the web dashboard.
+
+### 3. Git clone (for development or local builds)
+
+```bash
+git clone https://github.com/andrewparkk1/kent-agent.git
+cd kent-agent
+bun install
+bun run cli/index.ts init    # or: bun link && kent init
+```
+
+Run anything via `bun run cli/index.ts <command>`, or `bun link` once to expose `kent` on your `$PATH` pointing at your working tree. For the Tauri desktop app, `cd web && bun run tauri:build` produces a signed `.app` and `.dmg` in `web/src-tauri/target/release/bundle/`.
 
 ## Quick start
 
@@ -65,16 +84,59 @@ kent stop                     # stop everything
 
 ## Sources
 
+Kent ships with 22 source adapters across six categories. Each is toggled individually from the Sources page in the dashboard.
+
+**Apple (7)**
+
 | Source | Notes |
 |--------|-------|
 | iMessage | Reads `chat.db`. Requires Full Disk Access. |
-| Gmail | Via `gws` CLI. Also syncs Google Calendar and Google Tasks. |
-| GitHub | Via `gh` CLI. Notifications, PRs, issues. |
-| Chrome | History, bookmarks, downloads, search terms. |
-| Granola | Meeting transcripts from local JSON files. |
 | Apple Notes | Reads `NoteStore.sqlite`. Requires Full Disk Access. |
+| Apple Calendar | Reads local calendar store. Requires Full Disk Access. |
+| Apple Reminders | Pulls reminders via AppleScript bridge. |
+| Apple Health | Reads exported health data. |
+| Apple Music | Library, playlists, recent listens. |
+| Contacts | Reads the macOS address book. |
+
+**Communication (5)**
+
+| Source | Notes |
+|--------|-------|
+| Gmail | Via `gws` CLI. Also syncs Google Calendar and Google Tasks. |
+| Outlook | Microsoft Graph API. OAuth required. |
+| Slack | Messages and threads via Slack API. OAuth required. |
+| WhatsApp | Reads `ChatStorage.sqlite` from WhatsApp Desktop. |
 | Signal | Reads encrypted DB. Needs `brew install sqlcipher` and Signal Desktop. |
+
+**Browsers (2)**
+
+| Source | Notes |
+|--------|-------|
+| Chrome | History, bookmarks, downloads, search terms. |
+| Safari | History and bookmarks. Requires Full Disk Access. |
+
+**Notes & docs (4)**
+
+| Source | Notes |
+|--------|-------|
+| Notion | Pages and databases via Notion API. Token required. |
+| Granola | Meeting transcripts from local JSON files. |
+| Obsidian | Indexes your vault's markdown files. |
+| Recent Files | Recently opened files surfaced by macOS. |
+
+**Dev (2)**
+
+| Source | Notes |
+|--------|-------|
+| GitHub | Via `gh` CLI. Notifications, PRs, issues. |
 | AI Coding | Claude Code and Codex conversation history from local session files. |
+
+**Other (2)**
+
+| Source | Notes |
+|--------|-------|
+| Spotify | Recent plays, playlists, top tracks. OAuth required. |
+| Screen Time | Daily app/category usage from the local Screen Time DB. |
 
 ## Workflows
 
