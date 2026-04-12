@@ -74,6 +74,11 @@ function runMigrations(db: BunDatabase): void {
     if (!thCols.includes("status")) db.exec("ALTER TABLE threads ADD COLUMN status TEXT");
     if (!thCols.includes("started_at")) db.exec("ALTER TABLE threads ADD COLUMN started_at INTEGER");
     if (!thCols.includes("finished_at")) db.exec("ALTER TABLE threads ADD COLUMN finished_at INTEGER");
+    if (!thCols.includes("channel")) {
+      db.exec("ALTER TABLE threads ADD COLUMN channel TEXT");
+      // Backfill: mark existing Telegram chat threads so they drop out of the sidebar
+      db.exec("UPDATE threads SET channel = 'telegram' WHERE type = 'chat' AND title = 'telegram chat'");
+    }
   }
 
   // Messages: add metadata
@@ -161,6 +166,7 @@ function initSchema(db: BunDatabase): void {
       status TEXT CHECK(status IN ('running', 'done', 'error')),
       started_at INTEGER,
       finished_at INTEGER,
+      channel TEXT,
       created_at INTEGER NOT NULL DEFAULT (unixepoch()),
       last_message_at INTEGER NOT NULL DEFAULT (unixepoch())
     );

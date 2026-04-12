@@ -9,6 +9,8 @@ export async function handleThreads() {
   const threads = await db
     .selectFrom("threads")
     .leftJoin("workflows", "workflows.id", "threads.workflow_id")
+    // Exclude channel-sourced threads (Telegram, etc.) — they live in their own chat app
+    .where("threads.channel", "is", null)
     .where((eb) =>
       eb.exists(
         eb.selectFrom("messages").whereRef("messages.thread_id", "=", "threads.id").select("messages.id").limit(1)
@@ -70,6 +72,21 @@ export async function handleDeleteThread(req: Request) {
     return Response.json({ error: "Thread ID required" }, { status: 400 });
   }
   const db = getDb();
+
+  // Refuse to delete channel-sourced threads (Telegram, etc.) — they're managed
+  // by the external chat app and deleting here would just orphan the conversation.
+  const thread = await db
+    .selectFrom("threads")
+    .where("id", "=", threadId)
+    .select(["channel"])
+    .executeTakeFirst();
+  if (thread?.channel) {
+    return Response.json(
+      { error: `Cannot delete ${thread.channel} chat — managed by the ${thread.channel} app` },
+      { status: 400 },
+    );
+  }
+
   await db.deleteFrom("messages").where("thread_id", "=", threadId).execute();
   await db.deleteFrom("threads").where("id", "=", threadId).execute();
   return Response.json({ ok: true });

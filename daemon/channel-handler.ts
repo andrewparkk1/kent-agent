@@ -57,7 +57,7 @@ async function handleIncomingMessage(
   }
 
   if (!threadId) {
-    threadId = await createThread(`${channel.name} chat`, { type: "chat" });
+    threadId = await createThread(`${channel.name} chat`, { type: "chat", channel: channel.name });
     await setPersistentThreadId(persistentKey, threadId);
     log(`${channel.name}: created persistent chat thread ${threadId} for chat ${msg.chatId}`);
   }

@@ -26,6 +26,7 @@ export interface ThreadsTable {
   status: "running" | "done" | "error" | null;
   started_at: number | null;
   finished_at: number | null;
+  channel: string | null;
   created_at: Generated<number>;
   last_message_at: Generated<number>;
 }

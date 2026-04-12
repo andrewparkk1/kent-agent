@@ -10,6 +10,7 @@ export type { Thread, Message };
 export async function createThread(title?: string, opts?: {
   type?: "chat" | "workflow";
   workflow_id?: string;
+  channel?: string;
 }): Promise<string> {
   const id = crypto.randomUUID();
   const type = opts?.type ?? "chat";
@@ -24,6 +25,7 @@ export async function createThread(title?: string, opts?: {
       workflow_id: opts?.workflow_id ?? null,
       status: type === "workflow" ? "running" : null,
       started_at: type === "workflow" ? now : null,
+      channel: opts?.channel ?? null,
     })
     .execute();
 
