@@ -97,13 +97,6 @@ export function dedupeAssistantItemsForRender(items: Message[]): Message[] {
   return out.filter((_m, idx) => !hiddenOutIndices.has(idx));
 }
 
-export function sortAssistantGroupItemsForDisplay(items: Message[]): Message[] {
-  const tools = items.filter((item) => item.role === "tool");
-  const others = items.filter((item) => item.role !== "tool");
-  return [...tools, ...others];
-}
-
 export function messageRenderKey(message: Message, index: number, scope = "msg"): string {
   return `${scope}:${message.id}:${message.role}:${message.created_at}:${index}`;
 }
-

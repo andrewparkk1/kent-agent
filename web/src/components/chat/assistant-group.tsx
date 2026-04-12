@@ -11,7 +11,6 @@ import { formatMessageTime } from "./format-time";
 import {
   dedupeAssistantItemsForRender,
   messageRenderKey,
-  sortAssistantGroupItemsForDisplay,
 } from "./dedupe";
 import type { Message } from "./types";
 
@@ -25,7 +24,7 @@ function getModelLabel(items: Message[]): string | null {
 }
 
 export function AssistantGroup({ items, streaming }: { items: Message[]; streaming: boolean }) {
-  const displayItems = sortAssistantGroupItemsForDisplay(dedupeAssistantItemsForRender(items));
+  const displayItems = dedupeAssistantItemsForRender(items);
   const lastItem = displayItems[displayItems.length - 1]!;
   const hasRunningTool = displayItems.some((m) => m.role === "tool" && m.content.startsWith("Calling "));
   const showLoading = streaming && lastItem.role === "assistant" && !lastItem.content && !hasRunningTool;
