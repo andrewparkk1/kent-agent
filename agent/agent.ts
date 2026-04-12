@@ -28,7 +28,9 @@ async function run(): Promise<void> {
     conversationHistory: CONVERSATION_HISTORY || undefined,
     skipUserMessage: SKIP_USER_MESSAGE,
     callbacks: {
-      onTextDelta: (delta) => process.stdout.write(delta),
+      // Stream progress to stderr (for live logs), not stdout — stdout is
+      // reserved for the final authoritative output written below.
+      onTextDelta: (delta) => process.stderr.write(delta),
       onToolStart: (name, args) => console.error(JSON.stringify({ event: "tool_start", name, args })),
       onToolEnd: (name, result, isError) => console.error(JSON.stringify({ event: "tool_end", name, error: isError, result })),
       onError: (error) => console.error(JSON.stringify({ event: "agent_error", error })),
@@ -41,7 +43,12 @@ async function run(): Promise<void> {
     process.exit(1);
   }
 
-  process.stdout.write("\n");
+  // Write the complete accumulated output to stdout in one shot, then wait
+  // for it to drain before exiting. This avoids losing trailing chunks when
+  // the process exits before buffered async writes flush.
+  await new Promise<void>((resolve) => {
+    process.stdout.write(result.output + "\n", () => resolve());
+  });
 }
 
 run().catch((err) => {
