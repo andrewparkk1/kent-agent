@@ -9,51 +9,13 @@ import {
   MessageBubble,
   type Message,
 } from "@/components/chat";
-
-const ASSISTANT_DUPLICATE_MIN_CHARS = 20;
-
-function normalizeAssistantText(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
-}
-
-function isDuplicateAssistantSegment(text: string, finalizedSegments: string[]): boolean {
-  const normalized = normalizeAssistantText(text);
-  if (!normalized) return false;
-  return finalizedSegments.some(
-    (prev) => prev === normalized || prev.startsWith(normalized) || normalized.startsWith(prev),
-  );
-}
-
-function dedupeLoadedMessages(allMsgs: Message[]): Message[] {
-  const normalizedAssistantTexts: string[] = allMsgs
-    .filter((m: Message) => m.role === "assistant")
-    .map((m: Message) => normalizeAssistantText(m.content))
-    .filter(Boolean);
-
-  return allMsgs.filter((m: Message, i: number, arr: Message[]) => {
-    if (i > 0) {
-      const prev = arr[i - 1];
-      if (m.role === prev.role && m.content === prev.content) return false;
-    }
-    if (m.role === "assistant") {
-      const normalized = normalizeAssistantText(m.content);
-      if (!normalized) return false;
-      const hasLongerVariant = normalizedAssistantTexts.some(
-        (other) => other !== normalized && other.startsWith(normalized),
-      );
-      if (hasLongerVariant) return false;
-      const firstIdx = allMsgs.findIndex(
-        (om) => om.role === "assistant" && normalizeAssistantText(om.content) === normalized,
-      );
-      if (firstIdx !== i) return false;
-    }
-    return true;
-  });
-}
-
-function messageRenderKey(message: Message, index: number, scope = "msg"): string {
-  return `${scope}:${message.id}:${message.role}:${message.created_at}:${index}`;
-}
+import {
+  ASSISTANT_DUPLICATE_MIN_CHARS,
+  dedupeLoadedMessages,
+  isDuplicateAssistantSegment,
+  messageRenderKey,
+  normalizeAssistantText,
+} from "@/components/chat/dedupe";
 
 // ─── Chat Page ──────────────────────────────────────────────────────────────
 
