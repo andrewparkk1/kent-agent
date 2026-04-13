@@ -40,13 +40,41 @@ const SHELL_ENV = {
   PATH: SHELL_PATH,
 };
 
+// Paths to search for CLI binaries. Order matters: Homebrew-first on Apple Silicon,
+// then Intel, then system. Covers every layout the user's `gws`/`gh` could live in.
+const BINARY_SEARCH_PATHS = [
+  "/opt/homebrew/bin",
+  "/opt/homebrew/sbin",
+  "/usr/local/bin",
+  "/usr/local/sbin",
+  "/usr/bin",
+  "/usr/sbin",
+  "/bin",
+  "/sbin",
+];
+
 /**
- * Resolve a command to its absolute path, searching the extended SHELL_PATH.
- * Returns null if not found. Use `Bun.which` which is sync and honors the PATH
- * we pass — critical for compiled binaries where subprocess PATH lookup is flaky.
+ * Resolve a command to its absolute path. In bundled macOS GUI apps launched by
+ * launchd, `Bun.which` can return null even when the binary exists because the
+ * bundled Bun's PATH lookup sometimes ignores the custom PATH option. So we fall
+ * back to walking known locations on disk with `existsSync`, which always works.
  */
 function resolveCommand(cmd: string): string | null {
-  return Bun.which(cmd, { PATH: SHELL_PATH });
+  // If caller passes an absolute path that exists, use it.
+  if (cmd.startsWith("/") && existsSync(cmd)) return cmd;
+
+  // First try Bun.which with our explicit SHELL_PATH.
+  try {
+    const found = Bun.which(cmd, { PATH: SHELL_PATH });
+    if (found && existsSync(found)) return found;
+  } catch {}
+
+  // Fallback: check each known binary directory on disk.
+  for (const dir of BINARY_SEARCH_PATHS) {
+    const full = join(dir, cmd);
+    if (existsSync(full)) return full;
+  }
+  return null;
 }
 
 async function commandExists(cmd: string): Promise<boolean> {
@@ -239,8 +267,8 @@ export function handleSetupCheckSources() {
 
         // Gmail + gws auth
         (async () => {
-          const has = await commandExists("gws");
-          if (!has) { emit("gmail", false, "gws CLI not installed"); return; }
+          const gwsPath = resolveCommand("gws");
+          if (!gwsPath) { emit("gmail", false, `gws CLI not found in ${BINARY_SEARCH_PATHS.join(", ")}`); return; }
           try {
             const proc = spawnResolved(["gws", "auth", "status", "--format", "json"], { stdout: "pipe", stderr: "pipe" });
             const code = await proc.exited;
@@ -248,14 +276,17 @@ export function handleSetupCheckSources() {
               const out = await new Response(proc.stdout).text();
               const s = JSON.parse(out);
               emit("gmail", true, s.token_valid ? `authenticated as ${s.user}` : "gws found (needs auth)");
-            } else { emit("gmail", true, "gws found (needs setup)"); }
-          } catch { emit("gmail", true, "gws found (needs setup)"); }
+            } else {
+              const err = await new Response(proc.stderr).text();
+              emit("gmail", true, `gws ${gwsPath} (exit ${code}): ${err.slice(0, 100) || "needs setup"}`);
+            }
+          } catch (e) { emit("gmail", true, `gws found at ${gwsPath} but errored: ${String(e).slice(0, 100)}`); }
         })(),
 
         // GitHub + gh auth
         (async () => {
-          const has = await commandExists("gh");
-          if (!has) { emit("github", false, "gh CLI not installed"); return; }
+          const ghPath = resolveCommand("gh");
+          if (!ghPath) { emit("github", false, `gh CLI not found in ${BINARY_SEARCH_PATHS.join(", ")}`); return; }
           try {
             const proc = spawnResolved(["gh", "auth", "status"], { stdout: "pipe", stderr: "pipe" });
             const code = await proc.exited;
