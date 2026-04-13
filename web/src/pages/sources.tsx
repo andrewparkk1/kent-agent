@@ -954,6 +954,7 @@ export function SourcesPage({ items, loading, filter, setFilter, query, setQuery
   const now = useTick(1000);
 
   const [syncPanelOpen, setSyncPanelOpen] = useState(false);
+  const [startingDaemon, setStartingDaemon] = useState(false);
   const enabledSources = sources.filter((s) => s.enabled);
 
   useEffect(() => {
@@ -990,17 +991,38 @@ export function SourcesPage({ items, loading, filter, setFilter, query, setQuery
             {daemon.status === "stopped" && (
               <button
                 onClick={async () => {
+                  if (startingDaemon) return;
+                  setStartingDaemon(true);
                   try {
-                    await fetch("/api/daemon/start", { method: "POST" });
+                    const res = await fetch("/api/daemon/start", { method: "POST" });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok || data.ok === false) {
+                      throw new Error(data.error || `HTTP ${res.status}`);
+                    }
                     toast.success("Daemon started");
-                    onRefresh();
-                  } catch {
-                    toast.error("Failed to start daemon");
+                    // Poll /api/sources for up to 5s until status flips off "stopped"
+                    // so the UI doesn't appear frozen while the daemon boots up.
+                    for (let i = 0; i < 10; i++) {
+                      await new Promise((r) => setTimeout(r, 500));
+                      await onRefresh();
+                    }
+                  } catch (e: any) {
+                    toast.error(`Failed to start daemon: ${e?.message || "unknown error"}`);
+                  } finally {
+                    setStartingDaemon(false);
                   }
                 }}
-                className="text-[12px] text-blue-500/70 hover:text-blue-500 transition-colors cursor-pointer ml-1"
+                disabled={startingDaemon}
+                className="flex items-center gap-1 text-[12px] text-blue-500/70 hover:text-blue-500 transition-colors cursor-pointer ml-1 disabled:opacity-60"
               >
-                Start
+                {startingDaemon ? (
+                  <>
+                    <Loader2 size={11} className="animate-spin" />
+                    Starting…
+                  </>
+                ) : (
+                  "Start"
+                )}
               </button>
             )}
             {daemon.status !== "stopped" && daemon.status !== "syncing" && (

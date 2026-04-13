@@ -610,25 +610,29 @@ export async function handleSetupOpenPermissions() {
 export async function handleSetupStartServices() {
   const errors: string[] = [];
 
-  // Start daemon
+  // Start daemon. In bundled DMG, spawn the kent-daemon sidecar directly
+  // (Tauri passes KENT_DAEMON_BIN). In dev, use the CLI's launchd-based start.
   try {
-    const { daemonStart } = await import("../../cli/commands/daemon.ts");
-    await daemonStart();
+    const { handleDaemonStart } = await import("./sources.ts");
+    await handleDaemonStart();
   } catch (e) {
     errors.push(`Daemon: ${String(e)}`);
   }
 
-  // Install web launchd
-  try {
-    const { installWebLaunchd } = await import("../../cli/commands/web.ts");
-    installWebLaunchd();
-  } catch (e) {
-    errors.push(`Web: ${String(e)}`);
+  // Install web launchd only in dev — in the DMG, Tauri already manages
+  // the kent-server process and there's no launchd plist to install.
+  if (!process.env.KENT_DAEMON_BIN) {
+    try {
+      const { installWebLaunchd } = await import("../../cli/commands/web.ts");
+      installWebLaunchd();
+    } catch (e) {
+      errors.push(`Web: ${String(e)}`);
+    }
   }
 
   if (errors.length > 0) {
     return Response.json({ ok: false, errors }, { status: 500 });
   }
 
-  return Response.json({ ok: true, message: "Daemon and web services registered" });
+  return Response.json({ ok: true, message: "Services started" });
 }

@@ -97,6 +97,11 @@ pub fn run() {
                     match Command::new(&server_bin)
                         .env("KENT_STATIC_DIR", &static_dir)
                         .env("KENT_PROMPTS_DIR", &prompts_dir)
+                        // Tell kent-server where the bundled daemon + agent binaries
+                        // live so it can spawn them directly in response to
+                        // /api/daemon/start without going through the TS CLI.
+                        .env("KENT_DAEMON_BIN", &daemon_bin)
+                        .env("KENT_AGENT_BIN", &agent_bin)
                         .spawn()
                     {
                         Ok(child) => {
