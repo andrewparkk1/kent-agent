@@ -238,7 +238,7 @@ export function handleSetupCheckSources() {
             const code = await proc.exited;
             if (code === 0) {
               const out = await new Response(proc.stderr).text();
-              const m = out.match(/Logged in to .+ as (.+)/);
+              const m = out.match(/Logged in to \S+ (?:as|account) (\S+)/);
               emit("github", true, `authenticated as ${m?.[1] ?? "user"}`);
             } else { emit("github", true, "gh found (needs auth)"); }
           } catch { emit("github", true, "gh found (needs auth)"); }
@@ -349,18 +349,24 @@ export async function handleSetupOllamaPull(req: Request) {
 // 8. POST /api/setup/oauth/gmail — install gws if needed, run OAuth
 // ---------------------------------------------------------------------------
 
+function openInTerminal(command: string): void {
+  // Escape double quotes for osascript string literal
+  const escaped = command.replace(/"/g, '\\"');
+  Bun.spawn(
+    ["osascript", "-e", `tell application "Terminal" to activate`, "-e", `tell application "Terminal" to do script "${escaped}"`],
+    { stdout: "ignore", stderr: "ignore", env: SHELL_ENV },
+  );
+}
+
 export async function handleSetupOAuthGmail() {
   const hasGws = await commandExists("gws");
   if (!hasGws) {
-    const installProc = Bun.spawn(["brew", "install", "gws"], { stdout: "pipe", stderr: "pipe", env: SHELL_ENV });
-    const code = await installProc.exited;
-    if (code !== 0) {
-      const stderr = await new Response(installProc.stderr).text();
-      return Response.json({ ok: false, error: `Could not install gws: ${stderr}` }, { status: 500 });
-    }
+    // Open Terminal so user can install + auth interactively
+    openInTerminal(`brew install gws && gws auth setup --login && echo '\\n✓ Done — return to Kent and click Refresh'`);
+    return Response.json({ ok: true, message: "Terminal opened — install gws and complete OAuth, then click Refresh in Kent." });
   }
 
-  // Check if already authenticated
+  // Check if already authenticated — may succeed now
   try {
     const statusProc = Bun.spawn(["gws", "auth", "status", "--format", "json"], { stdout: "pipe", stderr: "pipe", env: SHELL_ENV });
     const code = await statusProc.exited;
@@ -373,36 +379,16 @@ export async function handleSetupOAuthGmail() {
     }
   } catch {}
 
-  // Check if credentials exist
+  // Not authenticated — open Terminal to run interactive login
   const hasCredentials =
     existsSync(join(homedir(), "Library/Application Support/gws/client_secret.json")) ||
     existsSync(join(homedir(), "Library/Application Support/gws/credentials.enc"));
 
-  if (!hasCredentials) {
-    // Need full setup (create GCP project + OAuth)
-    const setupProc = Bun.spawn(["gws", "auth", "setup", "--login"], {
-      stdout: "pipe",
-      stderr: "pipe",
-      stdin: "inherit",
-    });
-    const code = await setupProc.exited;
-    if (code === 0) {
-      return Response.json({ ok: true, authenticated: true, message: "GCP project + OAuth set up and authenticated" });
-    }
-    return Response.json({ ok: false, error: "Gmail setup incomplete. Run 'gws auth setup --login' manually." }, { status: 500 });
-  }
-
-  // Have credentials, just need to authenticate
-  const authProc = Bun.spawn(["gws", "auth", "login", "-s", "gmail,calendar,tasks,drive"], {
-    stdout: "pipe",
-    stderr: "pipe",
-    stdin: "inherit",
-  });
-  const code = await authProc.exited;
-  if (code === 0) {
-    return Response.json({ ok: true, authenticated: true, message: "Gmail authenticated" });
-  }
-  return Response.json({ ok: false, error: "Gmail auth failed. Run 'gws auth login -s gmail,calendar,tasks' later." }, { status: 500 });
+  const cmd = hasCredentials
+    ? `gws auth login -s gmail,calendar,tasks,drive && echo '\\n✓ Done — return to Kent and click Refresh'`
+    : `gws auth setup --login && echo '\\n✓ Done — return to Kent and click Refresh'`;
+  openInTerminal(cmd);
+  return Response.json({ ok: true, message: "Terminal opened — complete OAuth in the terminal, then click Refresh in Kent." });
 }
 
 // ---------------------------------------------------------------------------
@@ -412,12 +398,8 @@ export async function handleSetupOAuthGmail() {
 export async function handleSetupOAuthGithub() {
   const hasGh = await commandExists("gh");
   if (!hasGh) {
-    const installProc = Bun.spawn(["brew", "install", "gh"], { stdout: "pipe", stderr: "pipe", env: SHELL_ENV });
-    const code = await installProc.exited;
-    if (code !== 0) {
-      const stderr = await new Response(installProc.stderr).text();
-      return Response.json({ ok: false, error: `Could not install gh: ${stderr}` }, { status: 500 });
-    }
+    openInTerminal(`brew install gh && gh auth login --web -p https && echo '\\n✓ Done — return to Kent and click Refresh'`);
+    return Response.json({ ok: true, message: "Terminal opened — install gh and complete OAuth, then click Refresh in Kent." });
   }
 
   // Check if already authenticated
@@ -428,17 +410,8 @@ export async function handleSetupOAuthGithub() {
     }
   } catch {}
 
-  // Run OAuth
-  const authProc = Bun.spawn(["gh", "auth", "login", "--web", "-p", "https"], {
-    stdout: "pipe",
-    stderr: "pipe",
-    stdin: "inherit",
-  });
-  const code = await authProc.exited;
-  if (code === 0) {
-    return Response.json({ ok: true, authenticated: true, message: "GitHub authenticated" });
-  }
-  return Response.json({ ok: false, error: "GitHub auth failed. Run 'gh auth login' later." }, { status: 500 });
+  openInTerminal(`gh auth login --web -p https && echo '\\n✓ Done — return to Kent and click Refresh'`);
+  return Response.json({ ok: true, message: "Terminal opened — complete OAuth in the terminal, then click Refresh in Kent." });
 }
 
 // ---------------------------------------------------------------------------

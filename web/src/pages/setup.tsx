@@ -119,6 +119,7 @@ interface SourceStatus {
   key: string;
   available: boolean;
   connected: boolean;
+  message?: string;
 }
 
 interface SyncResult {
@@ -491,12 +492,15 @@ function StepSources({
   setEnabledSources,
 }: {
   enabledSources: Record<string, boolean>;
-  setEnabledSources: (s: Record<string, boolean>) => void;
+  setEnabledSources: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
 }) {
   const [statuses, setStatuses] = useState<SourceStatus[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
+    setLoading(true);
+    setStatuses([]);
     const es = new EventSource("/api/setup/check-sources");
     es.onmessage = (e) => {
       try {
@@ -522,7 +526,7 @@ function StepSources({
     });
     es.onerror = () => { setLoading(false); es.close(); };
     return () => es.close();
-  }, []);
+  }, [refreshKey]);
 
   const handleToggle = (key: string) => {
     const next = { ...enabledSources, [key]: !enabledSources[key] };
@@ -535,10 +539,15 @@ function StepSources({
     setEnabledSources(next);
   };
 
-  const handleConnect = (key: string) => {
-    // Open OAuth flow in new window
-    window.open(`/api/auth/${key}`, "_blank", "width=600,height=700");
+  const [connecting, setConnecting] = useState<string | null>(null);
+  const handleConnect = async (key: string) => {
+    setConnecting(key);
+    try {
+      await fetch(`/api/setup/oauth/${key}`, { method: "POST" });
+    } catch {}
+    setConnecting(null);
   };
+  const refresh = () => setRefreshKey((k) => k + 1);
 
   if (loading) {
     return (
@@ -554,6 +563,12 @@ function StepSources({
       <div className="text-center mb-6">
         <h2 className="text-[24px] font-display tracking-tight mb-2">Connect your data sources</h2>
         <p className="text-[13px] text-muted-foreground/60">Choose which sources Kent should monitor and sync.</p>
+        <button
+          onClick={refresh}
+          className="mt-3 text-[11px] text-foreground/60 hover:text-foreground transition-colors cursor-pointer underline underline-offset-2"
+        >
+          Refresh detection
+        </button>
       </div>
 
       <div className="max-w-md mx-auto space-y-1">
@@ -572,10 +587,10 @@ function StepSources({
                   <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/40 pt-3 pb-1 px-1">{(src as any).group}</div>
                 )}
                 <div className="flex items-center justify-between bg-foreground/[0.03] border border-border/50 rounded-lg px-4 py-2.5">
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
                     <button
                       onClick={() => handleToggle(src.key)}
-                      className={`w-5 h-5 rounded border flex items-center justify-center transition-colors cursor-pointer ${
+                      className={`w-5 h-5 rounded border flex items-center justify-center transition-colors cursor-pointer shrink-0 ${
                         isEnabled
                           ? "bg-emerald-500 border-emerald-500"
                           : "border-border bg-transparent"
@@ -583,20 +598,28 @@ function StepSources({
                     >
                       {isEnabled && <Check size={12} className="text-white" />}
                     </button>
-                    <span className="text-[13px]">{src.label}</span>
-                    {status?.connected && (
-                      <span className="text-[10px] text-emerald-500 bg-emerald-500/10 rounded px-1.5 py-0.5">Connected</span>
-                    )}
-                    {status && !status.available && !src.oauth && (
-                      <span className="text-[10px] text-muted-foreground/40 bg-foreground/[0.04] rounded px-1.5 py-0.5">Unavailable</span>
-                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[13px]">{src.label}</span>
+                        {status?.connected && (
+                          <span className="text-[10px] text-emerald-500 bg-emerald-500/10 rounded px-1.5 py-0.5">Connected</span>
+                        )}
+                        {status && !status.available && !src.oauth && (
+                          <span className="text-[10px] text-muted-foreground/40 bg-foreground/[0.04] rounded px-1.5 py-0.5">Unavailable</span>
+                        )}
+                      </div>
+                      {status?.message && !status.connected && (
+                        <div className="text-[10px] text-muted-foreground/40 truncate mt-0.5">{status.message}</div>
+                      )}
+                    </div>
                   </div>
                   {needsOAuth && (
                     <button
                       onClick={() => handleConnect(src.key)}
-                      className="flex items-center gap-1 text-[11px] text-foreground/60 hover:text-foreground transition-colors cursor-pointer"
+                      disabled={connecting === src.key}
+                      className="flex items-center gap-1 text-[11px] text-foreground/60 hover:text-foreground transition-colors cursor-pointer disabled:opacity-50 shrink-0 ml-2"
                     >
-                      Connect <ExternalLink size={10} />
+                      {connecting === src.key ? "Opening…" : <>Connect <ExternalLink size={10} /></>}
                     </button>
                   )}
                 </div>
