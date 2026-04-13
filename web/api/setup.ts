@@ -19,31 +19,49 @@ import {
 } from "../../shared/models.ts";
 import { createWorkflow, listWorkflows } from "../../shared/db.ts";
 import { DEFAULT_WORKFLOWS } from "../../shared/default-workflows.ts";
-import { handleDaemonSync } from "./sources.ts";
+import { handleSync } from "./sync.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
+const SHELL_PATH = [
+  process.env.PATH,
+  "/opt/homebrew/bin",
+  "/opt/homebrew/sbin",
+  "/usr/local/bin",
+  "/usr/bin",
+  "/bin",
+  "/sbin",
+].filter(Boolean).join(":");
+
 const SHELL_ENV = {
   ...process.env,
-  PATH: [
-    process.env.PATH,
-    "/opt/homebrew/bin",
-    "/opt/homebrew/sbin",
-    "/usr/local/bin",
-    "/usr/bin",
-    "/bin",
-  ].filter(Boolean).join(":"),
+  PATH: SHELL_PATH,
 };
 
+/**
+ * Resolve a command to its absolute path, searching the extended SHELL_PATH.
+ * Returns null if not found. Use `Bun.which` which is sync and honors the PATH
+ * we pass — critical for compiled binaries where subprocess PATH lookup is flaky.
+ */
+function resolveCommand(cmd: string): string | null {
+  return Bun.which(cmd, { PATH: SHELL_PATH });
+}
+
 async function commandExists(cmd: string): Promise<boolean> {
-  try {
-    const proc = Bun.spawn(["which", cmd], { stdout: "pipe", stderr: "pipe", env: SHELL_ENV });
-    return (await proc.exited) === 0;
-  } catch {
-    return false;
-  }
+  return resolveCommand(cmd) !== null;
+}
+
+/**
+ * Spawn a command using its absolute path (resolved via SHELL_PATH).
+ * Falls back to the original arg vector if resolution fails. This avoids
+ * PATH resolution quirks in compiled/bundled Bun binaries.
+ */
+function spawnResolved(args: string[], opts: Parameters<typeof Bun.spawn>[1] = {}) {
+  const resolved = resolveCommand(args[0]);
+  const finalArgs = resolved ? [resolved, ...args.slice(1)] : args;
+  return Bun.spawn(finalArgs, { env: SHELL_ENV, ...opts });
 }
 
 function installPrompts(): { copied: number } {
@@ -219,7 +237,7 @@ export function handleSetupCheckSources() {
           const has = await commandExists("gws");
           if (!has) { emit("gmail", false, "gws CLI not installed"); return; }
           try {
-            const proc = Bun.spawn(["gws", "auth", "status", "--format", "json"], { stdout: "pipe", stderr: "pipe", env: SHELL_ENV });
+            const proc = spawnResolved(["gws", "auth", "status", "--format", "json"], { stdout: "pipe", stderr: "pipe" });
             const code = await proc.exited;
             if (code === 0) {
               const out = await new Response(proc.stdout).text();
@@ -234,7 +252,7 @@ export function handleSetupCheckSources() {
           const has = await commandExists("gh");
           if (!has) { emit("github", false, "gh CLI not installed"); return; }
           try {
-            const proc = Bun.spawn(["gh", "auth", "status"], { stdout: "pipe", stderr: "pipe", env: SHELL_ENV });
+            const proc = spawnResolved(["gh", "auth", "status"], { stdout: "pipe", stderr: "pipe" });
             const code = await proc.exited;
             if (code === 0) {
               const out = await new Response(proc.stderr).text();
@@ -281,7 +299,7 @@ export async function handleSetupOllamaStatus() {
 
   // Check if Ollama server is running by listing models
   try {
-    const proc = Bun.spawn(["ollama", "list"], { stdout: "pipe", stderr: "pipe", env: SHELL_ENV });
+    const proc = spawnResolved(["ollama", "list"], { stdout: "pipe", stderr: "pipe" });
     const code = await proc.exited;
     if (code === 0) {
       const output = await new Response(proc.stdout).text();
@@ -305,7 +323,7 @@ export async function handleSetupOllamaStatus() {
 
 export async function handleSetupOllamaInstall() {
   try {
-    const proc = Bun.spawn(["brew", "install", "ollama"], { stdout: "pipe", stderr: "pipe", env: SHELL_ENV });
+    const proc = spawnResolved(["brew", "install", "ollama"], { stdout: "pipe", stderr: "pipe" });
     const code = await proc.exited;
     const stderr = await new Response(proc.stderr).text();
     if (code === 0) {
@@ -332,7 +350,7 @@ export async function handleSetupOllamaPull(req: Request) {
   }
 
   try {
-    const proc = Bun.spawn(["ollama", "pull", model], { stdout: "pipe", stderr: "pipe", env: SHELL_ENV });
+    const proc = spawnResolved(["ollama", "pull", model], { stdout: "pipe", stderr: "pipe" });
     const code = await proc.exited;
     const stdout = await new Response(proc.stdout).text();
     const stderr = await new Response(proc.stderr).text();
@@ -352,9 +370,9 @@ export async function handleSetupOllamaPull(req: Request) {
 function openInTerminal(command: string): void {
   // Escape double quotes for osascript string literal
   const escaped = command.replace(/"/g, '\\"');
-  Bun.spawn(
+  spawnResolved(
     ["osascript", "-e", `tell application "Terminal" to activate`, "-e", `tell application "Terminal" to do script "${escaped}"`],
-    { stdout: "ignore", stderr: "ignore", env: SHELL_ENV },
+    { stdout: "ignore", stderr: "ignore" },
   );
 }
 
@@ -368,7 +386,7 @@ export async function handleSetupOAuthGmail() {
 
   // Check if already authenticated — may succeed now
   try {
-    const statusProc = Bun.spawn(["gws", "auth", "status", "--format", "json"], { stdout: "pipe", stderr: "pipe", env: SHELL_ENV });
+    const statusProc = spawnResolved(["gws", "auth", "status", "--format", "json"], { stdout: "pipe", stderr: "pipe" });
     const code = await statusProc.exited;
     if (code === 0) {
       const output = await new Response(statusProc.stdout).text();
@@ -404,7 +422,7 @@ export async function handleSetupOAuthGithub() {
 
   // Check if already authenticated
   try {
-    const checkProc = Bun.spawn(["gh", "auth", "status"], { stdout: "pipe", stderr: "pipe", env: SHELL_ENV });
+    const checkProc = spawnResolved(["gh", "auth", "status"], { stdout: "pipe", stderr: "pipe" });
     if ((await checkProc.exited) === 0) {
       return Response.json({ ok: true, authenticated: true, message: "GitHub already authenticated" });
     }
@@ -485,8 +503,22 @@ export async function handleSetupSync() {
     }
   }
 
-  // Kick off background sync via daemon — returns immediately
-  await handleDaemonSync();
+  // Fire-and-forget inline sync — runs on this server's event loop, no subprocess.
+  // We don't await, so the HTTP response returns immediately and sync continues in the background.
+  const config = loadConfig();
+  const sourceKeys = Object.entries(config.sources)
+    .filter(([_, enabled]) => enabled)
+    .map(([key]) => key);
+
+  for (const sourceKey of sourceKeys) {
+    const fakeReq = new Request("http://localhost/api/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source: sourceKey }),
+    });
+    // Fire-and-forget — errors swallowed so one bad source doesn't block the rest
+    handleSync(fakeReq).catch(() => {});
+  }
 
   return Response.json({ workflowsCreated, syncStarted: true });
 }
@@ -497,9 +529,9 @@ export async function handleSetupSync() {
 
 export async function handleSetupOpenPermissions() {
   try {
-    const proc = Bun.spawn(
+    const proc = spawnResolved(
       ["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"],
-      { stdout: "pipe", stderr: "pipe", env: SHELL_ENV }
+      { stdout: "pipe", stderr: "pipe" }
     );
     await proc.exited;
     return Response.json({ ok: true });
