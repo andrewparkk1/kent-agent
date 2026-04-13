@@ -14,7 +14,10 @@ import { resolveModel } from "@shared/models.ts";
 
 // ─── Prompt assembly ────────────────────────────────────────────────────────
 
-const BUNDLED_PROMPTS_DIR = join(dirname(import.meta.path), "prompts");
+// In bundled Tauri DMG, Rust sets KENT_PROMPTS_DIR to the resources dir.
+// Fall back to prompts alongside this source file (dev / repo / standalone compile).
+const BUNDLED_PROMPTS_DIR =
+  process.env.KENT_PROMPTS_DIR || join(dirname(import.meta.path), "prompts");
 
 function getUserPromptsDir(): string {
   return join(homedir(), ".kent", "prompts");

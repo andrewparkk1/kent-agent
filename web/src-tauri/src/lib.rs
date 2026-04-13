@@ -87,6 +87,7 @@ pub fn run() {
                         .resource_dir()
                         .expect("failed to resolve resource dir");
                     let static_dir = resource_dir.join("dist-bundle");
+                    let prompts_dir = resource_dir.join("prompts");
 
                     let server_bin = sidecar_path("kent-server");
                     let daemon_bin = sidecar_path("kent-daemon");
@@ -95,6 +96,7 @@ pub fn run() {
                     log::info!("Starting kent-server from {:?}", server_bin);
                     match Command::new(&server_bin)
                         .env("KENT_STATIC_DIR", &static_dir)
+                        .env("KENT_PROMPTS_DIR", &prompts_dir)
                         .spawn()
                     {
                         Ok(child) => {
@@ -113,6 +115,7 @@ pub fn run() {
                         log::info!("Starting kent-daemon from {:?}", daemon_bin);
                         match Command::new(&daemon_bin)
                             .env("KENT_AGENT_BIN", &agent_bin)
+                            .env("KENT_PROMPTS_DIR", &prompts_dir)
                             .spawn()
                         {
                             Ok(child) => {

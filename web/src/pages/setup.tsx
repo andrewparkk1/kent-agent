@@ -124,6 +124,7 @@ interface SourceStatus {
 
 interface SyncResult {
   workflowsCreated?: number;
+  workflowsTotal?: number;
   syncStarted?: boolean;
   error?: string;
 }
@@ -823,10 +824,13 @@ function StepSync({
       </div>
 
       <div className="max-w-md mx-auto space-y-3">
-        {result?.workflowsCreated != null && (
+        {result?.workflowsTotal != null && result.workflowsTotal > 0 && (
           <div className="flex items-center gap-3 bg-foreground/[0.03] border border-border/50 rounded-lg px-4 py-3">
             <Check size={16} className="text-emerald-500 shrink-0" />
-            <span className="text-[13px]">{result.workflowsCreated} workflow{result.workflowsCreated === 1 ? "" : "s"} created</span>
+            <span className="text-[13px]">
+              {result.workflowsTotal} workflow{result.workflowsTotal === 1 ? "" : "s"} ready
+              {result.workflowsCreated ? ` (${result.workflowsCreated} new)` : ""}
+            </span>
           </div>
         )}
         <div className="flex items-center gap-3 bg-foreground/[0.03] border border-border/50 rounded-lg px-4 py-3">

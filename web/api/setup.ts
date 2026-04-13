@@ -65,9 +65,14 @@ function spawnResolved(args: string[], opts: Parameters<typeof Bun.spawn>[1] = {
 }
 
 function installPrompts(): { copied: number } {
-  const bundledDir = join(dirname(import.meta.path), "..", "..", "agent", "prompts");
+  // In bundled Tauri DMG, Rust passes KENT_PROMPTS_DIR pointing at the resources dir.
+  // In dev or compiled-standalone, fall back to the repo's agent/prompts relative to this file.
+  const bundledDir =
+    process.env.KENT_PROMPTS_DIR ||
+    join(dirname(import.meta.path), "..", "..", "agent", "prompts");
 
   if (!existsSync(bundledDir)) {
+    console.warn(`[installPrompts] Source directory not found: ${bundledDir}`);
     return { copied: 0 };
   }
 
@@ -489,19 +494,21 @@ export async function handleSetupSaveConfig(req: Request) {
 // ---------------------------------------------------------------------------
 
 export async function handleSetupSync() {
-  // Seed default workflows if none exist
+  // Seed any default workflows that are missing by name.
+  // Running setup again should top up missing defaults, not do nothing if some exist.
   const existing = await listWorkflows();
+  const existingNames = new Set(existing.map((w) => w.name));
   let workflowsCreated = 0;
-  if (existing.length === 0) {
-    for (const wf of DEFAULT_WORKFLOWS) {
-      try {
-        await createWorkflow(wf);
-        workflowsCreated++;
-      } catch {
-        // Duplicate name — skip
-      }
+  for (const wf of DEFAULT_WORKFLOWS) {
+    if (existingNames.has(wf.name)) continue;
+    try {
+      await createWorkflow(wf);
+      workflowsCreated++;
+    } catch {
+      // Duplicate name or other error — skip
     }
   }
+  const workflowsTotal = existing.length + workflowsCreated;
 
   // Fire-and-forget inline sync — runs on this server's event loop, no subprocess.
   // We don't await, so the HTTP response returns immediately and sync continues in the background.
@@ -520,7 +527,7 @@ export async function handleSetupSync() {
     handleSync(fakeReq).catch(() => {});
   }
 
-  return Response.json({ workflowsCreated, syncStarted: true });
+  return Response.json({ workflowsCreated, workflowsTotal, syncStarted: true });
 }
 
 // ---------------------------------------------------------------------------

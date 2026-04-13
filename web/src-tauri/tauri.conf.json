@@ -41,7 +41,8 @@
       "binaries/kent-agent"
     ],
     "resources": {
-      "../dist-bundle": "dist-bundle"
+      "../dist-bundle": "dist-bundle",
+      "../../agent/prompts": "prompts"
     },
     "icon": [
       "icons/32x32.png",
