@@ -1,0 +1,5 @@
+# 1:1 Prep
+
+A private brief dropped 30 minutes before every recurring 1:1 so you never walk in empty-handed.
+
+Create a workflow that runs every day at 7am and checks my calendar for any 1:1 meetings today (recurring events with one other attendee, or any meeting titled "1:1", "one-on-one", "weekly", "sync", or "chat"). For each one, compile a short private brief: what we discussed last time (pull from memories, the last event's description, or my notes), what's happened with this person since then (their recent PRs, Slack activity, wins or struggles I've noticed, kudos others have given them), any open threads they're in with me (unanswered questions in either direction), and feedback I've been meaning to give but haven't. Then create a private calendar event 30 minutes before the 1:1, titled "Prep: [name]", with the brief in the description. Keep it to a 1-minute read — bullets, not prose. Skip meetings where I have no meaningful context (first-time 1:1s with no history). Save anything new I learn about this person to memory so future briefs get richer.
