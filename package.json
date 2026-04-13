@@ -50,12 +50,13 @@
         "prepublishOnly": "cd web && bun install --frozen-lockfile 2>/dev/null || cd web && bun install && bunx vite build --emptyOutDir",
         "postinstall": "cd web && bun install --frozen-lockfile 2>/dev/null || cd web && bun install",
         "typecheck": "tsc --noEmit",
-        "uninstall": "bash uninstall.sh",
+        "uninstall": "bash scripts/uninstall.sh",
         "version:patch": "bun run scripts/bump.ts patch",
         "version:minor": "bun run scripts/bump.ts minor",
         "deploy": "bun run build && npm publish --ignore-scripts",
-        "deploy:tauri": "bash scripts/build-dmg.sh",
-        "deploy:all": "bun run deploy && bun run deploy:tauri"
+        "build:dmg": "bash scripts/build-dmg.sh",
+        "deploy:dmg": "bash scripts/deploy-dmg.sh",
+        "deploy:all": "bun run deploy && bun run deploy:dmg"
     },
     "devDependencies": {
         "@types/bun": "latest",

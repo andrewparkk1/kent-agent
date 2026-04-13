@@ -223,6 +223,7 @@ export function App() {
     const interval = setInterval(() => {
       fetchItems(itemsPage);
       fetchCounts();
+      fetchWorkflows();
       fetchSources();
       fetchUnreadCount();
     }, 5000);
@@ -237,6 +238,11 @@ export function App() {
     return (
       <SetupPage
         onComplete={() => {
+          // Refetch everything now that ~/.kent/kent.db exists (these no-op'd
+          // during setup because the DB hadn't been created yet).
+          fetchWorkflows();
+          fetchCounts();
+          fetchSources();
           setPageState("workflows");
           window.history.replaceState(null, "", "/workflows");
         }}

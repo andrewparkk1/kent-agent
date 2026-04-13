@@ -164,10 +164,40 @@ export function handleSetupStatus() {
 }
 
 // ---------------------------------------------------------------------------
-// 2. POST /api/setup/init — generate device token, create dir, install prompts
+// 2a. GET /api/setup/check-fda — check Full Disk Access WITHOUT any side effects
 // ---------------------------------------------------------------------------
+// This is the polling endpoint used by the Permissions step. It reads nothing
+// from disk except two well-known FDA-gated paths, so calling it repeatedly is
+// safe and idempotent. Crucially: it does NOT create ~/.kent, generate a
+// device token, or install prompts — all of that is deferred to /api/setup/init
+// which is only called once FDA has actually been granted.
+
+export function handleSetupCheckFDA() {
+  const imessageDb = join(homedir(), "Library/Messages/chat.db");
+  const appleNotesDb = join(homedir(), "Library/Group Containers/group.com.apple.notes/NoteStore.sqlite");
+  const hasFullDiskAccess = existsSync(imessageDb) && existsSync(appleNotesDb);
+  return Response.json({ hasFullDiskAccess });
+}
+
+// ---------------------------------------------------------------------------
+// 2b. POST /api/setup/init — gated on FDA. Creates ~/.kent, device token, prompts.
+// ---------------------------------------------------------------------------
+// Call this ONLY after the user has granted Full Disk Access. This is the
+// first point in onboarding where we actually touch the user's disk.
 
 export function handleSetupInit() {
+  // Re-verify FDA server-side so this endpoint can't be tricked into running
+  // before permissions are granted — even if the client calls it directly.
+  const imessageDb = join(homedir(), "Library/Messages/chat.db");
+  const appleNotesDb = join(homedir(), "Library/Group Containers/group.com.apple.notes/NoteStore.sqlite");
+  const hasFullDiskAccess = existsSync(imessageDb) && existsSync(appleNotesDb);
+  if (!hasFullDiskAccess) {
+    return Response.json(
+      { error: "Full Disk Access not granted — grant it first, then retry." },
+      { status: 403 },
+    );
+  }
+
   ensureKentDir();
 
   const deviceToken = randomBytes(32).toString("base64url");
@@ -180,15 +210,10 @@ export function handleSetupInit() {
   // Install bundled prompts
   const { copied } = installPrompts();
 
-  // Check Full Disk Access
-  const imessageDb = join(homedir(), "Library/Messages/chat.db");
-  const appleNotesDb = join(homedir(), "Library/Group Containers/group.com.apple.notes/NoteStore.sqlite");
-  const hasFullDiskAccess = existsSync(imessageDb) && existsSync(appleNotesDb);
-
   return Response.json({
     deviceToken,
     promptsInstalled: copied,
-    hasFullDiskAccess,
+    hasFullDiskAccess: true,
     kentDir: KENT_DIR,
   });
 }

@@ -198,7 +198,15 @@ export function ChatPage({ threadId: initialThreadId, initialInput: initialInput
         signal: abort.signal,
       });
 
-      if (!res.ok) throw new Error("Chat request failed");
+      if (!res.ok) {
+        // Try to pull the error message out of the response body for a useful toast.
+        let serverMsg = `Chat request failed (${res.status})`;
+        try {
+          const body = await res.json();
+          if (body?.error) serverMsg = body.error;
+        } catch {}
+        throw new Error(serverMsg);
+      }
       const reader = res.body?.getReader();
       if (!reader) throw new Error("No response stream");
 
@@ -227,6 +235,10 @@ export function ChatPage({ threadId: initialThreadId, initialInput: initialInput
             }
 
             if (parsed.error) {
+              // Surface the error both inline in the assistant bubble AND as a
+              // toast so the user sees it even if the bubble gets cleaned up
+              // later by the empty-message filter.
+              toast.error(String(parsed.error).slice(0, 200));
               currentText += `\n\n**Error:** ${parsed.error}`;
               const textNow = currentText;
               const idNow = currentAssistantId;
@@ -319,10 +331,13 @@ export function ChatPage({ threadId: initialThreadId, initialInput: initialInput
         }
       }
 
-      // Clean up trailing empty assistant message
+      // Clean up trailing empty assistant message. If the stream ended with
+      // no content at all (common when the API key is invalid and the agent
+      // fails silently), toast so the user isn't left staring at "Thinking…".
       if (!currentText.trim()) {
         const emptyId = currentAssistantId;
         setMessages((prev) => prev.filter((m) => m.id !== emptyId));
+        toast.error("No response from agent. Check your API key in Settings.");
       }
     } catch (err: any) {
       if (err?.name === "AbortError") {
@@ -331,12 +346,13 @@ export function ChatPage({ threadId: initialThreadId, initialInput: initialInput
           setMessages((prev) => prev.filter((m) => m.id !== emptyId));
         }
       } else {
-        toast.error("Something went wrong. Please try again.");
+        const msg = err?.message || "Something went wrong. Please try again.";
+        toast.error(msg);
         setMessages((prev) => {
           const updated = [...prev];
           const last = updated[updated.length - 1];
           if (last?.role === "assistant") {
-            updated[updated.length - 1] = { ...last, content: "Something went wrong. Please try again." };
+            updated[updated.length - 1] = { ...last, content: msg };
           }
           return updated;
         });

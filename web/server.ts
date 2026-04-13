@@ -16,6 +16,7 @@ import { handleOllamaModels } from "./api/ollama.ts";
 import {
   handleSetupStatus,
   handleSetupInit,
+  handleSetupCheckFDA,
   handleSetupHardware,
   handleSetupCheckSources,
   handleSetupOllamaStatus,
@@ -162,6 +163,9 @@ Bun.serve({
     // Setup endpoints
     if (url.pathname === "/api/setup/init" && req.method === "POST") {
       return handleSetupInit();
+    }
+    if (url.pathname === "/api/setup/check-fda" && req.method === "GET") {
+      return handleSetupCheckFDA();
     }
     if (url.pathname === "/api/setup/check-sources" && req.method === "GET") {
       return handleSetupCheckSources();

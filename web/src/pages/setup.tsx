@@ -1,3 +1,46 @@
+/**
+ * Kent onboarding wizard.
+ *
+ * Steps (0-indexed, left-to-right in the progress bar):
+ *
+ *   0. Welcome      — friendly intro. Calls POST /api/setup/init in the background
+ *                     which creates ~/.kent, generates a device token, and installs
+ *                     bundled system prompts into ~/.kent/prompts/.
+ *
+ *   1. Permissions  — three checklist items:
+ *                       ✓ Data directory (~/.kent) — created by init above
+ *                       ✓ System prompts — installed by init above
+ *                       [ ] Full Disk Access — required for iMessage, Notes,
+ *                           Contacts, Health. User clicks "Open System Settings",
+ *                           we open the FDA pane, and we poll /api/setup/init
+ *                           every 2s until FDA is granted. NON-SKIPPABLE.
+ *
+ *   2. AI Provider  — choose Anthropic / OpenAI / OpenRouter / Google / Ollama /
+ *                     Custom. Enter an API key (or pull a local Ollama model).
+ *                     Model list comes from shared/models.ts.
+ *
+ *   3. Sources      — SSE stream from /api/setup/check-sources auto-detects what's
+ *                     available on this machine (iMessage DB, Gmail via gws CLI,
+ *                     GitHub via gh CLI, Signal via sqlcipher, etc.). Anything
+ *                     detected is auto-enabled. User can toggle individual sources
+ *                     and click "Connect" for OAuth-based ones (opens Terminal.app
+ *                     with the right `gws auth login` / `gh auth login` command).
+ *
+ *   4. Channels     — optional notification channels: iMessage, Telegram, Slack.
+ *                     This step is skippable.
+ *
+ *   5. Sync         — saves the wizard config via POST /api/setup/save-config,
+ *                     then POST /api/setup/sync which (a) tops up missing default
+ *                     workflows and (b) kicks off a fire-and-forget background
+ *                     sync for every enabled source. Returns immediately.
+ *
+ *   6. Done         — success screen. "All set" — data will trickle in as sources
+ *                     finish syncing in the background.
+ *
+ * State lives in SetupPage (bottom of file). Each step is a child component that
+ * reads/writes fields via props. The Continue button at the bottom runs
+ * `canContinue(step)` to gate advancement (e.g. step 1 requires hasFDA === true).
+ */
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -131,95 +174,73 @@ interface SyncResult {
 
 // ─── Step Components ────────────────────────────────────────────────────────
 
-function StepWelcome({ onReady }: { onReady: (result: InitResult) => void }) {
-  const [loading, setLoading] = useState(true);
-  const [result, setResult] = useState<InitResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/setup/init", { method: "POST" });
-        const data = await res.json();
-        if (!cancelled) {
-          setResult(data);
-          setLoading(false);
-          onReady(data);
-        }
-      } catch {
-        if (!cancelled) {
-          setError("Failed to initialize. Is the API server running?");
-          setLoading(false);
-        }
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [onReady]);
-
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-4 py-16">
-        <Loader2 size={28} className="text-muted-foreground/40 animate-spin" />
-        <p className="text-[13px] text-muted-foreground/50">Initializing Kent...</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-4 py-16">
-        <AlertTriangle size={28} className="text-red-400" />
-        <p className="text-[13px] text-red-400">{error}</p>
-      </div>
-    );
-  }
-
+// Welcome step — pure presentation. No API calls, no side effects. Nothing
+// gets created on disk until the user grants Full Disk Access in step 1.
+function StepWelcome() {
   return (
     <div className="space-y-6">
       <div className="text-center mb-8">
         <h2 className="text-[24px] font-display tracking-tight mb-2">Welcome to Kent</h2>
-        <p className="text-[13px] text-muted-foreground/60">Your personal AI agent is almost ready. Let's get you set up.</p>
-      </div>
-
-      <div className="space-y-3 max-w-md mx-auto">
-        {!!result?.promptsInstalled && (
-          <div className="flex items-center gap-3 bg-foreground/[0.03] border border-border/50 rounded-lg px-4 py-3">
-            <Check size={16} className="text-emerald-500 shrink-0" />
-            <span className="text-[13px]">System prompts installed</span>
-          </div>
-        )}
+        <p className="text-[13px] text-muted-foreground/60">Your personal AI agent. A few steps to get you set up.</p>
       </div>
     </div>
   );
 }
 
+// Permissions step — the gate. Nothing touches disk until FDA is granted.
+//
+// Lifecycle:
+//   1. On mount: poll GET /api/setup/check-fda every 2s (read-only, no side effects)
+//   2. When FDA flips to true: call POST /api/setup/init ONCE, which creates
+//      ~/.kent, generates the device token, and installs bundled prompts
+//   3. UI animates each checklist item as it completes: FDA → Data dir → Prompts
+//   4. Parent is notified via onReady(initResult) so the rest of the wizard
+//      has access to kentDir / deviceToken / etc.
 function StepPermissions({
-  initialHasFDA,
-  kentDir,
-  onGranted,
+  onReady,
 }: {
-  initialHasFDA: boolean;
-  kentDir?: string;
-  onGranted: () => void;
+  onReady: (result: InitResult) => void;
 }) {
-  const [hasFDA, setHasFDA] = useState(initialHasFDA);
+  const [hasFDA, setHasFDA] = useState(false);
+  const [initResult, setInitResult] = useState<InitResult | null>(null);
+  const [initError, setInitError] = useState<string | null>(null);
   const [opening, setOpening] = useState(false);
 
+  // Poll FDA status until granted. Read-only — no disk writes.
   useEffect(() => {
     if (hasFDA) return;
-    const interval = setInterval(async () => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const res = await fetch("/api/setup/check-fda");
+        const data = await res.json();
+        if (!cancelled && data.hasFullDiskAccess) setHasFDA(true);
+      } catch {}
+    };
+    check();
+    const interval = setInterval(check, 2000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [hasFDA]);
+
+  // Once FDA is granted, run init exactly once to create ~/.kent + prompts.
+  useEffect(() => {
+    if (!hasFDA || initResult) return;
+    let cancelled = false;
+    (async () => {
       try {
         const res = await fetch("/api/setup/init", { method: "POST" });
-        const data = await res.json();
-        if (data.hasFullDiskAccess) {
-          setHasFDA(true);
-          onGranted();
+        if (!res.ok) throw new Error(`init failed: ${res.status}`);
+        const data: InitResult = await res.json();
+        if (!cancelled) {
+          setInitResult(data);
+          onReady(data);
         }
-      } catch {}
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [hasFDA, onGranted]);
+      } catch (e) {
+        if (!cancelled) setInitError(String(e));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [hasFDA, initResult, onReady]);
 
   const openSettings = async () => {
     setOpening(true);
@@ -229,7 +250,8 @@ function StepPermissions({
     setTimeout(() => setOpening(false), 1500);
   };
 
-  const kentDirReady = !!kentDir;
+  const kentDirReady = !!initResult?.kentDir;
+  const promptsInstalled = !!initResult?.promptsInstalled;
 
   return (
     <div className="space-y-6">
@@ -241,20 +263,7 @@ function StepPermissions({
       </div>
 
       <div className="max-w-md mx-auto space-y-3">
-        {/* ~/.kent directory */}
-        <div className="flex items-center gap-3 border border-border/40 rounded-lg px-4 py-3">
-          {kentDirReady ? (
-            <Check size={14} className="text-emerald-500 shrink-0" />
-          ) : (
-            <Loader2 size={14} className="animate-spin text-muted-foreground/30 shrink-0" />
-          )}
-          <div className="min-w-0">
-            <p className="text-[13px]">Data directory</p>
-            <p className="text-[11px] text-muted-foreground/40 font-mono truncate">{kentDir ?? "~/.kent"}</p>
-          </div>
-        </div>
-
-        {/* Full Disk Access */}
+        {/* 1. Full Disk Access — the gate. Must be granted first. */}
         <div className="flex items-center gap-3 border border-border/40 rounded-lg px-4 py-3">
           {hasFDA ? (
             <Check size={14} className="text-emerald-500 shrink-0" />
@@ -266,6 +275,39 @@ function StepPermissions({
             <p className="text-[11px] text-muted-foreground/40">iMessage, Apple Notes, Contacts, Health</p>
           </div>
         </div>
+
+        {/* 2. ~/.kent directory — created by init, only after FDA is granted. */}
+        <div className="flex items-center gap-3 border border-border/40 rounded-lg px-4 py-3">
+          {kentDirReady ? (
+            <Check size={14} className="text-emerald-500 shrink-0" />
+          ) : (
+            <Loader2 size={14} className={`shrink-0 ${hasFDA ? "animate-spin text-muted-foreground/30" : "text-muted-foreground/15"}`} />
+          )}
+          <div className="min-w-0">
+            <p className={`text-[13px] ${hasFDA ? "" : "text-muted-foreground/40"}`}>Data directory</p>
+            <p className="text-[11px] text-muted-foreground/40 font-mono truncate">{initResult?.kentDir ?? "~/.kent"}</p>
+          </div>
+        </div>
+
+        {/* 3. System prompts — written to ~/.kent/prompts by init. */}
+        <div className="flex items-center gap-3 border border-border/40 rounded-lg px-4 py-3">
+          {promptsInstalled ? (
+            <Check size={14} className="text-emerald-500 shrink-0" />
+          ) : (
+            <Loader2 size={14} className={`shrink-0 ${hasFDA ? "animate-spin text-muted-foreground/30" : "text-muted-foreground/15"}`} />
+          )}
+          <div>
+            <p className={`text-[13px] ${hasFDA ? "" : "text-muted-foreground/40"}`}>System prompts</p>
+            <p className="text-[11px] text-muted-foreground/40">Agent identity, skills, and tools</p>
+          </div>
+        </div>
+
+        {initError && (
+          <div className="flex items-center gap-3 border border-red-500/30 rounded-lg px-4 py-3">
+            <AlertTriangle size={14} className="text-red-400 shrink-0" />
+            <p className="text-[11px] text-red-400">{initError}</p>
+          </div>
+        )}
 
         {!hasFDA && (
           <div className="space-y-3 pt-1">
@@ -434,19 +476,20 @@ function StepProvider({
 
         {/* Hardware info for local */}
         {provider === "local" && (
-          <div className="bg-foreground/[0.03] border border-border/50 rounded-lg px-4 py-3">
+          <div className="flex items-center gap-3 text-[11px] text-muted-foreground/50 px-1">
             {hardwareLoading ? (
-              <div className="flex items-center gap-2">
-                <Loader2 size={14} className="animate-spin text-muted-foreground/40" />
-                <span className="text-[12px] text-muted-foreground/50">Detecting hardware...</span>
-              </div>
+              <>
+                <Loader2 size={11} className="animate-spin shrink-0" />
+                <span>Detecting hardware…</span>
+              </>
             ) : hardware ? (
-              <div className="space-y-1">
-                {hardware.ram && <p className="text-[12px] text-muted-foreground/60">RAM: {hardware.ram}</p>}
-                {hardware.gpu && <p className="text-[12px] text-muted-foreground/60">GPU: {hardware.gpu}</p>}
-              </div>
+              <>
+                {hardware.ram && <span>RAM {hardware.ram}</span>}
+                {hardware.ram && hardware.gpu && <span className="text-muted-foreground/20">·</span>}
+                {hardware.gpu && <span>GPU {hardware.gpu}</span>}
+              </>
             ) : (
-              <p className="text-[12px] text-muted-foreground/50">Could not detect hardware. Showing default models.</p>
+              <span>Could not detect hardware — showing default models.</span>
             )}
           </div>
         )}
@@ -901,14 +944,11 @@ function StepDone({ onComplete }: { onComplete: () => void }) {
 export function SetupPage({ onComplete }: { onComplete: () => void }) {
   const [step, setStep] = useState(0);
 
-  // Step 0 state
-  const [initReady, setInitReady] = useState(false);
+  // Step 1 (Permissions) is where init actually runs. Until then, initResult
+  // is null and the user hasn't been asked for any permission yet.
   const [initResult, setInitResult] = useState<InitResult | null>(null);
-  const [hasFDA, setHasFDA] = useState(false);
   const handleInitReady = useCallback((result: InitResult) => {
-    setInitReady(true);
     setInitResult(result);
-    setHasFDA(result.hasFullDiskAccess ?? false);
   }, []);
 
   // Step 1 state
@@ -927,10 +967,10 @@ export function SetupPage({ onComplete }: { onComplete: () => void }) {
 
   const canContinue = (): boolean => {
     switch (step) {
-      case 0:
-        return initReady;
-      case 1: // Permissions — must grant FDA to continue
-        return hasFDA;
+      case 0: // Welcome — always allowed
+        return true;
+      case 1: // Permissions — blocked until FDA is granted AND init has run
+        return !!initResult && initResult.hasFullDiskAccess === true;
       case 2: {
         if (provider === "custom") return baseUrl.trim().length > 0 && model.trim().length > 0;
         if (provider === "local") return model.trim().length > 0;
@@ -981,14 +1021,8 @@ export function SetupPage({ onComplete }: { onComplete: () => void }) {
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.25, ease: [0.25, 0.46, 0.45, 0.94] }}
             >
-              {step === 0 && <StepWelcome onReady={handleInitReady} />}
-              {step === 1 && (
-                <StepPermissions
-                  initialHasFDA={initResult?.hasFullDiskAccess ?? false}
-                  kentDir={initResult?.kentDir}
-                  onGranted={() => setHasFDA(true)}
-                />
-              )}
+              {step === 0 && <StepWelcome />}
+              {step === 1 && <StepPermissions onReady={handleInitReady} />}
               {step === 2 && (
                 <StepProvider
                   provider={provider}
