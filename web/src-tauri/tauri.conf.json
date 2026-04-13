@@ -4,8 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.kent.desktop",
   "build": {
-    "frontendDist": "../dist",
-    "devUrl": "http://localhost:19456"
+    "frontendDist": "../dist-bundle",
+    "devUrl": "http://localhost:19456",
+    "beforeBuildCommand": "bun run build"
   },
   "app": {
     "windows": [

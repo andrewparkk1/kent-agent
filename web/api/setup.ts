@@ -19,15 +19,27 @@ import {
 } from "../../shared/models.ts";
 import { createWorkflow, listWorkflows } from "../../shared/db.ts";
 import { DEFAULT_WORKFLOWS } from "../../shared/default-workflows.ts";
-import { handleSync } from "./sync.ts";
+import { handleDaemonSync } from "./sources.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
+const SHELL_ENV = {
+  ...process.env,
+  PATH: [
+    process.env.PATH,
+    "/opt/homebrew/bin",
+    "/opt/homebrew/sbin",
+    "/usr/local/bin",
+    "/usr/bin",
+    "/bin",
+  ].filter(Boolean).join(":"),
+};
+
 async function commandExists(cmd: string): Promise<boolean> {
   try {
-    const proc = Bun.spawn(["which", cmd], { stdout: "pipe", stderr: "pipe" });
+    const proc = Bun.spawn(["which", cmd], { stdout: "pipe", stderr: "pipe", env: SHELL_ENV });
     return (await proc.exited) === 0;
   } catch {
     return false;
@@ -207,7 +219,7 @@ export function handleSetupCheckSources() {
           const has = await commandExists("gws");
           if (!has) { emit("gmail", false, "gws CLI not installed"); return; }
           try {
-            const proc = Bun.spawn(["gws", "auth", "status", "--format", "json"], { stdout: "pipe", stderr: "pipe" });
+            const proc = Bun.spawn(["gws", "auth", "status", "--format", "json"], { stdout: "pipe", stderr: "pipe", env: SHELL_ENV });
             const code = await proc.exited;
             if (code === 0) {
               const out = await new Response(proc.stdout).text();
@@ -222,7 +234,7 @@ export function handleSetupCheckSources() {
           const has = await commandExists("gh");
           if (!has) { emit("github", false, "gh CLI not installed"); return; }
           try {
-            const proc = Bun.spawn(["gh", "auth", "status"], { stdout: "pipe", stderr: "pipe" });
+            const proc = Bun.spawn(["gh", "auth", "status"], { stdout: "pipe", stderr: "pipe", env: SHELL_ENV });
             const code = await proc.exited;
             if (code === 0) {
               const out = await new Response(proc.stderr).text();
@@ -269,7 +281,7 @@ export async function handleSetupOllamaStatus() {
 
   // Check if Ollama server is running by listing models
   try {
-    const proc = Bun.spawn(["ollama", "list"], { stdout: "pipe", stderr: "pipe" });
+    const proc = Bun.spawn(["ollama", "list"], { stdout: "pipe", stderr: "pipe", env: SHELL_ENV });
     const code = await proc.exited;
     if (code === 0) {
       const output = await new Response(proc.stdout).text();
@@ -293,7 +305,7 @@ export async function handleSetupOllamaStatus() {
 
 export async function handleSetupOllamaInstall() {
   try {
-    const proc = Bun.spawn(["brew", "install", "ollama"], { stdout: "pipe", stderr: "pipe" });
+    const proc = Bun.spawn(["brew", "install", "ollama"], { stdout: "pipe", stderr: "pipe", env: SHELL_ENV });
     const code = await proc.exited;
     const stderr = await new Response(proc.stderr).text();
     if (code === 0) {
@@ -320,7 +332,7 @@ export async function handleSetupOllamaPull(req: Request) {
   }
 
   try {
-    const proc = Bun.spawn(["ollama", "pull", model], { stdout: "pipe", stderr: "pipe" });
+    const proc = Bun.spawn(["ollama", "pull", model], { stdout: "pipe", stderr: "pipe", env: SHELL_ENV });
     const code = await proc.exited;
     const stdout = await new Response(proc.stdout).text();
     const stderr = await new Response(proc.stderr).text();
@@ -340,7 +352,7 @@ export async function handleSetupOllamaPull(req: Request) {
 export async function handleSetupOAuthGmail() {
   const hasGws = await commandExists("gws");
   if (!hasGws) {
-    const installProc = Bun.spawn(["brew", "install", "gws"], { stdout: "pipe", stderr: "pipe" });
+    const installProc = Bun.spawn(["brew", "install", "gws"], { stdout: "pipe", stderr: "pipe", env: SHELL_ENV });
     const code = await installProc.exited;
     if (code !== 0) {
       const stderr = await new Response(installProc.stderr).text();
@@ -350,7 +362,7 @@ export async function handleSetupOAuthGmail() {
 
   // Check if already authenticated
   try {
-    const statusProc = Bun.spawn(["gws", "auth", "status", "--format", "json"], { stdout: "pipe", stderr: "pipe" });
+    const statusProc = Bun.spawn(["gws", "auth", "status", "--format", "json"], { stdout: "pipe", stderr: "pipe", env: SHELL_ENV });
     const code = await statusProc.exited;
     if (code === 0) {
       const output = await new Response(statusProc.stdout).text();
@@ -400,7 +412,7 @@ export async function handleSetupOAuthGmail() {
 export async function handleSetupOAuthGithub() {
   const hasGh = await commandExists("gh");
   if (!hasGh) {
-    const installProc = Bun.spawn(["brew", "install", "gh"], { stdout: "pipe", stderr: "pipe" });
+    const installProc = Bun.spawn(["brew", "install", "gh"], { stdout: "pipe", stderr: "pipe", env: SHELL_ENV });
     const code = await installProc.exited;
     if (code !== 0) {
       const stderr = await new Response(installProc.stderr).text();
@@ -410,7 +422,7 @@ export async function handleSetupOAuthGithub() {
 
   // Check if already authenticated
   try {
-    const checkProc = Bun.spawn(["gh", "auth", "status"], { stdout: "pipe", stderr: "pipe" });
+    const checkProc = Bun.spawn(["gh", "auth", "status"], { stdout: "pipe", stderr: "pipe", env: SHELL_ENV });
     if ((await checkProc.exited) === 0) {
       return Response.json({ ok: true, authenticated: true, message: "GitHub already authenticated" });
     }
@@ -500,38 +512,31 @@ export async function handleSetupSync() {
     }
   }
 
-  // Trigger initial sync for all enabled sources
-  const config = loadConfig();
-  const syncResults: Record<string, { ok: boolean; message: string }> = {};
+  // Kick off background sync via daemon — returns immediately
+  await handleDaemonSync();
 
-  const sourceKeys = Object.entries(config.sources)
-    .filter(([_, enabled]) => enabled)
-    .map(([key]) => key);
-
-  for (const sourceKey of sourceKeys) {
-    try {
-      const fakeReq = new Request("http://localhost/api/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: sourceKey }),
-      });
-      const res = await handleSync(fakeReq);
-      const data = await res.json() as { message?: string; error?: string };
-      if (res.ok) {
-        syncResults[sourceKey] = { ok: true, message: data.message ?? "synced" };
-      } else {
-        syncResults[sourceKey] = { ok: false, message: data.error ?? "sync failed" };
-      }
-    } catch (e) {
-      syncResults[sourceKey] = { ok: false, message: String(e) };
-    }
-  }
-
-  return Response.json({ workflowsCreated, syncResults });
+  return Response.json({ workflowsCreated, syncStarted: true });
 }
 
 // ---------------------------------------------------------------------------
-// 12. POST /api/setup/start-services — register launchd agents
+// 12. POST /api/setup/open-permissions — open System Settings → Full Disk Access
+// ---------------------------------------------------------------------------
+
+export async function handleSetupOpenPermissions() {
+  try {
+    const proc = Bun.spawn(
+      ["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"],
+      { stdout: "pipe", stderr: "pipe", env: SHELL_ENV }
+    );
+    await proc.exited;
+    return Response.json({ ok: true });
+  } catch (e) {
+    return Response.json({ ok: false, error: String(e) }, { status: 500 });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 13. POST /api/setup/start-services — register launchd agents
 // ---------------------------------------------------------------------------
 
 export async function handleSetupStartServices() {

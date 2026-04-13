@@ -85,7 +85,9 @@ export function createWhatsappSource(config: WhatsappSourceConfig = {}): Source 
       const tmpDbPath = skipCopy ? dbPath : copyDbToTemp(dbPath, tempDir);
       if (!tmpDbPath) return [];
 
-      const db = new Database(tmpDbPath, { readonly: true });
+      // Open without readonly: WAL-mode databases need a -shm sidecar which
+      // can't be created in readonly mode. The temp copy is safe to open r/w.
+      const db = new Database(tmpDbPath);
       const limit = options?.limit ?? 10000;
 
       const lastSync = state.getLastSync("whatsapp");

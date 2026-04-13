@@ -225,7 +225,10 @@ export function createContactsSource(config: ContactsConfig = {}): Source {
         if (!tempPath) continue;
 
         try {
-          const db = new Database(tempPath, { readonly: true });
+          // Open without readonly: WAL-mode databases need a -shm sidecar which
+          // can't be created in readonly mode. The temp copy is safe to open r/w.
+          // When config.abPaths is set (tests), use readonly since it's not a copy.
+          const db = new Database(tempPath, config.abPaths ? { readonly: true } : {});
 
           // Fetch contacts modified after lastSync
           const contactRows = db

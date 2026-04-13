@@ -26,10 +26,11 @@ import {
   handleSetupSaveConfig,
   handleSetupSync,
   handleSetupStartServices,
+  handleSetupOpenPermissions,
 } from "./api/setup.ts";
 import { API_PORT } from "../shared/config.ts";
 
-const STATIC_DIR = process.env.KENT_STATIC_DIR || resolve(import.meta.dir, "dist");
+const STATIC_DIR = process.env.KENT_STATIC_DIR || resolve(import.meta.dir, "dist-bundle");
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -53,6 +54,7 @@ const MIME_TYPES: Record<string, string> = {
 
 Bun.serve({
   port: API_PORT,
+  idleTimeout: 255, // max allowed by Bun — sync can take a while
   routes: {
     "/api/counts":       handleCounts,
     "/api/items":        handleItems,
@@ -184,6 +186,9 @@ Bun.serve({
     }
     if (url.pathname === "/api/setup/sync" && req.method === "POST") {
       return handleSetupSync();
+    }
+    if (url.pathname === "/api/setup/open-permissions" && req.method === "POST") {
+      return handleSetupOpenPermissions();
     }
     if (url.pathname === "/api/setup/start-services" && req.method === "POST") {
       return handleSetupStartServices();

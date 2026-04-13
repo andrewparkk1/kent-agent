@@ -70,7 +70,7 @@ export function App() {
   const [totalRuns, setTotalRuns] = useState(0);
   const [workflowsLoading, setWorkflowsLoading] = useState(true);
   const [sources, setSources] = useState<SourceInfo[]>([]);
-  const [daemon, setDaemon] = useState<DaemonInfo>({ status: "stopped", currentSource: null, intervalSeconds: 300, lastSyncAt: null, nextSyncAt: null });
+  const [daemon, setDaemon] = useState<DaemonInfo>({ status: "stopped", currentSource: null, intervalSeconds: 300, lastSyncAt: null, nextSyncAt: null, lastSyncErrors: null });
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(initial.threadId);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(initial.workflowId);
   const [selectedMemoryId, setSelectedMemoryId] = useState<string | null>(initial.memoryId);

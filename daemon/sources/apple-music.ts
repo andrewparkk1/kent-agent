@@ -30,7 +30,7 @@ tell application "Music"
       set trackGenre to genre of t
       set trackRating to rating of t
       set trackPlayCount to played count of t
-      set trackPlayDate to played date of t as <<class isot>> as string
+      set trackPlayDate to played date of t as «class isot» as string
       set trackId to database ID of t
       set output to output & delim & trackId & sep & trackName & sep & trackArtist & sep & trackAlbum & sep & trackDuration & sep & trackGenre & sep & trackRating & sep & trackPlayCount & sep & trackPlayDate
     end try

@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { Toaster } from "sonner";
 // Self-hosted fonts — bundled with the app so they work offline and render
 // identically in the Tauri webview and the web dashboard.
+// @ts-ignore — no type declarations shipped with this package
 import "@fontsource-variable/dm-sans";
 import "@fontsource-variable/dm-sans/wght-italic.css";
 import "@fontsource/instrument-serif/latin-400.css";

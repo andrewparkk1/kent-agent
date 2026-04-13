@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Loader2,
@@ -10,6 +10,13 @@ import {
   AlertTriangle,
   ExternalLink,
 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 type ModelProvider = "anthropic" | "openai" | "openrouter" | "google" | "local" | "custom";
 
@@ -48,13 +55,13 @@ const SUGGESTED_MODELS: Record<ModelProvider, { id: string; label: string }[]> =
   custom: [],
 };
 
-const PROVIDER_OPTIONS: { value: ModelProvider; label: string; icon: string }[] = [
-  { value: "anthropic", label: "Anthropic", icon: "A" },
-  { value: "openai", label: "OpenAI", icon: "O" },
-  { value: "openrouter", label: "OpenRouter", icon: "R" },
-  { value: "google", label: "Google", icon: "G" },
-  { value: "local", label: "Local (Ollama)", icon: "L" },
-  { value: "custom", label: "Custom", icon: "C" },
+const PROVIDER_OPTIONS: { value: ModelProvider; label: string; desc: string }[] = [
+  { value: "anthropic", label: "Anthropic", desc: "Claude models" },
+  { value: "openai", label: "OpenAI", desc: "GPT & reasoning" },
+  { value: "openrouter", label: "OpenRouter", desc: "100+ models" },
+  { value: "google", label: "Google", desc: "Gemini models" },
+  { value: "local", label: "Ollama", desc: "Local inference" },
+  { value: "custom", label: "Custom", desc: "Any OpenAI-compat API" },
 ];
 
 const SOURCE_LIST = [
@@ -93,12 +100,13 @@ const SOURCE_LIST = [
   { key: "recent_files", label: "Recent Files", oauth: false, group: "System" },
 ];
 
-const STEP_LABELS = ["Welcome", "AI Provider", "Sources", "Channels", "Sync", "Done"];
+const STEP_LABELS = ["Welcome", "Permissions", "AI Provider", "Sources", "Channels", "Sync", "Done"];
 
 interface InitResult {
   deviceToken?: string;
   promptsInstalled?: boolean;
   hasFullDiskAccess?: boolean;
+  kentDir?: string;
 }
 
 interface HardwareInfo {
@@ -115,7 +123,7 @@ interface SourceStatus {
 
 interface SyncResult {
   workflowsCreated?: number;
-  syncStatus?: string;
+  syncStarted?: boolean;
   error?: string;
 }
 
@@ -173,26 +181,117 @@ function StepWelcome({ onReady }: { onReady: (result: InitResult) => void }) {
       </div>
 
       <div className="space-y-3 max-w-md mx-auto">
-        <div className="flex items-center gap-3 bg-foreground/[0.03] border border-border/50 rounded-lg px-4 py-3">
-          <Check size={16} className="text-emerald-500 shrink-0" />
-          <span className="text-[13px]">Device token generated</span>
-        </div>
-        {result?.promptsInstalled && (
+        {!!result?.promptsInstalled && (
           <div className="flex items-center gap-3 bg-foreground/[0.03] border border-border/50 rounded-lg px-4 py-3">
             <Check size={16} className="text-emerald-500 shrink-0" />
             <span className="text-[13px]">System prompts installed</span>
           </div>
         )}
-        {result?.hasFullDiskAccess === false && (
-          <div className="flex items-start gap-3 bg-amber-500/5 border border-amber-500/20 rounded-lg px-4 py-3">
-            <AlertTriangle size={16} className="text-amber-500 shrink-0 mt-0.5" />
-            <div>
-              <p className="text-[13px] text-amber-400 font-medium">Full Disk Access not detected</p>
-              <p className="text-[12px] text-muted-foreground/50 mt-1">
-                Some sources (iMessage, Apple Notes) require Full Disk Access.
-                Enable it in System Settings &gt; Privacy &amp; Security.
-              </p>
+      </div>
+    </div>
+  );
+}
+
+function StepPermissions({
+  initialHasFDA,
+  kentDir,
+  onGranted,
+}: {
+  initialHasFDA: boolean;
+  kentDir?: string;
+  onGranted: () => void;
+}) {
+  const [hasFDA, setHasFDA] = useState(initialHasFDA);
+  const [opening, setOpening] = useState(false);
+
+  useEffect(() => {
+    if (hasFDA) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch("/api/setup/init", { method: "POST" });
+        const data = await res.json();
+        if (data.hasFullDiskAccess) {
+          setHasFDA(true);
+          onGranted();
+        }
+      } catch {}
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [hasFDA, onGranted]);
+
+  const openSettings = async () => {
+    setOpening(true);
+    try {
+      await fetch("/api/setup/open-permissions", { method: "POST" });
+    } catch {}
+    setTimeout(() => setOpening(false), 1500);
+  };
+
+  const kentDirReady = !!kentDir;
+
+  return (
+    <div className="space-y-6">
+      <div className="text-center mb-8">
+        <h2 className="text-[24px] font-display tracking-tight mb-2">Permissions</h2>
+        <p className="text-[13px] text-muted-foreground/60">
+          Kent needs access to your system to read local data sources.
+        </p>
+      </div>
+
+      <div className="max-w-md mx-auto space-y-3">
+        {/* ~/.kent directory */}
+        <div className="flex items-center gap-3 border border-border/40 rounded-lg px-4 py-3">
+          {kentDirReady ? (
+            <Check size={14} className="text-emerald-500 shrink-0" />
+          ) : (
+            <Loader2 size={14} className="animate-spin text-muted-foreground/30 shrink-0" />
+          )}
+          <div className="min-w-0">
+            <p className="text-[13px]">Data directory</p>
+            <p className="text-[11px] text-muted-foreground/40 font-mono truncate">{kentDir ?? "~/.kent"}</p>
+          </div>
+        </div>
+
+        {/* Full Disk Access */}
+        <div className="flex items-center gap-3 border border-border/40 rounded-lg px-4 py-3">
+          {hasFDA ? (
+            <Check size={14} className="text-emerald-500 shrink-0" />
+          ) : (
+            <Loader2 size={14} className="animate-spin text-muted-foreground/30 shrink-0" />
+          )}
+          <div>
+            <p className="text-[13px]">Full Disk Access</p>
+            <p className="text-[11px] text-muted-foreground/40">iMessage, Apple Notes, Contacts, Health</p>
+          </div>
+        </div>
+
+        {!hasFDA && (
+          <div className="space-y-3 pt-1">
+            <div className="border border-border/40 rounded-lg divide-y divide-border/40">
+              {[
+                { n: "1", text: "Open System Settings" },
+                { n: "2", text: "Privacy & Security → Full Disk Access" },
+                { n: "3", text: 'Toggle on "Kent"' },
+              ].map(({ n, text }) => (
+                <div key={n} className="flex items-center gap-4 px-4 py-3">
+                  <span className="text-[11px] font-mono text-muted-foreground/25 w-3 shrink-0">{n}</span>
+                  <span className="text-[13px] text-foreground/70">{text}</span>
+                </div>
+              ))}
             </div>
+
+            <button
+              onClick={openSettings}
+              disabled={opening}
+              className="w-full flex items-center justify-center gap-2 border border-border/50 bg-foreground/[0.02] hover:bg-foreground/[0.04] rounded-lg px-4 py-2.5 text-[13px] transition-colors cursor-pointer disabled:opacity-50"
+            >
+              {opening ? (
+                <Loader2 size={13} className="animate-spin text-muted-foreground/40" />
+              ) : (
+                <ExternalLink size={13} className="text-muted-foreground/40" />
+              )}
+              Open System Settings
+            </button>
           </div>
         )}
       </div>
@@ -254,26 +353,32 @@ function StepProvider({
       </div>
 
       {/* Provider grid */}
-      <div className="grid grid-cols-3 gap-2 max-w-md mx-auto">
-        {PROVIDER_OPTIONS.map((opt) => (
-          <button
-            key={opt.value}
-            onClick={() => {
-              setProvider(opt.value);
-              const m = SUGGESTED_MODELS[opt.value];
-              if (m.length > 0) setModel(m[0].id);
-              else setModel("");
-            }}
-            className={`flex flex-col items-center gap-1.5 rounded-lg border px-3 py-3 text-[13px] transition-colors cursor-pointer ${
-              provider === opt.value
-                ? "border-foreground/30 bg-foreground/[0.06]"
-                : "border-border/50 bg-foreground/[0.02] hover:bg-foreground/[0.04]"
-            }`}
-          >
-            <span className="text-[16px] font-semibold text-foreground/70">{opt.icon}</span>
-            <span className="text-muted-foreground">{opt.label}</span>
-          </button>
-        ))}
+      <div className="grid grid-cols-2 gap-1.5 max-w-md mx-auto">
+        {PROVIDER_OPTIONS.map((opt) => {
+          const selected = provider === opt.value;
+          return (
+            <button
+              key={opt.value}
+              onClick={() => {
+                setProvider(opt.value);
+                const m = SUGGESTED_MODELS[opt.value];
+                if (m.length > 0) setModel(m[0].id);
+                else setModel("");
+              }}
+              className={`flex items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left transition-colors cursor-pointer ${
+                selected
+                  ? "border-foreground/25 bg-foreground/[0.05]"
+                  : "border-border/40 bg-transparent hover:bg-foreground/[0.025]"
+              }`}
+            >
+              <div>
+                <p className="text-[13px] font-medium leading-none mb-0.5">{opt.label}</p>
+                <p className="text-[11px] text-muted-foreground/50">{opt.desc}</p>
+              </div>
+              {selected && <Check size={13} className="text-foreground/40 shrink-0" />}
+            </button>
+          );
+        })}
       </div>
 
       <div className="max-w-md mx-auto space-y-4">
@@ -347,16 +452,19 @@ function StepProvider({
         {/* Model dropdown */}
         {models.length > 0 && (
           <div>
-            <label className="text-[12px] text-muted-foreground/60 mb-1 block">Model</label>
-            <select
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              className="w-full bg-foreground/[0.03] border border-border/50 rounded-lg px-3 py-2 text-[13px] outline-none focus:border-border cursor-pointer"
-            >
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>{m.label}</option>
-              ))}
-            </select>
+            <label className="text-[12px] text-muted-foreground/60 mb-1.5 block">Model</label>
+            <Select value={model} onValueChange={setModel}>
+              <SelectTrigger className="w-full text-[13px]">
+                <SelectValue placeholder="Select a model" />
+              </SelectTrigger>
+              <SelectContent>
+                {models.map((m) => (
+                  <SelectItem key={m.id} value={m.id} className="text-[13px]">
+                    {m.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
 
@@ -387,8 +495,6 @@ function StepSources({
 }) {
   const [statuses, setStatuses] = useState<SourceStatus[]>([]);
   const [loading, setLoading] = useState(true);
-  const enabledRef = useRef(enabledSources);
-  enabledRef.current = enabledSources;
 
   useEffect(() => {
     const es = new EventSource("/api/setup/check-sources");
@@ -399,9 +505,14 @@ function StepSources({
           const exists = prev.find((p) => p.key === s.key);
           return exists ? prev.map((p) => (p.key === s.key ? s : p)) : [...prev, s];
         });
-        // Auto-enable if detected as connected
-        if (s.available && s.connected && enabledRef.current[s.key] === undefined) {
-          setEnabledSources({ ...enabledRef.current, [s.key]: true });
+        // Auto-enable anything available on this machine
+        if (s.available) {
+          setEnabledSources((prev) => {
+            if (prev[s.key] !== undefined) return prev;
+            const next = { ...prev, [s.key]: true };
+            if (s.key === "gmail") { next.gcal = true; next.gtasks = true; next.gdrive = true; }
+            return next;
+          });
         }
       } catch {}
     };
@@ -667,7 +778,7 @@ function StepSync({
     return (
       <div className="flex flex-col items-center justify-center gap-4 py-16">
         <Loader2 size={28} className="text-muted-foreground/40 animate-spin" />
-        <p className="text-[13px] text-muted-foreground/50">Saving config and running initial sync...</p>
+        <p className="text-[13px] text-muted-foreground/50">Saving config...</p>
       </div>
     );
   }
@@ -684,8 +795,8 @@ function StepSync({
   return (
     <div className="space-y-6">
       <div className="text-center mb-6">
-        <h2 className="text-[24px] font-display tracking-tight mb-2">Initial sync complete</h2>
-        <p className="text-[13px] text-muted-foreground/60">Kent has synced your data and is ready to go.</p>
+        <h2 className="text-[24px] font-display tracking-tight mb-2">All set</h2>
+        <p className="text-[13px] text-muted-foreground/60">Kent is syncing your sources in the background.</p>
       </div>
 
       <div className="max-w-md mx-auto space-y-3">
@@ -695,12 +806,10 @@ function StepSync({
             <span className="text-[13px]">{result.workflowsCreated} workflow{result.workflowsCreated === 1 ? "" : "s"} created</span>
           </div>
         )}
-        {result?.syncStatus && (
-          <div className="flex items-center gap-3 bg-foreground/[0.03] border border-border/50 rounded-lg px-4 py-3">
-            <Check size={16} className="text-emerald-500 shrink-0" />
-            <span className="text-[13px]">{result.syncStatus}</span>
-          </div>
-        )}
+        <div className="flex items-center gap-3 bg-foreground/[0.03] border border-border/50 rounded-lg px-4 py-3">
+          <Check size={16} className="text-emerald-500 shrink-0" />
+          <span className="text-[13px]">Background sync started — data will appear shortly</span>
+        </div>
       </div>
     </div>
   );
@@ -767,8 +876,12 @@ export function SetupPage({ onComplete }: { onComplete: () => void }) {
 
   // Step 0 state
   const [initReady, setInitReady] = useState(false);
-  const handleInitReady = useCallback((_result: InitResult) => {
+  const [initResult, setInitResult] = useState<InitResult | null>(null);
+  const [hasFDA, setHasFDA] = useState(false);
+  const handleInitReady = useCallback((result: InitResult) => {
     setInitReady(true);
+    setInitResult(result);
+    setHasFDA(result.hasFullDiskAccess ?? false);
   }, []);
 
   // Step 1 state
@@ -778,17 +891,8 @@ export function SetupPage({ onComplete }: { onComplete: () => void }) {
   const [baseUrl, setBaseUrl] = useState("");
   const [customApiKey, setCustomApiKey] = useState("");
 
-  // Step 2 state
-  const [enabledSources, setEnabledSources] = useState<Record<string, boolean>>({
-    gmail: true,
-    gcal: true,
-    gtasks: true,
-    gdrive: true,
-    github: true,
-    chrome: true,
-    apple_notes: true,
-    imessage: true,
-  });
+  // Step 2 state — starts empty, auto-populated by whatever check-sources detects
+  const [enabledSources, setEnabledSources] = useState<Record<string, boolean>>({});
 
   // Step 3 state (Channels)
   const [telegramBotToken, setTelegramBotToken] = useState("");
@@ -798,16 +902,18 @@ export function SetupPage({ onComplete }: { onComplete: () => void }) {
     switch (step) {
       case 0:
         return initReady;
-      case 1: {
+      case 1: // Permissions — must grant FDA to continue
+        return hasFDA;
+      case 2: {
         if (provider === "custom") return baseUrl.trim().length > 0 && model.trim().length > 0;
         if (provider === "local") return model.trim().length > 0;
         return apiKey.trim().length > 0 && model.trim().length > 0;
       }
-      case 2: // Sources
+      case 3: // Sources
         return true;
-      case 3: // Channels (optional)
+      case 4: // Channels (optional)
         return true;
-      case 4: // Sync
+      case 5: // Sync
         return true;
       default:
         return false;
@@ -850,6 +956,13 @@ export function SetupPage({ onComplete }: { onComplete: () => void }) {
             >
               {step === 0 && <StepWelcome onReady={handleInitReady} />}
               {step === 1 && (
+                <StepPermissions
+                  initialHasFDA={initResult?.hasFullDiskAccess ?? false}
+                  kentDir={initResult?.kentDir}
+                  onGranted={() => setHasFDA(true)}
+                />
+              )}
+              {step === 2 && (
                 <StepProvider
                   provider={provider}
                   setProvider={setProvider}
@@ -863,13 +976,13 @@ export function SetupPage({ onComplete }: { onComplete: () => void }) {
                   setCustomApiKey={setCustomApiKey}
                 />
               )}
-              {step === 2 && (
+              {step === 3 && (
                 <StepSources
                   enabledSources={enabledSources}
                   setEnabledSources={setEnabledSources}
                 />
               )}
-              {step === 3 && (
+              {step === 4 && (
                 <StepChannels
                   botToken={telegramBotToken}
                   setBotToken={setTelegramBotToken}
@@ -877,7 +990,7 @@ export function SetupPage({ onComplete }: { onComplete: () => void }) {
                   setChatId={setTelegramChatId}
                 />
               )}
-              {step === 4 && (
+              {step === 5 && (
                 <StepSync
                   provider={provider}
                   model={model}
@@ -889,14 +1002,14 @@ export function SetupPage({ onComplete }: { onComplete: () => void }) {
                   telegramChatId={telegramChatId}
                 />
               )}
-              {step === 5 && <StepDone onComplete={onComplete} />}
+              {step === 6 && <StepDone onComplete={onComplete} />}
             </motion.div>
           </AnimatePresence>
         </div>
       </div>
 
       {/* Navigation buttons */}
-      {step < 5 && (
+      {step < 6 && (
         <div className="px-8 py-6 border-t border-border/30 max-w-2xl mx-auto w-full">
           <div className="flex items-center justify-between">
             <button
@@ -908,11 +1021,11 @@ export function SetupPage({ onComplete }: { onComplete: () => void }) {
               Back
             </button>
             <button
-              onClick={() => setStep((s) => Math.min(5, s + 1))}
+              onClick={() => setStep((s) => Math.min(6, s + 1))}
               disabled={!canContinue()}
               className="flex items-center gap-1.5 bg-foreground text-background px-5 py-2 rounded-lg text-[13px] font-medium hover:bg-foreground/90 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
             >
-              {step === 3 && !telegramBotToken ? "Skip" : "Continue"}
+              {step === 4 && !telegramBotToken ? "Skip" : "Continue"}
               <ChevronRight size={14} />
             </button>
           </div>

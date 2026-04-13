@@ -30,8 +30,8 @@ tell application "Calendar"
         set uid to uid of evt
         set summ to summary of evt
 
-        set sd to start date of evt as <<class isot>> as string
-        set ed to end date of evt as <<class isot>> as string
+        set sd to start date of evt as «class isot» as string
+        set ed to end date of evt as «class isot» as string
 
         set loc to ""
         try
