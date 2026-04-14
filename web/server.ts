@@ -53,10 +53,27 @@ const MIME_TYPES: Record<string, string> = {
   ".txt": "text/plain; charset=utf-8",
 };
 
+// Build a stable version+identity blob at startup so Tauri (and any other
+// shell) can distinguish "Kent's kent-server" from "some other process
+// squatting on port 19456". KENT_BUILD_ID is written by build-dmg.sh at
+// compile time; in dev we just tag it "dev".
+const SERVER_IDENTITY = {
+  app: "kent-server",
+  buildId: process.env.KENT_BUILD_ID || "dev",
+  staticDir: STATIC_DIR,
+  staticExists: existsSync(STATIC_DIR),
+  startedAt: Date.now(),
+};
+
+function handleHealth() {
+  return Response.json({ ok: true, ...SERVER_IDENTITY });
+}
+
 Bun.serve({
   port: API_PORT,
   idleTimeout: 255, // max allowed by Bun — sync can take a while
   routes: {
+    "/api/health":       { GET: handleHealth },
     "/api/counts":       handleCounts,
     "/api/items":        handleItems,
     "/api/workflows":    handleWorkflows,
@@ -198,7 +215,7 @@ Bun.serve({
       return handleSetupStartServices();
     }
 
-    // Serve static frontend from web/dist/ (pre-built Vite output)
+    // Serve static frontend from dist-bundle (pre-built Vite output)
     if (existsSync(STATIC_DIR)) {
       const requestPath = url.pathname === "/" ? "index.html" : url.pathname;
       const filePath = join(STATIC_DIR, requestPath);
@@ -217,6 +234,59 @@ Bun.serve({
           return new Response(index, { headers: { "Content-Type": "text/html; charset=utf-8" } });
         }
       }
+    }
+
+    // Static dir missing (or file not found) and this looks like a page load.
+    // Serve a self-healing fallback so the user sees *something* instead of
+    // a bare "Not Found". Tauri's webview normally bypasses this when the
+    // real frontend is bundled, but if we're here it means the bundled
+    // resources are missing — usually because a stale kent-server from a
+    // previous Kent.app install is still running and its KENT_STATIC_DIR
+    // points at a path that no longer exists on disk.
+    const ext = extname(url.pathname);
+    if (!ext || ext === ".html" || url.pathname === "/") {
+      const staticMissing = !existsSync(STATIC_DIR);
+      const html = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Kent — starting up</title>
+  <style>
+    html,body { margin:0; padding:0; height:100%; font-family:-apple-system, system-ui, sans-serif; background:#0e1012; color:#ddd; }
+    .wrap { display:flex; align-items:center; justify-content:center; height:100vh; padding:24px; text-align:center; }
+    .card { max-width:480px; }
+    h2 { font-weight:500; margin:0 0 12px; color:#fff; }
+    p { margin:8px 0; line-height:1.6; color:#888; font-size:13px; }
+    code { font-family:'SF Mono',Menlo,monospace; font-size:11px; background:#1a1d21; padding:2px 6px; border-radius:4px; color:#aaa; }
+    .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#3b82f6; margin-right:8px; animation:pulse 1.5s infinite; }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.35; } }
+    button { background:#1a1d21; color:#ddd; border:1px solid #2a2d31; padding:8px 16px; border-radius:6px; font-size:13px; cursor:pointer; margin-top:16px; }
+    button:hover { background:#22252a; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h2><span class="dot"></span>Kent is starting up…</h2>
+      <p>${staticMissing
+        ? "A stale kent-server is running on port 19456 with a bundled frontend path that no longer exists. This usually means an older Kent.app install was replaced while running."
+        : "Waiting for the frontend to become ready."}</p>
+      <p>Build: <code>${SERVER_IDENTITY.buildId}</code> · Static: <code>${staticMissing ? "MISSING" : "ok"}</code></p>
+      ${staticMissing
+        ? `<p style="margin-top:16px">Fix: quit Kent, run <code>./scripts/uninstall.sh</code> in terminal to kill lingering processes, then reopen.</p>`
+        : `<button onclick="location.reload()">Retry</button>`}
+    </div>
+  </div>
+  <script>
+    // Auto-retry every 2s in case the server recovers on its own.
+    setTimeout(() => location.reload(), 2000);
+  </script>
+</body>
+</html>`;
+      return new Response(html, {
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
     }
 
     return new Response("Not Found", { status: 404 });
